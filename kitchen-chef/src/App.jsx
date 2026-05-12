@@ -8110,7 +8110,10 @@ export default function App(){
     });
   },[user?.userId]);
   const[authChecked,setAuthChecked]=useState(false);
-  const[showAuth,setShowAuth]=useState(false);
+  const[showAuth,setShowAuth]=useState(()=>{
+    const p=new URLSearchParams(window.location.search);
+    return p.get("mode")==="reset";
+  });
   const[authRequired,setAuthRequired]=useState(LS.get("kmc_authrequired",true));
   useEffect(()=>{LS.set("kmc_authrequired",authRequired)},[authRequired]);
 

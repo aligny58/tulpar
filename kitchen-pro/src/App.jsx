@@ -8867,7 +8867,10 @@ export default function App(){
     });
   },[user?.userId]);
   const[authChecked,setAuthChecked]=useState(false);
-  const[showAuth,setShowAuth]=useState(false);
+  const[showAuth,setShowAuth]=useState(()=>{
+    const p=new URLSearchParams(window.location.search);
+    return p.get("mode")==="reset";
+  });
   const[authRequired,setAuthRequired]=useState(LS.get("kmp_authrequired",true));
   useEffect(()=>{LS.set("kmp_authrequired",authRequired)},[authRequired]);
 
