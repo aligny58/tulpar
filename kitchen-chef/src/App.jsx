@@ -8500,7 +8500,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
     const shareId=params.get("id");
     const shareName=params.get("name");
     // Şifre sıfırlama
-    if(mode==="reset"){setShowAuth(true);window.history.replaceState({},"",window.location.pathname);}
+    if(mode==="reset"){setShowAuth(true);}
     // Paylaşılan reçete linki
     if(shareType==="recipe"){
       setSharedRecipeModal({id:shareId,name:decodeURIComponent(shareName||"")});
