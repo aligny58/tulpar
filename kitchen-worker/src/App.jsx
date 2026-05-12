@@ -8075,7 +8075,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       </div>
     </>}
 
-    {showAuth&&<AuthModal onClose={()=>setShowAuth(false)} onLogin={u=>setUser(u)} t={t}/>}
+    {showAuth&&<div style={{position:"fixed",inset:0,zIndex:9999}}><AuthModal onClose={()=>setShowAuth(false)} onLogin={u=>{setUser(u);setShowAuth(false);}} t={t}/></div>}
 
     {/* Sohbetten açılan içerik modal */}
     {chatAttachment&&<div onClick={()=>setChatAttachment(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
