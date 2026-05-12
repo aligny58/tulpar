@@ -8869,7 +8869,12 @@ export default function App(){
   const[authChecked,setAuthChecked]=useState(false);
   const[showAuth,setShowAuth]=useState(()=>{
     const p=new URLSearchParams(window.location.search);
-    return p.get("mode")==="reset";
+    if(p.get("mode")==="reset"){
+      // Şifre sıfırlama — mevcut session'ı temizle
+      try{localStorage.removeItem("km-auth");localStorage.removeItem("km_user");}catch(e){}
+      return true;
+    }
+    return false;
   });
   const[authRequired,setAuthRequired]=useState(LS.get("kmp_authrequired",true));
   useEffect(()=>{LS.set("kmp_authrequired",authRequired)},[authRequired]);
@@ -8883,7 +8888,8 @@ export default function App(){
       if(!sb){clearTimeout(_authTimeout);setAuthChecked(true);return;}
       sb.auth.getSession().then(({data})=>{
         clearTimeout(_authTimeout);
-        if(data.session&&data.session.user){
+        const isReset=new URLSearchParams(window.location.search).get("mode")==="reset";
+        if(!isReset&&data.session&&data.session.user){
           const u={
             email:data.session.user.email,
             name:data.session.user.user_metadata?.name||data.session.user.user_metadata?.full_name||data.session.user.email.split("@")[0],
