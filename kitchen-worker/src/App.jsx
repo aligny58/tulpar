@@ -6197,10 +6197,10 @@ const WAChatTab=({team,teamMembers,user,apiKey,t})=>{
       }
     }
     // Yeni DM oluştur
-    const{data:conv}=await sb.from("conversations").insert({type:"dm",name:otherName,team_id:team?.id,created_by:myUid}).select().single();
+    const{data:conv}=await sb.from("conversations").insert({type:"dm",name:otherName,team_id:team?.id,tier:tier||"chef",created_by:myUid}).select().single();
     if(conv){
       await sb.from("conversation_members").insert([{conversation_id:conv.id,user_id:myUid},{conversation_id:conv.id,user_id:otherUid}]);
-      setConvList(p=>[conv,...p]);
+      setConvList(p=>p.find(c=>c.id===conv.id)?p:[conv,...p]);
       setActiveConv(conv);
     }
   };
