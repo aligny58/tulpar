@@ -5496,8 +5496,11 @@ const TeamChatTab=({team,user,t})=>{
 // ═══ AUTH MODAL (Supabase hazırlığı - şu an local mod) ═══
 const AuthModal=({onClose,onLogin,t})=>{
   const urlMode=new URLSearchParams(window.location.search).get("mode");
+  // Supabase hash fragment'ten recovery token'ı oku
+  const hashParams=new URLSearchParams(window.location.hash.replace("#",""));
+  const isRecovery=hashParams.get("type")==="recovery"||urlMode==="reset"||localStorage.getItem("km_password_recovery")==="true";
   // PASSWORD_RECOVERY eventi varsa reset modunu aç
-  const initialMode=urlMode==="reset"||(typeof window!=="undefined"&&window.__kmPasswordRecovery)?"reset":"login";
+  const initialMode=isRecovery?"reset":"login";
   const[mode,setMode]=useState(initialMode);
   const[email,setEmail]=useState("");
   const[name,setName]=useState("");
@@ -5600,6 +5603,7 @@ const AuthModal=({onClose,onLogin,t})=>{
       if(error)throw error;
       // Flag temizle
       if(typeof window!=="undefined")delete window.__kmPasswordRecovery;
+      localStorage.removeItem("km_password_recovery");
       setInfo(lang==="tr"?"✓ Şifreniz güncellendi! Giriş yapabilirsiniz.":"✓ Password updated! You can login now.");
       setTimeout(()=>setMode("login"),2000);
     }catch(e){
@@ -8893,9 +8897,9 @@ export default function App(){
         if(event==="SIGNED_OUT"){setUser(null);LS.set("kmp_user",null);}
         else if(event==="PASSWORD_RECOVERY"){
           // Şifre sıfırlama linki tıklandı — yeni şifre ekranını göster, giriş yapma
-          setShowAuth(true);
-          // AuthModal'a reset modunu ilet
+          localStorage.setItem("km_password_recovery","true");
           window.__kmPasswordRecovery=true;
+          setShowAuth(true);
         }
         else if((event==="SIGNED_IN"||event==="TOKEN_REFRESHED")&&session?.user){
           // PASSWORD_RECOVERY sonrası SIGNED_IN gelirse atla
