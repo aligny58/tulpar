@@ -7452,13 +7452,18 @@ function App(){
   const[authChecked,setAuthChecked]=useState(false);
   const[showAuth,setShowAuth]=useState(()=>{
     const p=new URLSearchParams(window.location.search);
-    if(p.get("mode")==="reset"){
-      // Şifre sıfırlama — mevcut session'ı temizle
-      try{localStorage.removeItem("km-auth");localStorage.removeItem("km_user");}catch(e){}
-      return true;
-    }
-    return false;
+    return p.get("mode")==="reset";
   });
+  // mode=reset gelince session'ı sonlandır
+  useEffect(()=>{
+    const p=new URLSearchParams(window.location.search);
+    if(p.get("mode")==="reset"){
+      const sb=initSupabase();
+      if(sb)sb.auth.signOut().catch(()=>{});
+      setUser(null);
+      setShowAuth(true);
+    }
+  },[]);
   const[authRequired,setAuthRequired]=useState(LS.get("km_authrequired",true));
   useEffect(()=>{LS.set("km_authrequired",authRequired)},[authRequired]);
 
