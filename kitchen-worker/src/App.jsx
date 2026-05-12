@@ -5254,6 +5254,14 @@ const AuthModal=({onClose,onLogin,t})=>{
     try{
       const sb=initSupabase();
       if(!sb){setErr("Supabase failed");setLoading(false);return}
+      // URL'deki token ile session kur (eğer henüz yoksa)
+      const params=new URLSearchParams(window.location.search);
+      const token=params.get("token");
+      const{data:sessionData}=await sb.auth.getSession();
+      if(!sessionData?.session&&token){
+        const{error:vErr}=await sb.auth.verifyOtp({token_hash:token,type:"recovery"});
+        if(vErr)throw vErr;
+      }
       const{error}=await sb.auth.updateUser({password});
       if(error)throw error;
       // Flag temizle
@@ -7454,12 +7462,10 @@ function App(){
     const p=new URLSearchParams(window.location.search);
     return p.get("mode")==="reset";
   });
-  // mode=reset gelince session'ı sonlandır
+  // mode=reset gelince user temizle
   useEffect(()=>{
     const p=new URLSearchParams(window.location.search);
     if(p.get("mode")==="reset"){
-      const sb=initSupabase();
-      if(sb)sb.auth.signOut().catch(()=>{});
       setUser(null);
       setShowAuth(true);
     }
