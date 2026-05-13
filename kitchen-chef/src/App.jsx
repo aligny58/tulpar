@@ -6624,17 +6624,6 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
 };
 
 
-  // Ekip ve üst ekip sohbetlerini otomatik oluştur
-  const ensureTeamConversations=async()=>{
-    if(!sb||!team?.id||!myUid)return;
-    // Kendi ekip sohbeti
-    let convId=null;
-    const{data:existing}=await sb.from("conversations").select("id").eq("type","team").eq("team_id",team.id).maybeSingle();
-    if(!existing){
-      const{data:conv,error:ce}=await sb.from("conversations").insert({type:"team",name:team.name,team_id:team.id,created_by:myUid}).select().single();
-      if(ce){console.warn("Conv create:",ce.message);return;}
-      convId=conv.id;
-      // Tüm ekip üyelerini tek tek ekle (duplicate ignore)
       const uids=[...new Set([myUid,...(teamMembers||[]).map(m=>m.userId||m.user_id)])];
       for(const uid of uids){
         await sb.from("conversation_members").insert({conversation_id:convId,user_id:uid}).then(r=>{if(r.error&&!r.error.message.includes("duplicate"))console.warn(r.error.message);});
