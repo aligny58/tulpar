@@ -6727,6 +6727,68 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
   </div>;
 };
 
+
+// ═══ KM: EKİP KATILMA SİSTEMİ ═══
+const generateInviteCode=()=>Math.random().toString(36).substring(2,8).toUpperCase();
+const createTeam=async(teamName,userId,userName,parentTeamId=null)=>{
+  const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
+  const code=generateInviteCode();
+  const insertData={name:teamName,invite_code:code.toUpperCase(),owner_id:userId};
+  if(parentTeamId)insertData.parent_team_id=parentTeamId;
+  const{data:team,error:te}=await sb.from("teams").insert(insertData).select().single();
+  if(te)throw te;
+  const{error:me}=await sb.from("team_members").insert({team_id:team.id,user_id:userId,role:"worker",position:userName});
+  if(me)throw me;
+  return team;
+};
+
+const linkParentTeam=async(currentTeamId,inviteCode)=>{
+  const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
+  const{data:parentTeam,error:te}=await sb.from("teams").select("id,name").eq("invite_code",inviteCode.toUpperCase()).single();
+  if(te||!parentTeam)throw new Error("Geçersiz davet kodu");
+  if(parentTeam.id===currentTeamId)throw new Error("Kendi ekibinize bağlanamazsınız");
+  const{error:ue}=await sb.from("teams").update({parent_team_id:parentTeam.id}).eq("id",currentTeamId);
+  if(ue)throw ue;
+  return parentTeam;
+};
+
+const getChildTeams=async(parentId)=>{
+  const sb=initSupabase();if(!sb)return[];
+  const{data}=await sb.from("teams").select("*").eq("parent_team_id",parentId);
+  return data||[];
+};
+
+const joinTeam=async(inviteCode,userId,userName)=>{
+  const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
+  const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).single();
+  if(te||!team)throw new Error("Geçersiz davet kodu");
+  const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
+  if(existing)return team;
+  const{error:me}=await sb.from("team_members").insert({
+    team_id:team.id,user_id:userId,role:"worker",position:userName
+  });
+  if(me)throw me;
+  return team;
+};
+
+const syncFromTeam=async(teamId,table)=>{
+  const sb=initSupabase();if(!sb)return null;
+  const{data,error}=await sb.from(table).select("*").eq("team_id",teamId).order("updated_at",{ascending:false}).limit(1).single();
+  if(error)return null;
+  return data?.data||null;
+};
+
+const setTeamData=async(teamId,table,jsonData,userId)=>{
+  const sb=initSupabase();if(!sb)return;
+  const{data:existing}=await sb.from(table).select("id").eq("team_id",teamId).single();
+  if(existing){
+    await sb.from(table).update({data:jsonData,updated_at:new Date().toISOString(),updated_by:userId}).eq("id",existing.id);
+  }else{
+    await sb.from(table).insert({team_id:teamId,data:jsonData,updated_by:userId});
+  }
+};
+
+
 const EventsTab=({team,teamMembers,user,apiKey,t})=>{
   const lang=t.lang;
   const[events,setEvents]=useState([]);
@@ -8913,7 +8975,12 @@ export default function App(){
                 const loadedTeam={...teamData,role:membership.role,inviteCode:teamData.invite_code};
                 setTeam(loadedTeam);LS.set("kmp_team",loadedTeam);
                 const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
-                if(members)setTeamMembers(members.map(m=>({userId:m.user_id,name:m.position||m.user_id,role:m.role})));
+                if(members){
+                  const uids=members.map(m=>m.user_id);
+                  const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
+                  const getName=(uid)=>{const p=(profs||[]).find(p=>p.id===uid);return p?.full_name||p?.email?.split("@")[0]||uid;};
+                  setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
+                }
               }
             }
           }catch(e){console.warn("Ekip yüklenemedi:",e.message);}})();
