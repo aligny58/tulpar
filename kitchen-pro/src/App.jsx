@@ -6432,6 +6432,300 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
     setLoading(false);
   };
 
+  const ensureTeamConversations=async()=>{
+    if(!sb||!team?.id||!myUid)return;
+    let convId=null;
+    const{data:existing}=await sb.from("conversations").select("id").eq("type","team").eq("team_id",team.id).maybeSingle();
+    if(!existing){
+      const{data:conv,error:ce}=await sb.from("conversations").insert({type:"team",name:team.name,team_id:team.id,tier:tier||"chef",created_by:myUid}).select().single();
+      if(ce){console.warn("Conv create:",ce.message);return;}
+      convId=conv.id;
+      const uids=[...new Set([myUid,...(teamMembers||[]).map(m=>m.userId||m.user_id)])];
+      for(const uid of uids){
+        await sb.from("conversation_members").insert({conversation_id:convId,user_id:uid}).then(r=>{if(r.error&&!r.error.message.includes("duplicate"))console.warn(r.error.message);});
+      }
+    }else{
+      convId=existing.id;
+      const uids=[...new Set([myUid,...(teamMembers||[]).map(m=>m.userId||m.user_id)])];
+      const{data:currentMembers}=await sb.from("conversation_members").select("user_id").eq("conversation_id",convId);
+      const existing_uids=new Set((currentMembers||[]).map(m=>m.user_id));
+      for(const uid of uids){
+        if(!existing_uids.has(uid)){
+          await sb.from("conversation_members").insert({conversation_id:convId,user_id:uid}).then(r=>{if(r.error&&!r.error.message.includes("duplicate"))console.warn(r.error.message);});
+        }
+      }
+    }
+    if(tier!=="pro"&&team.parent_team_id){
+      const{data:parentConv}=await sb.from("conversations").select("id").eq("type","team").eq("team_id",team.parent_team_id).maybeSingle();
+      if(parentConv){
+        const{data:isMember}=await sb.from("conversation_members").select("id").eq("conversation_id",parentConv.id).eq("user_id",myUid).maybeSingle();
+        if(!isMember){
+          await sb.from("conversation_members").insert({conversation_id:parentConv.id,user_id:myUid}).then(r=>{if(r.error&&!r.error.message.includes("duplicate"))console.warn(r.error.message);});
+        }
+      }
+    }
+  };
+
+  const loadMessages=async(convId)=>{
+    if(!sb||!convId)return;
+    const{data}=await sb.from("messages").select("*").eq("conversation_id",convId).order("created_at",{ascending:true}).limit(100);
+    setMessages(data||[]);
+    setTimeout(()=>msgEndRef.current?.scrollIntoView({behavior:"smooth"}),100);
+  };
+
+  useEffect(()=>{
+    if(!activeConv?.id||!sb)return;
+    const ch=sb.channel(`conv-${activeConv.id}`)
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`conversation_id=eq.${activeConv.id}`},(payload)=>{
+        setMessages(p=>[...p,payload.new]);
+        setTimeout(()=>msgEndRef.current?.scrollIntoView({behavior:"smooth"}),50);
+      })
+      .on("postgres_changes",{event:"DELETE",schema:"public",table:"messages",filter:`conversation_id=eq.${activeConv.id}`},(payload)=>{
+        setMessages(p=>p.filter(m=>m.id!==payload.old.id));
+      })
+      .subscribe();
+    return()=>sb.removeChannel(ch);
+  },[activeConv?.id]);
+
+  useEffect(()=>{loadConversations();},[team?.id,myUid]);
+  useEffect(()=>{if(activeConv?.id)loadMessages(activeConv.id);},[activeConv?.id]);
+
+  const sendMessage=async(text,attachment=null)=>{
+    if(!sb||!activeConv?.id||!myUid)return;
+    if(!text?.trim()&&!attachment)return;
+    setSending(true);
+    try{
+      await sb.from("messages").insert({conversation_id:activeConv.id,user_id:myUid,user_name:myName,text:text?.trim()||"",attachment});
+      setNewMsg("");
+    }catch(e){window.toast?.error(e.message);}
+    setSending(false);
+  };
+
+  const sendFile=async(file)=>{
+    if(!file||!team?.id)return;
+    setUploading(true);
+    try{
+      const uploaded=await uploadFile(file,team.id,"chat");
+      await sendMessage("",{url:uploaded.url,path:uploaded.path,name:uploaded.name,type:uploaded.type,ext:uploaded.ext});
+    }catch(e){window.toast?.error(e.message);}
+    setUploading(false);
+  };
+
+  // Mesaj sil
+  const deleteMessage=async(msgId)=>{
+    if(!sb||!msgId)return;
+    await sb.from("messages").delete().eq("id",msgId).eq("user_id",myUid);
+    setMessages(p=>p.filter(m=>m.id!==msgId));
+    setMsgMenu(null);
+  };
+
+  // Sohbeti sil (DM/grup)
+  const deleteConversation=async(conv)=>{
+    if(!sb||!conv?.id)return;
+    if(!window.confirm(L.confirmDelete))return;
+    await sb.from("conversation_members").delete().eq("conversation_id",conv.id);
+    await sb.from("messages").delete().eq("conversation_id",conv.id);
+    await sb.from("conversations").delete().eq("id",conv.id);
+    setConvList(p=>p.filter(c=>c.id!==conv.id));
+    if(activeConv?.id===conv.id)setActiveConv(null);
+    setConvMenu(null);
+  };
+
+  // Gruptan ayrıl
+  const leaveGroup=async(conv)=>{
+    if(!sb||!conv?.id||!myUid)return;
+    if(!window.confirm(L.confirmDelete))return;
+    await sb.from("conversation_members").delete().eq("conversation_id",conv.id).eq("user_id",myUid);
+    setConvList(p=>p.filter(c=>c.id!==conv.id));
+    if(activeConv?.id===conv.id)setActiveConv(null);
+    setConvMenu(null);
+  };
+
+  const createGroup=async()=>{
+    if(!groupName.trim()||!sb||!myUid)return;
+    try{
+      const grpTier=tier||"chef";
+      const{data:conv,error:ce}=await sb.from("conversations").insert({type:"group",name:groupName.trim(),team_id:team?.id,tier:grpTier,created_by:myUid}).select().single();
+      if(ce)throw ce;
+      if(conv){
+        const uids=[...new Set([myUid,...groupMembers])];
+        for(const uid of uids){
+          await sb.from("conversation_members").insert({conversation_id:conv.id,user_id:uid}).then(r=>{if(r.error&&!r.error.message.includes("duplicate"))console.warn(r.error.message);});
+        }
+        setConvList(p=>[conv,...p]);
+        setActiveConv(conv);
+        setShowNewGroup(false);
+        setGroupName("");setGroupMembers([]);
+        window.toast?.success(lang==="tr"?"Grup oluşturuldu":"Group created");
+      }
+    }catch(e){window.toast?.error(e.message);}
+  };
+
+  const openDM=async(otherUid,otherName)=>{
+    if(!sb||!myUid)return;
+    const{data:myConvs}=await sb.from("conversation_members").select("conversation_id").eq("user_id",myUid);
+    const myIds=(myConvs||[]).map(m=>m.conversation_id);
+    if(myIds.length>0){
+      const{data:otherConvs}=await sb.from("conversation_members").select("conversation_id").eq("user_id",otherUid).in("conversation_id",myIds);
+      if(otherConvs?.length>0){
+        const{data:dmConv}=await sb.from("conversations").select("*").eq("type","dm").in("id",otherConvs.map(c=>c.conversation_id)).maybeSingle();
+        if(dmConv){setActiveConv(dmConv);return;}
+      }
+    }
+    const dmTier=tier||"chef";
+    const{data:conv}=await sb.from("conversations").insert({type:"dm",name:otherName,team_id:team?.id,tier:dmTier,created_by:myUid}).select().single();
+    if(conv){
+      await sb.from("conversation_members").insert([{conversation_id:conv.id,user_id:myUid},{conversation_id:conv.id,user_id:otherUid}]);
+      setConvList(p=>p.find(c=>c.id===conv.id)?p:[conv,...p]);
+      setActiveConv(conv);
+    }
+  };
+
+  const getMemberName=(uid)=>{
+    const m=(teamMembers||[]).find(m=>(m.userId||m.user_id)===uid);
+    return m?.name||uid?.slice(0,8)||"?";
+  };
+
+  const convIcon=(type)=>type==="team"?"🏢":type==="group"?"👥":"💬";
+
+  if(!team?.id)return <div style={{textAlign:"center",padding:"60px 20px",color:t.tm}}>{L.noTeam}</div>;
+
+  // Mesaj görünümü
+  if(activeConv){
+    return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 180px)",maxHeight:700}} onClick={()=>{setMsgMenu(null);}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",marginBottom:8,borderBottom:`1px solid ${t.border}`}}>
+        <button onClick={()=>setActiveConv(null)} style={{background:"none",border:"none",color:t.accent,cursor:"pointer",fontSize:14,fontWeight:600}}>← {L.back}</button>
+        <span style={{fontSize:18}}>{convIcon(activeConv.type)}</span>
+        <div style={{flex:1}}>
+          <div style={{fontSize:15,fontWeight:700,color:t.text}}>{activeConv.name}</div>
+          <div style={{fontSize:10,color:t.tm}}>{activeConv.type==="team"?L.team:activeConv.type==="group"?L.newGroup:L.dm}</div>
+        </div>
+        {/* Grup/DM menü */}
+        {activeConv.type!=="team"&&<button onClick={e=>{e.stopPropagation();setConvMenu(convMenu?null:{conv:activeConv,x:e.clientX,y:e.clientY});}} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:20,padding:"0 4px"}}>⋮</button>}
+      </div>
+      {/* Sohbet menü */}
+      {convMenu&&<div style={{position:"fixed",top:convMenu.y,right:16,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,boxShadow:"0 4px 20px rgba(0,0,0,0.15)",zIndex:500,minWidth:160}} onClick={e=>e.stopPropagation()}>
+        {convMenu.conv.type==="group"&&<button onClick={()=>leaveGroup(convMenu.conv)} style={{display:"block",width:"100%",padding:"10px 16px",background:"none",border:"none",color:"#f97316",cursor:"pointer",textAlign:"left",fontSize:14}}>🚪 {L.leaveGroup}</button>}
+        {(convMenu.conv.type==="dm"||(convMenu.conv.type==="group"&&convMenu.conv.created_by===myUid))&&<button onClick={()=>deleteConversation(convMenu.conv)} style={{display:"block",width:"100%",padding:"10px 16px",background:"none",border:"none",color:"#ef4444",cursor:"pointer",textAlign:"left",fontSize:14}}>🗑 {L.deleteConv}</button>}
+      </div>}
+      {/* Mesajlar */}
+      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,padding:"4px 0"}}>
+        {messages.length===0&&<div style={{textAlign:"center",color:t.tm,padding:40,fontSize:13}}>{L.noMessages}</div>}
+        {messages.map((msg,i)=>{
+          const isMe=msg.user_id===myUid;
+          const att=msg.attachment;
+          return <div key={msg.id||i} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",padding:"0 4px"}}>
+            {!isMe&&<div style={{fontSize:10,color:t.accent,fontWeight:600,marginBottom:2,marginLeft:2}}>{msg.user_name||getMemberName(msg.user_id)}</div>}
+            <div
+              onContextMenu={isMe?e=>{e.preventDefault();setMsgMenu({id:msg.id,x:e.clientX,y:e.clientY});}:undefined}
+              style={{maxWidth:"75%",background:isMe?t.accent:"#fff",color:isMe?"#fff":t.text,borderRadius:isMe?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"8px 12px",boxShadow:"0 1px 4px rgba(0,0,0,0.08)",cursor:isMe?"context-menu":"default"}}>
+              {att&&<div style={{marginBottom:msg.text?6:0}}>
+                {isImage(att.ext)?<img src={att.url} style={{maxWidth:"100%",maxHeight:180,borderRadius:8,display:"block",cursor:"pointer"}} onClick={()=>window.open(att.url,"_blank")} alt={att.name}/>:
+                isPDF(att.ext)?<a href={att.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,color:isMe?"#fff":t.accent,fontSize:12}}>📄 {att.name}</a>:
+                <a href={att.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,color:isMe?"#fff":t.accent,fontSize:12}}>📎 {att.name}</a>}
+              </div>}
+              {msg.text&&<div style={{fontSize:14,lineHeight:1.5,wordBreak:"break-word"}}>{msg.text}</div>}
+              <div style={{fontSize:9,opacity:0.6,marginTop:3,textAlign:"right"}}>{new Date(msg.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
+            </div>
+          </div>;
+        })}
+        <div ref={msgEndRef}/>
+      </div>
+      {/* Mesaj sil menü */}
+      {msgMenu&&<div style={{position:"fixed",top:msgMenu.y,left:msgMenu.x,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,boxShadow:"0 4px 20px rgba(0,0,0,0.15)",zIndex:500}} onClick={e=>e.stopPropagation()}>
+        <button onClick={()=>deleteMessage(msgMenu.id)} style={{display:"block",padding:"10px 16px",background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14}}>🗑 {L.deleteMsg}</button>
+      </div>}
+      {/* Input */}
+      <div style={{borderTop:`1px solid ${t.border}`,paddingTop:10,marginTop:6}}>
+        <input ref={fileRef} type="file" accept="image/*,video/*,.pdf,.xlsx,.docx,.txt" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)sendFile(f);e.target.value="";}}/>
+        <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
+          <button onClick={()=>fileRef.current?.click()} disabled={uploading} style={{...bSt("s",t),padding:"10px 12px",flexShrink:0,fontSize:16}}>{uploading?"⏳":"📎"}</button>
+          <input
+            style={{...iSt(t),flex:1,padding:"10px 14px",borderRadius:20,fontSize:14}}
+            placeholder={L.typeMsg}
+            value={newMsg}
+            onChange={e=>setNewMsg(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage(newMsg);}}}
+          />
+          <button onClick={()=>sendMessage(newMsg)} disabled={sending||!newMsg.trim()} style={{...bSt("p",t),padding:"10px 16px",flexShrink:0,borderRadius:20,opacity:newMsg.trim()?1:0.5}}>{sending?"⏳":"↑"}</button>
+        </div>
+      </div>
+    </div>;
+  }
+
+  // Yeni grup modalı
+  if(showNewGroup){
+    return <div style={{padding:"0 4px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <button onClick={()=>setShowNewGroup(false)} style={{background:"none",border:"none",color:t.accent,cursor:"pointer",fontSize:14}}>← {L.back}</button>
+        <strong style={{fontSize:16,color:t.text}}>{L.newGroup}</strong>
+      </div>
+      <input style={{...iSt(t),marginBottom:12}} placeholder={L.groupNamePh} value={groupName} onChange={e=>setGroupName(e.target.value)}/>
+      <div style={{fontSize:12,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>{L.members.toUpperCase()}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16,maxHeight:300,overflowY:"auto"}}>
+        {(teamMembers||[]).filter(m=>(m.userId||m.user_id)!==myUid).map(m=>{
+          const uid=m.userId||m.user_id;
+          const sel=groupMembers.includes(uid);
+          return <button key={uid} onClick={()=>setGroupMembers(p=>sel?p.filter(id=>id!==uid):[...p,uid])} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:sel?t.accent+"22":t.inBg,border:`1px solid ${sel?t.accent:t.border}`,borderRadius:10,cursor:"pointer",textAlign:"left"}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:sel?t.accent:t.tm,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,flexShrink:0}}>{(m.name||"?")[0].toUpperCase()}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:600,color:t.text}}>{m.name}</div>
+              <div style={{fontSize:10,color:t.tm}}>{m.role}</div>
+            </div>
+            {sel&&<span style={{color:t.accent,fontSize:16}}>✓</span>}
+          </button>;
+        })}
+      </div>
+      <button onClick={createGroup} disabled={!groupName.trim()||groupMembers.length===0} style={{...bSt("p",t),width:"100%",opacity:groupName.trim()&&groupMembers.length>0?1:0.5}}>
+        {L.create} {groupMembers.length>0&&`(${groupMembers.length+1})`}
+      </button>
+    </div>;
+  }
+
+  // Ana liste
+  return <div onClick={()=>{setConvMenu(null);}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <strong style={{fontSize:18,color:t.text}}>{L.chats}</strong>
+      <button onClick={()=>setShowNewGroup(true)} style={{...bSt("p",t),fontSize:12,padding:"6px 12px"}}>+ {L.newGroup}</button>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+      {loading&&<div style={{textAlign:"center",padding:30,color:t.tm}}>⏳</div>}
+      {!loading&&convList.map(conv=><div key={conv.id} style={{display:"flex",alignItems:"center",gap:0,background:t.card,border:`1px solid ${t.border}`,borderRadius:12}}>
+        <button onClick={()=>setActiveConv(conv)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:"none",border:"none",cursor:"pointer",textAlign:"left",flex:1}}>
+          <div style={{width:40,height:40,borderRadius:"50%",background:conv.type==="team"?t.accent:conv.type==="group"?"#8b5cf6":"#10b981",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{convIcon(conv.type)}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:600,color:t.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{conv.name}</div>
+            <div style={{fontSize:11,color:t.tm}}>{conv.type==="team"?L.team:conv.type==="group"?L.newGroup:L.dm}</div>
+          </div>
+        </button>
+        {conv.type!=="team"&&<button onClick={e=>{e.stopPropagation();setConvMenu(convMenu?.conv?.id===conv.id?null:{conv,x:e.clientX,y:e.clientY});}} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:20,padding:"0 12px",alignSelf:"stretch",display:"flex",alignItems:"center"}}>⋮</button>}
+      </div>)}
+    </div>
+    {/* Sohbet menü */}
+    {convMenu&&<div style={{position:"fixed",top:convMenu.y,right:16,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,boxShadow:"0 4px 20px rgba(0,0,0,0.15)",zIndex:500,minWidth:160}} onClick={e=>e.stopPropagation()}>
+      {convMenu.conv.type==="group"&&<button onClick={()=>leaveGroup(convMenu.conv)} style={{display:"block",width:"100%",padding:"10px 16px",background:"none",border:"none",color:"#f97316",cursor:"pointer",textAlign:"left",fontSize:14}}>🚪 {L.leaveGroup}</button>}
+      {(convMenu.conv.type==="dm"||(convMenu.conv.type==="group"&&convMenu.conv.created_by===myUid))&&<button onClick={()=>deleteConversation(convMenu.conv)} style={{display:"block",width:"100%",padding:"10px 16px",background:"none",border:"none",color:"#ef4444",cursor:"pointer",textAlign:"left",fontSize:14}}>🗑 {L.deleteConv}</button>}
+    </div>}
+    {/* DM */}
+    {(teamMembers||[]).filter(m=>(m.userId||m.user_id)!==myUid).length>0&&<div>
+      <div style={{fontSize:11,color:t.tm,fontWeight:700,letterSpacing:"0.05em",marginBottom:8}}>💬 {L.dm.toUpperCase()}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {(teamMembers||[]).filter(m=>(m.userId||m.user_id)!==myUid).map(m=>{
+          const uid=m.userId||m.user_id;
+          return <button key={uid} onClick={()=>openDM(uid,m.name||"?")} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:t.card,border:`1px solid ${t.border}`,borderRadius:10,cursor:"pointer",textAlign:"left",width:"100%"}}>
+            <div style={{width:36,height:36,borderRadius:"50%",background:t.acB,color:t.accent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,flexShrink:0}}>{(m.name||"?")[0].toUpperCase()}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:600,color:t.text}}>{m.name||"?"}</div>
+              <div style={{fontSize:10,color:t.tm}}>{m.role}</div>
+            </div>
+            <span style={{color:t.tm,fontSize:14}}>›</span>
+          </button>;
+        })}
+      </div>
+    </div>}
+  </div>;
+};
 
 const EventsTab=({team,teamMembers,user,apiKey,t})=>{
   const lang=t.lang;
@@ -9320,3 +9614,4 @@ class ErrorBoundary extends React.Component{
     return this.props.children;
   }
 }
+
