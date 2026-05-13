@@ -6515,7 +6515,8 @@ const WAChatTab=({team,teamMembers,user,apiKey,t})=>{
   const createGroup=async()=>{
     if(!groupName.trim()||!sb||!myUid)return;
     try{
-      const{data:conv,error:ce}=await sb.from("conversations").insert({type:"group",name:groupName.trim(),team_id:team?.id,created_by:myUid}).select().single();
+      const grpTier=tier||"chef";
+      const{data:conv,error:ce}=await sb.from("conversations").insert({type:"group",name:groupName.trim(),team_id:team?.id,tier:grpTier,created_by:myUid}).select().single();
       if(ce)throw ce;
       if(conv){
         const uids=[...new Set([myUid,...groupMembers])];
@@ -6545,7 +6546,8 @@ const WAChatTab=({team,teamMembers,user,apiKey,t})=>{
       }
     }
     // Yeni DM oluştur
-    const{data:conv}=await sb.from("conversations").insert({type:"dm",name:otherName,team_id:team?.id,tier:tier||"chef",created_by:myUid}).select().single();
+    const dmTier=tier||"chef";
+    const{data:conv}=await sb.from("conversations").insert({type:"dm",name:otherName,team_id:team?.id,tier:dmTier,created_by:myUid}).select().single();
     if(conv){
       await sb.from("conversation_members").insert([{conversation_id:conv.id,user_id:myUid},{conversation_id:conv.id,user_id:otherUid}]);
       setConvList(p=>p.find(c=>c.id===conv.id)?p:[conv,...p]);
