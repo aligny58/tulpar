@@ -6039,51 +6039,57 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
   const[groupName,setGroupName]=useState("");
   const[groupMembers,setGroupMembers]=useState([]);
   const[uploading,setUploading]=useState(false);
+  const[msgMenu,setMsgMenu]=useState(null); // {id, x, y}
+  const[convMenu,setConvMenu]=useState(null); // {conv, x, y}
   const fileRef=useRef(null);
   const msgEndRef=useRef(null);
 
   const L={
     chats:{tr:"Sohbetler",en:"Chats"}[lang]||"Chats",
     team:{tr:"Ekip",en:"Team"}[lang]||"Team",
-    parentTeam:{tr:"Üst Ekip",en:"Parent Team"}[lang]||"Parent Team",
     newGroup:{tr:"Yeni Grup",en:"New Group"}[lang]||"New Group",
     dm:{tr:"Direkt Mesaj",en:"Direct Message"}[lang]||"DM",
-    send:{tr:"Gönder",en:"Send"}[lang]||"Send",
     noTeam:{tr:"Önce bir ekibe katılın",en:"Join a team first"}[lang]||"Join a team first",
     groupNamePh:{tr:"Grup adı...",en:"Group name..."}[lang]||"Group name...",
     create:{tr:"Oluştur",en:"Create"}[lang]||"Create",
     members:{tr:"Üyeler",en:"Members"}[lang]||"Members",
     typeMsg:{tr:"Mesaj yaz...",en:"Type a message..."}[lang]||"Type a message...",
-    photo:{tr:"Fotoğraf/Dosya",en:"Photo/File"}[lang]||"Photo/File",
     back:{tr:"Geri",en:"Back"}[lang]||"Back",
     noMessages:{tr:"Henüz mesaj yok",en:"No messages yet"}[lang]||"No messages yet",
+    deleteMsg:{tr:"Mesajı Sil",en:"Delete Message"}[lang]||"Delete Message",
+    deleteConv:{tr:"Sohbeti Sil",en:"Delete Chat"}[lang]||"Delete Chat",
+    leaveGroup:{tr:"Gruptan Ayrıl",en:"Leave Group"}[lang]||"Leave Group",
+    confirmDelete:{tr:"Emin misiniz?",en:"Are you sure?"}[lang]||"Are you sure?",
   };
 
-  // Konuşmaları yükle
   const loadConversations=async()=>{
     if(!sb||!team?.id||!myUid)return;
     setLoading(true);
     try{
-      // Kullanıcının üye olduğu tüm konuşmalar
+      await ensureTeamConversations();
       const{data:memberOf}=await sb.from("conversation_members").select("conversation_id").eq("user_id",myUid);
       const convIds=(memberOf||[]).map(m=>m.conversation_id);
       if(convIds.length>0){
         const{data:convs}=await sb.from("conversations").select("*").in("id",convIds).order("created_at",{ascending:false});
-        setConvList(convs||[]);
+        const filtered=(convs||[]).filter(c=>{
+          if(c.type!=="team")return true;
+          if(tier==="pro")return c.tier==="pro";
+          if(tier==="manager")return c.tier==="manager"||c.tier==="pro";
+          if(tier==="chef")return c.tier==="chef"||c.tier==="manager";
+          return true;
+        });
+        setConvList(filtered);
       }
-      // Ekip sohbetlerini otomatik oluştur/bul
-      await ensureTeamConversations();
     }catch(e){console.warn("Conv load:",e);}
     setLoading(false);
   };
 
-  // Ekip ve üst ekip sohbetlerini otomatik oluştur
   const ensureTeamConversations=async()=>{
     if(!sb||!team?.id||!myUid)return;
     let convId=null;
     const{data:existing}=await sb.from("conversations").select("id").eq("type","team").eq("team_id",team.id).maybeSingle();
     if(!existing){
-      const{data:conv,error:ce}=await sb.from("conversations").insert({type:"team",name:team.name,team_id:team.id,created_by:myUid}).select().single();
+      const{data:conv,error:ce}=await sb.from("conversations").insert({type:"team",name:team.name,team_id:team.id,tier:tier||"chef",created_by:myUid}).select().single();
       if(ce){console.warn("Conv create:",ce.message);return;}
       convId=conv.id;
       const uids=[...new Set([myUid,...(teamMembers||[]).map(m=>m.userId||m.user_id)])];
@@ -6101,7 +6107,7 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
         }
       }
     }
-    if(team.parent_team_id){
+    if(tier!=="pro"&&team.parent_team_id){
       const{data:parentConv}=await sb.from("conversations").select("id").eq("type","team").eq("team_id",team.parent_team_id).maybeSingle();
       if(parentConv){
         const{data:isMember}=await sb.from("conversation_members").select("id").eq("conversation_id",parentConv.id).eq("user_id",myUid).maybeSingle();
@@ -6112,7 +6118,6 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
     }
   };
 
-  // Mesajları yükle
   const loadMessages=async(convId)=>{
     if(!sb||!convId)return;
     const{data}=await sb.from("messages").select("*").eq("conversation_id",convId).order("created_at",{ascending:true}).limit(100);
@@ -6120,50 +6125,74 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
     setTimeout(()=>msgEndRef.current?.scrollIntoView({behavior:"smooth"}),100);
   };
 
-  // Realtime
   useEffect(()=>{
     if(!activeConv?.id||!sb)return;
     const ch=sb.channel(`conv-${activeConv.id}`)
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`conversation_id=eq.${activeConv.id}`},(payload)=>{
         setMessages(p=>[...p,payload.new]);
         setTimeout(()=>msgEndRef.current?.scrollIntoView({behavior:"smooth"}),50);
-      }).subscribe();
+      })
+      .on("postgres_changes",{event:"DELETE",schema:"public",table:"messages",filter:`conversation_id=eq.${activeConv.id}`},(payload)=>{
+        setMessages(p=>p.filter(m=>m.id!==payload.old.id));
+      })
+      .subscribe();
     return()=>sb.removeChannel(ch);
   },[activeConv?.id]);
 
   useEffect(()=>{loadConversations();},[team?.id,myUid]);
   useEffect(()=>{if(activeConv?.id)loadMessages(activeConv.id);},[activeConv?.id]);
 
-  // Mesaj gönder
   const sendMessage=async(text,attachment=null)=>{
     if(!sb||!activeConv?.id||!myUid)return;
     if(!text?.trim()&&!attachment)return;
     setSending(true);
     try{
-      await sb.from("messages").insert({
-        conversation_id:activeConv.id,
-        user_id:myUid,
-        user_name:myName,
-        text:text?.trim()||"",
-        attachment
-      });
+      await sb.from("messages").insert({conversation_id:activeConv.id,user_id:myUid,user_name:myName,text:text?.trim()||"",attachment});
       setNewMsg("");
-    }catch(e){window.toast.error(e.message);}
+    }catch(e){window.toast?.error(e.message);}
     setSending(false);
   };
 
-  // Dosya gönder
   const sendFile=async(file)=>{
     if(!file||!team?.id)return;
     setUploading(true);
     try{
       const uploaded=await uploadFile(file,team.id,"chat");
       await sendMessage("",{url:uploaded.url,path:uploaded.path,name:uploaded.name,type:uploaded.type,ext:uploaded.ext});
-    }catch(e){window.toast.error(e.message);}
+    }catch(e){window.toast?.error(e.message);}
     setUploading(false);
   };
 
-  // Grup oluştur
+  // Mesaj sil
+  const deleteMessage=async(msgId)=>{
+    if(!sb||!msgId)return;
+    await sb.from("messages").delete().eq("id",msgId).eq("user_id",myUid);
+    setMessages(p=>p.filter(m=>m.id!==msgId));
+    setMsgMenu(null);
+  };
+
+  // Sohbeti sil (DM/grup)
+  const deleteConversation=async(conv)=>{
+    if(!sb||!conv?.id)return;
+    if(!window.confirm(L.confirmDelete))return;
+    await sb.from("conversation_members").delete().eq("conversation_id",conv.id);
+    await sb.from("messages").delete().eq("conversation_id",conv.id);
+    await sb.from("conversations").delete().eq("id",conv.id);
+    setConvList(p=>p.filter(c=>c.id!==conv.id));
+    if(activeConv?.id===conv.id)setActiveConv(null);
+    setConvMenu(null);
+  };
+
+  // Gruptan ayrıl
+  const leaveGroup=async(conv)=>{
+    if(!sb||!conv?.id||!myUid)return;
+    if(!window.confirm(L.confirmDelete))return;
+    await sb.from("conversation_members").delete().eq("conversation_id",conv.id).eq("user_id",myUid);
+    setConvList(p=>p.filter(c=>c.id!==conv.id));
+    if(activeConv?.id===conv.id)setActiveConv(null);
+    setConvMenu(null);
+  };
+
   const createGroup=async()=>{
     if(!groupName.trim()||!sb||!myUid)return;
     try{
@@ -6179,15 +6208,13 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
         setActiveConv(conv);
         setShowNewGroup(false);
         setGroupName("");setGroupMembers([]);
-        window.toast.success(lang==="tr"?"Grup oluşturuldu":"Group created");
+        window.toast?.success(lang==="tr"?"Grup oluşturuldu":"Group created");
       }
-    }catch(e){window.toast.error(e.message);}
+    }catch(e){window.toast?.error(e.message);}
   };
 
-  // DM oluştur/aç
   const openDM=async(otherUid,otherName)=>{
     if(!sb||!myUid)return;
-    // Mevcut DM var mı?
     const{data:myConvs}=await sb.from("conversation_members").select("conversation_id").eq("user_id",myUid);
     const myIds=(myConvs||[]).map(m=>m.conversation_id);
     if(myIds.length>0){
@@ -6197,7 +6224,6 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
         if(dmConv){setActiveConv(dmConv);return;}
       }
     }
-    // Yeni DM oluştur
     const dmTier=tier||"chef";
     const{data:conv}=await sb.from("conversations").insert({type:"dm",name:otherName,team_id:team?.id,tier:dmTier,created_by:myUid}).select().single();
     if(conv){
@@ -6218,7 +6244,7 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
 
   // Mesaj görünümü
   if(activeConv){
-    return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 180px)",maxHeight:700}}>
+    return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 180px)",maxHeight:700}} onClick={()=>{setMsgMenu(null);}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",marginBottom:8,borderBottom:`1px solid ${t.border}`}}>
         <button onClick={()=>setActiveConv(null)} style={{background:"none",border:"none",color:t.accent,cursor:"pointer",fontSize:14,fontWeight:600}}>← {L.back}</button>
@@ -6227,7 +6253,14 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
           <div style={{fontSize:15,fontWeight:700,color:t.text}}>{activeConv.name}</div>
           <div style={{fontSize:10,color:t.tm}}>{activeConv.type==="team"?L.team:activeConv.type==="group"?L.newGroup:L.dm}</div>
         </div>
+        {/* Grup/DM menü */}
+        {activeConv.type!=="team"&&<button onClick={e=>{e.stopPropagation();setConvMenu(convMenu?null:{conv:activeConv,x:e.clientX,y:e.clientY});}} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:20,padding:"0 4px"}}>⋮</button>}
       </div>
+      {/* Sohbet menü */}
+      {convMenu&&<div style={{position:"fixed",top:convMenu.y,right:16,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,boxShadow:"0 4px 20px rgba(0,0,0,0.15)",zIndex:500,minWidth:160}} onClick={e=>e.stopPropagation()}>
+        {convMenu.conv.type==="group"&&<button onClick={()=>leaveGroup(convMenu.conv)} style={{display:"block",width:"100%",padding:"10px 16px",background:"none",border:"none",color:"#f97316",cursor:"pointer",textAlign:"left",fontSize:14}}>🚪 {L.leaveGroup}</button>}
+        {(convMenu.conv.type==="dm"||(convMenu.conv.type==="group"&&convMenu.conv.created_by===myUid))&&<button onClick={()=>deleteConversation(convMenu.conv)} style={{display:"block",width:"100%",padding:"10px 16px",background:"none",border:"none",color:"#ef4444",cursor:"pointer",textAlign:"left",fontSize:14}}>🗑 {L.deleteConv}</button>}
+      </div>}
       {/* Mesajlar */}
       <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,padding:"4px 0"}}>
         {messages.length===0&&<div style={{textAlign:"center",color:t.tm,padding:40,fontSize:13}}>{L.noMessages}</div>}
@@ -6236,7 +6269,9 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
           const att=msg.attachment;
           return <div key={msg.id||i} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",padding:"0 4px"}}>
             {!isMe&&<div style={{fontSize:10,color:t.accent,fontWeight:600,marginBottom:2,marginLeft:2}}>{msg.user_name||getMemberName(msg.user_id)}</div>}
-            <div style={{maxWidth:"75%",background:isMe?t.accent:"#fff",color:isMe?"#fff":t.text,borderRadius:isMe?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"8px 12px",boxShadow:"0 1px 4px rgba(0,0,0,0.08)"}}>
+            <div
+              onContextMenu={isMe?e=>{e.preventDefault();setMsgMenu({id:msg.id,x:e.clientX,y:e.clientY});}:undefined}
+              style={{maxWidth:"75%",background:isMe?t.accent:"#fff",color:isMe?"#fff":t.text,borderRadius:isMe?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"8px 12px",boxShadow:"0 1px 4px rgba(0,0,0,0.08)",cursor:isMe?"context-menu":"default"}}>
               {att&&<div style={{marginBottom:msg.text?6:0}}>
                 {isImage(att.ext)?<img src={att.url} style={{maxWidth:"100%",maxHeight:180,borderRadius:8,display:"block",cursor:"pointer"}} onClick={()=>window.open(att.url,"_blank")} alt={att.name}/>:
                 isPDF(att.ext)?<a href={att.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,color:isMe?"#fff":t.accent,fontSize:12}}>📄 {att.name}</a>:
@@ -6249,13 +6284,15 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
         })}
         <div ref={msgEndRef}/>
       </div>
+      {/* Mesaj sil menü */}
+      {msgMenu&&<div style={{position:"fixed",top:msgMenu.y,left:msgMenu.x,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,boxShadow:"0 4px 20px rgba(0,0,0,0.15)",zIndex:500}} onClick={e=>e.stopPropagation()}>
+        <button onClick={()=>deleteMessage(msgMenu.id)} style={{display:"block",padding:"10px 16px",background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14}}>🗑 {L.deleteMsg}</button>
+      </div>}
       {/* Input */}
       <div style={{borderTop:`1px solid ${t.border}`,paddingTop:10,marginTop:6}}>
         <input ref={fileRef} type="file" accept="image/*,video/*,.pdf,.xlsx,.docx,.txt" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)sendFile(f);e.target.value="";}}/>
         <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
-          <button onClick={()=>fileRef.current?.click()} disabled={uploading} style={{...bSt("s",t),padding:"10px 12px",flexShrink:0,fontSize:16}}>
-            {uploading?"⏳":"📎"}
-          </button>
+          <button onClick={()=>fileRef.current?.click()} disabled={uploading} style={{...bSt("s",t),padding:"10px 12px",flexShrink:0,fontSize:16}}>{uploading?"⏳":"📎"}</button>
           <input
             style={{...iSt(t),flex:1,padding:"10px 14px",borderRadius:20,fontSize:14}}
             placeholder={L.typeMsg}
@@ -6263,9 +6300,7 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
             onChange={e=>setNewMsg(e.target.value)}
             onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage(newMsg);}}}
           />
-          <button onClick={()=>sendMessage(newMsg)} disabled={sending||!newMsg.trim()} style={{...bSt("p",t),padding:"10px 16px",flexShrink:0,borderRadius:20,opacity:newMsg.trim()?1:0.5}}>
-            {sending?"⏳":"↑"}
-          </button>
+          <button onClick={()=>sendMessage(newMsg)} disabled={sending||!newMsg.trim()} style={{...bSt("p",t),padding:"10px 16px",flexShrink:0,borderRadius:20,opacity:newMsg.trim()?1:0.5}}>{sending?"⏳":"↑"}</button>
         </div>
       </div>
     </div>;
@@ -6301,44 +6336,49 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
   }
 
   // Ana liste
-  return <div>
+  return <div onClick={()=>{setConvMenu(null);}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
       <strong style={{fontSize:18,color:t.text}}>{L.chats}</strong>
       <button onClick={()=>setShowNewGroup(true)} style={{...bSt("p",t),fontSize:12,padding:"6px 12px"}}>+ {L.newGroup}</button>
     </div>
-
-    {/* Konuşma listesi */}
     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
       {loading&&<div style={{textAlign:"center",padding:30,color:t.tm}}>⏳</div>}
-      {!loading&&convList.map(conv=><button key={conv.id} onClick={()=>setActiveConv(conv)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:t.card,border:`1px solid ${t.border}`,borderRadius:12,cursor:"pointer",textAlign:"left",width:"100%"}}>
-        <div style={{width:40,height:40,borderRadius:"50%",background:conv.type==="team"?t.accent:conv.type==="group"?"#8b5cf6":"#10b981",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{convIcon(conv.type)}</div>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:14,fontWeight:600,color:t.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{conv.name}</div>
-          <div style={{fontSize:11,color:t.tm}}>{conv.type==="team"?L.team:conv.type==="group"?L.newGroup:L.dm}</div>
-        </div>
-        <span style={{color:t.tm,fontSize:14}}>›</span>
-      </button>)}
+      {!loading&&convList.map(conv=><div key={conv.id} style={{display:"flex",alignItems:"center",gap:0,background:t.card,border:`1px solid ${t.border}`,borderRadius:12}}>
+        <button onClick={()=>setActiveConv(conv)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:"none",border:"none",cursor:"pointer",textAlign:"left",flex:1}}>
+          <div style={{width:40,height:40,borderRadius:"50%",background:conv.type==="team"?t.accent:conv.type==="group"?"#8b5cf6":"#10b981",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{convIcon(conv.type)}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:600,color:t.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{conv.name}</div>
+            <div style={{fontSize:11,color:t.tm}}>{conv.type==="team"?L.team:conv.type==="group"?L.newGroup:L.dm}</div>
+          </div>
+        </button>
+        {conv.type!=="team"&&<button onClick={e=>{e.stopPropagation();setConvMenu(convMenu?.conv?.id===conv.id?null:{conv,x:e.clientX,y:e.clientY});}} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:20,padding:"0 12px",alignSelf:"stretch",display:"flex",alignItems:"center"}}>⋮</button>}
+      </div>)}
     </div>
-
-    {/* DM — ekip üyeleri */}
+    {/* Sohbet menü */}
+    {convMenu&&<div style={{position:"fixed",top:convMenu.y,right:16,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,boxShadow:"0 4px 20px rgba(0,0,0,0.15)",zIndex:500,minWidth:160}} onClick={e=>e.stopPropagation()}>
+      {convMenu.conv.type==="group"&&<button onClick={()=>leaveGroup(convMenu.conv)} style={{display:"block",width:"100%",padding:"10px 16px",background:"none",border:"none",color:"#f97316",cursor:"pointer",textAlign:"left",fontSize:14}}>🚪 {L.leaveGroup}</button>}
+      {(convMenu.conv.type==="dm"||(convMenu.conv.type==="group"&&convMenu.conv.created_by===myUid))&&<button onClick={()=>deleteConversation(convMenu.conv)} style={{display:"block",width:"100%",padding:"10px 16px",background:"none",border:"none",color:"#ef4444",cursor:"pointer",textAlign:"left",fontSize:14}}>🗑 {L.deleteConv}</button>}
+    </div>}
+    {/* DM */}
     {(teamMembers||[]).filter(m=>(m.userId||m.user_id)!==myUid).length>0&&<div>
       <div style={{fontSize:11,color:t.tm,fontWeight:700,letterSpacing:"0.05em",marginBottom:8}}>💬 {L.dm.toUpperCase()}</div>
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
         {(teamMembers||[]).filter(m=>(m.userId||m.user_id)!==myUid).map(m=>{
           const uid=m.userId||m.user_id;
-          return <button key={uid} onClick={()=>openDM(uid,m.name)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:t.inBg,border:`1px solid ${t.border}`,borderRadius:10,cursor:"pointer",textAlign:"left",width:"100%"}}>
-            <div style={{width:34,height:34,borderRadius:"50%",background:t.tm,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:13,flexShrink:0}}>{(m.name||"?")[0].toUpperCase()}</div>
+          return <button key={uid} onClick={()=>openDM(uid,m.name||"?")} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:t.card,border:`1px solid ${t.border}`,borderRadius:10,cursor:"pointer",textAlign:"left",width:"100%"}}>
+            <div style={{width:36,height:36,borderRadius:"50%",background:t.acB,color:t.accent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,flexShrink:0}}>{(m.name||"?")[0].toUpperCase()}</div>
             <div style={{flex:1}}>
-              <div style={{fontSize:13,fontWeight:600,color:t.text}}>{m.name}</div>
+              <div style={{fontSize:13,fontWeight:600,color:t.text}}>{m.name||"?"}</div>
               <div style={{fontSize:10,color:t.tm}}>{m.role}</div>
             </div>
-            <span style={{color:t.tm,fontSize:12}}>›</span>
+            <span style={{color:t.tm,fontSize:14}}>›</span>
           </button>;
         })}
       </div>
     </div>}
   </div>;
 };
+
 // ═══ WHATSAPP SOHBET BİTİŞ ═══
 
 
@@ -8039,7 +8079,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       {tab==="menus"&&<MenuTab menus={menus} setMenus={setMenus} recipes={recipes} menuTemplates={menuTemplates} setMenuTemplates={setMenuTemplates} t={t}/>}
       {tab==="todo"&&<TodoTab todos={todos} setTodos={setTodos} t={t}/>}
       {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile}/>}
-      {tab==="chat"&&<WAChatTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t}/>}
+      {tab==="chat"&&<WAChatTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t} tier="chef"/>}
       {tab==="settings"&&<SettingsTab apiKey={apiKey} setApiKey={setApiKey} dark={dark} setDark={setDark} lang={lang} setLang={setLang} recipes={recipes} stock={stock} invoices={invoices} setRecipes={setRecipes} setStock={setStock} setInvoices={setInvoices} expenses={expenses} setExpenses={setExpenses} storageAreas={storageAreas} setStorageAreas={setStorageAreas} profile={profile} setProfile={setProfile} traceability={traceability} setTraceability={setTraceability} trackedIngs={trackedIngs} setTrackedIngs={setTrackedIngs} resetHour={resetHour} setResetHour={setResetHour} organizations={organizations} setOrganizations={setOrganizations} notifSettings={notifSettings} setNotifSettings={setNotifSettings} printers={printers} setPrinters={setPrinters} setBotMessages={setBotMessages} calorieDB={calorieDB} setCalorieDB={setCalorieDB} user={user} setUser={setUser} authRequired={authRequired} setAuthRequired={setAuthRequired} setShowAuth={setShowAuth} handleLogout={handleLogout} team={team} setTeam={setTeam} teamMembers={teamMembers} setTeamMembers={setTeamMembers} wallpaper={wallpaper} setWallpaper={setWallpaper} customWP={customWP} setCustomWP={setCustomWP} t={t}/>}
     </div>
 
