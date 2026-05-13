@@ -6267,7 +6267,7 @@ const UnifiedChatTab=({team,teamMembers,user,recipes,menus,stock,productions,api
 };
 
 // ═══ WHATSAPP SOHBET SİSTEMİ ═══
-const WAChatTab=({team,teamMembers,user,apiKey,t})=>{
+const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
   const lang=t.lang;
   const myUid=user?.userId||user?.id||"";
   const myName=user?.name||user?.email||"";
