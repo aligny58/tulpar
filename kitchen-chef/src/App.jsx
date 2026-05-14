@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import * as XLSX from 'xlsx'
 
 
 // ═══ TOAST SİSTEMİ ═══
