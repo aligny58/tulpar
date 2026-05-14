@@ -8761,7 +8761,12 @@ export default function App(){
   const[printers,setPrinters]=useState(LS.get(SK.printers,[]));
   const[todos,setTodos]=useState(LS.get("kmp_todos",[]));
   const[team,setTeam]=useState(LS.get("kmp_team",null));
-  const[teamMembers,setTeamMembers]=useState(LS.get("kmp_team_members",[]));
+  const[teamMembers,setTeamMembers]=useState(()=>{
+    // Eski cache'te UUID varsa temizle, Supabase'den yeniden çekecek
+    const cached=LS.get("kmp_team_members",[]);
+    if(cached.some(m=>m.name&&m.name.length===36&&m.name.includes("-")))return[];
+    return cached;
+  });
 
 
   // Parent team bilgisini yükle
