@@ -7331,6 +7331,8 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
 
 
 // ═══ SHIFT TAB ═══
+const getTurkishHolidays=(year)=>{const h={};[`${year}-01-01`,`${year}-04-23`,`${year}-05-01`,`${year}-05-19`,`${year}-07-15`,`${year}-08-30`,`${year}-10-29`].forEach(d=>h[d]="Resmi Tatil");return h;};
+
 const ShiftTab=({team,teamMembers,user,t})=>{
   const[shifts,setShifts]=useState([]);const[loading,setLoading]=useState(true);const[showNew,setShowNew]=useState(false);
   const[form,setForm]=useState({name:"Sabah",start:"07:00",end:"15:00",tasks:[],date:new Date().toISOString().slice(0,10)});
