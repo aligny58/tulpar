@@ -7388,9 +7388,10 @@ const ShiftTab=({team,teamMembers,user,t})=>{
         <button onClick={()=>importFileRef.current&&importFileRef.current.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"İçe":"Import"}</button>
         <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={async e=>{
             const file=e.target.files?.[0];if(!file)return;
+            console.log("Vardiya import başladı:", file.name, "XLSX available:", typeof XLSX);
             let lines=[];
             const isExcel=file.name.toLowerCase().endsWith(".xlsx")||file.name.toLowerCase().endsWith(".xls");
-            if(isExcel&&typeof XLSX!=="undefined"){
+            if(isExcel){
               try{
                 const buf=await file.arrayBuffer();
                 const wb=XLSX.read(buf,{type:"array"});
@@ -7420,13 +7421,18 @@ const ShiftTab=({team,teamMembers,user,t})=>{
                 // "07:00-15:00" formatı
                 const [start,end]=shiftStr.split("-");
                 if(!start||!end)continue;
-                // Tarih parse — "30/4 Pzt" formatı
-                const dateMatch=dateStr.match(/(\d+)\/(\d+)/);
-                if(!dateMatch)continue;
-                const day=dateMatch[1].padStart(2,"0");
-                const month=dateMatch[2].padStart(2,"0");
-                const year=new Date().getFullYear();
-                const date=`${year}-${month}-${day}`;
+                // Tarih parse — "YYYY-MM-DD", "DD/MM", "DD/MM/YY" formatlarını destekle
+                let date=null;
+                const isoMatch=dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                const slashMatch=dateStr.match(/(\d+)\/(\d+)/);
+                if(isoMatch){date=`${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;}
+                else if(slashMatch){
+                  const year=new Date().getFullYear();
+                  const day=slashMatch[1].padStart(2,"0");
+                  const month=slashMatch[2].padStart(2,"0");
+                  date=`${year}-${month}-${day}`;
+                }
+                if(!date)continue;
                 // Üye bul
                 const member=teamMembers.find(m=>m.name===name||(m.name||"").includes(name));
                 await sb.from("shifts").upsert({
@@ -7442,7 +7448,6 @@ const ShiftTab=({team,teamMembers,user,t})=>{
             window.toast.success(lang==="tr"?`✓ ${imported} vardiya içe aktarıldı`:`✓ ${imported} shifts imported`);
             e.target.value="";
           }}/>
-        </label>
         <button onClick={()=>setShowNew(s=>!s)} style={{...bSt("p",t),fontSize:12}}>+</button>
       </div>
     </div>
