@@ -7336,6 +7336,7 @@ const getTurkishHolidays=(year)=>{const h={};[`${year}-01-01`,`${year}-04-23`,`$
 
 const ShiftTab=({team,teamMembers,user,t})=>{
   const[shifts,setShifts]=useState([]);const[loading,setLoading]=useState(true);const[showNew,setShowNew]=useState(false);
+  const importFileRef=useRef(null);
   const[form,setForm]=useState({name:"Sabah",start:"07:00",end:"15:00",tasks:[],date:new Date().toISOString().slice(0,10)});
   const[holidays,setHolidays]=useState({});const[showHoliday,setShowHoliday]=useState(false);const[newHoliday,setNewHoliday]=useState({date:"",name:""});
   const lang=t.lang;
@@ -7384,9 +7385,8 @@ const ShiftTab=({team,teamMembers,user,t})=>{
       <div style={{display:"flex",gap:6}}>
         <button onClick={()=>setShowHoliday(s=>!s)} style={{...bSt("s",t),fontSize:11}}>🗓</button>
         <button onClick={exportExcel} style={{...bSt("s",t),fontSize:11}}>📊 {lang==="tr"?"Dışa":"Export"}</button>
-        <label style={{...bSt("s",t),fontSize:11,cursor:"pointer"}}>
-          📥 {lang==="tr"?"İçe":"Import"}
-          <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={async e=>{
+       <button onClick={()=>importFileRef.current&&importFileRef.current.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"İçe":"Import"}</button>
+        <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={async e=>{
             const file=e.target.files?.[0];if(!file)return;
             let lines=[];
             const isExcel=file.name.toLowerCase().endsWith(".xlsx")||file.name.toLowerCase().endsWith(".xls");
