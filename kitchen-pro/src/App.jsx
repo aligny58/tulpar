@@ -8951,6 +8951,34 @@ export default function App(){
           };
           setUser(u);
           LS.set("kmp_user",u);
+          // localStorage'da team yoksa Supabase'den otomatik yükle
+          if(!LS.get("kmp_team",null)){
+            (async()=>{try{
+              const uid=data.session.user.id;
+              let teamData=null;let memberRole="pro";
+              const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).order("created_at",{ascending:false}).limit(1).single();
+              if(ownedTeam){teamData=ownedTeam;memberRole="pro";}
+              else{
+                const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",uid).order("joined_at",{ascending:false}).limit(1);
+                const membership=members_raw?.[0]||null;
+                if(membership?.team_id){
+                  const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
+                  if(td){teamData=td;memberRole=membership.role||"pro";}
+                }
+              }
+              if(teamData){
+                const loadedTeam={...teamData,role:memberRole,inviteCode:teamData.invite_code};
+                setTeam(loadedTeam);LS.set("kmp_team",loadedTeam);
+                const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
+                if(members){
+                  const uids=members.map(m=>m.user_id);
+                  const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
+                  const getName=(uid2)=>{const p=(profs||[]).find(p=>p.id===uid2);return p?.full_name||p?.email?.split("@")[0]||uid2;};
+                  setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
+                }
+              }
+            }catch(e){console.warn("Ekip yüklenemedi (session):",e.message);}})();
+          }
         }
         setAuthChecked(true);
       }).catch(()=>{clearTimeout(_authTimeout);setAuthChecked(true);});
@@ -8973,22 +9001,31 @@ export default function App(){
             accessToken:session.access_token
           };
           setUser(u);LS.set("kmp_user",u);
-          // Ekibi Supabase'den yükle
+          // Ekibi Supabase'den yükle (owner VEYA member)
           (async()=>{try{
-            const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",session.user.id).eq("role","pro").order("joined_at",{ascending:false}).limit(1);
-            const membership=members_raw?.[0]||null;
-            if(membership?.team_id){
-              const{data:teamData}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
-              if(teamData){
-                const loadedTeam={...teamData,role:membership.role,inviteCode:teamData.invite_code};
-                setTeam(loadedTeam);LS.set("kmp_team",loadedTeam);
-                const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
-                if(members){
-                  const uids=members.map(m=>m.user_id);
-                  const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
-                  const getName=(uid)=>{const p=(profs||[]).find(p=>p.id===uid);return p?.full_name||p?.email?.split("@")[0]||uid;};
-                  setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
-                }
+            const uid=session.user.id;
+            // Önce kendi oluşturduğu team'e bak (owner)
+            let teamData=null;let memberRole="pro";
+            const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).order("created_at",{ascending:false}).limit(1).single();
+            if(ownedTeam){teamData=ownedTeam;memberRole="pro";}
+            else{
+              // Üye olduğu team'e bak (herhangi role)
+              const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",uid).order("joined_at",{ascending:false}).limit(1);
+              const membership=members_raw?.[0]||null;
+              if(membership?.team_id){
+                const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
+                if(td){teamData=td;memberRole=membership.role||"pro";}
+              }
+            }
+            if(teamData){
+              const loadedTeam={...teamData,role:memberRole,inviteCode:teamData.invite_code};
+              setTeam(loadedTeam);LS.set("kmp_team",loadedTeam);
+              const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
+              if(members){
+                const uids=members.map(m=>m.user_id);
+                const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
+                const getName=(uid2)=>{const p=(profs||[]).find(p=>p.id===uid2);return p?.full_name||p?.email?.split("@")[0]||uid2;};
+                setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
               }
             }
           }catch(e){console.warn("Ekip yüklenemedi:",e.message);}})();
