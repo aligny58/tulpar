@@ -7385,7 +7385,7 @@ const ShiftTab=({team,teamMembers,user,t})=>{
       <div style={{display:"flex",gap:6}}>
         <button onClick={()=>setShowHoliday(s=>!s)} style={{...bSt("s",t),fontSize:11}}>🗓</button>
         <button onClick={exportExcel} style={{...bSt("s",t),fontSize:11}}>📊 {lang==="tr"?"Dışa":"Export"}</button>
-       <button onClick={()=>importFileRef.current&&importFileRef.current.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"İçe":"Import"}</button>
+        <button onClick={()=>importFileRef.current&&importFileRef.current.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"İçe":"Import"}</button>
         <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={async e=>{
             const file=e.target.files?.[0];if(!file)return;
             let lines=[];
