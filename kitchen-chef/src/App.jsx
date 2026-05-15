@@ -6688,9 +6688,62 @@ const setTeamData=async(teamId,table,jsonData,userId)=>{
 
 const getTurkishHolidays=(year)=>{const h={};[`${year}-01-01`,`${year}-04-23`,`${year}-05-01`,`${year}-05-19`,`${year}-07-15`,`${year}-08-30`,`${year}-10-29`].forEach(d=>h[d]="Resmi Tatil");return h;};
 
+// ═══ AKILLI TARİH PARSER (Vardiya Import - yedek) ═══
+function parseSmartDate(raw, fallbackYear) {
+  if (raw == null || raw === '') return null;
+  const year = fallbackYear || new Date().getFullYear();
+  let s = String(raw).trim();
+  if (!s) return null;
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const num = parseFloat(s);
+    if (num > 1000 && num < 100000) {
+      const excelEpoch = new Date(1899, 11, 30);
+      const d = new Date(excelEpoch.getTime() + num * 86400000);
+      if (!isNaN(d)) return d.toISOString().slice(0, 10);
+    }
+    if (num >= 1 && num <= 31) {
+      const month = (new Date().getMonth() + 1).toString().padStart(2, '0');
+      return `${year}-${month}-${String(Math.floor(num)).padStart(2, '0')}`;
+    }
+    return null;
+  }
+  const dayPrefix = /^(Pzt|Sal|Çar|Per|Cum|Cmt|Paz|Pazartesi|Salı|Çarşamba|Perşembe|Cuma|Cumartesi|Pazar|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[,\s]+/i;
+  s = s.replace(dayPrefix, '').trim();
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+  if (m) {
+    let a = parseInt(m[1]), b = parseInt(m[2]), yr = m[3];
+    if (yr.length === 2) yr = '20' + yr;
+    let day = a, month = b;
+    if (a > 12 && b <= 12) { day = a; month = b; }
+    else if (b > 12 && a <= 12) { day = b; month = a; }
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${yr}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  }
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+  if (m) {
+    let a = parseInt(m[1]), b = parseInt(m[2]);
+    let day = a, month = b;
+    if (a > 12 && b <= 12) { day = a; month = b; }
+    else if (b > 12 && a <= 12) { day = b; month = a; }
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  }
+  const d = new Date(s);
+  if (!isNaN(d) && d.getFullYear() > 1990 && d.getFullYear() < 2100) {
+    return d.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
 const ShiftTab=({team,teamMembers,user,t})=>{
   const[shifts,setShifts]=useState([]);const[loading,setLoading]=useState(true);const[showNew,setShowNew]=useState(false);
   const[form,setForm]=useState({name:"Sabah",start:"07:00",end:"15:00",tasks:[],date:new Date().toISOString().slice(0,10)});
+  const importFileRef=useRef(null);
+  const[aiPreview,setAiPreview]=useState(null);
+  const[aiLoading,setAiLoading]=useState(false);
+  const[importStartDate,setImportStartDate]=useState(new Date().toISOString().slice(0,10));
   const[holidays,setHolidays]=useState({});const[showHoliday,setShowHoliday]=useState(false);const[newHoliday,setNewHoliday]=useState({date:"",name:""});
   const lang=t.lang;
   const shiftColors={"Sabah":"#f59e0b","Morning":"#f59e0b","Öğle":"#10b981","Afternoon":"#10b981","Akşam":"#6366f1","Evening":"#6366f1","Gece":"#1e293b","Night":"#1e293b"};
@@ -6738,13 +6791,13 @@ const ShiftTab=({team,teamMembers,user,t})=>{
       <div style={{display:"flex",gap:6}}>
         <button onClick={()=>setShowHoliday(s=>!s)} style={{...bSt("s",t),fontSize:11}}>🗓</button>
         <button onClick={exportExcel} style={{...bSt("s",t),fontSize:11}}>📊 {lang==="tr"?"Dışa":"Export"}</button>
-        <label style={{...bSt("s",t),fontSize:11,cursor:"pointer"}}>
-          📥 {lang==="tr"?"İçe":"Import"}
-          <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={async e=>{
+        <input type="date" value={importStartDate} onChange={e=>setImportStartDate(e.target.value)} title={lang==="tr"?"Vardiyaların başlangıç tarihi":"Start date"} style={{...iSt(t),fontSize:11,padding:"6px 8px",width:130}}/>
+        <button onClick={()=>importFileRef.current&&importFileRef.current.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"İçe":"Import"}</button>
+        <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={async e=>{
             const file=e.target.files?.[0];if(!file)return;
             let lines=[];
             const isExcel=file.name.toLowerCase().endsWith(".xlsx")||file.name.toLowerCase().endsWith(".xls");
-            if(isExcel&&typeof XLSX!=="undefined"){
+            if(isExcel){
               try{
                 const buf=await file.arrayBuffer();
                 const wb=XLSX.read(buf,{type:"array"});
@@ -6757,46 +6810,27 @@ const ShiftTab=({team,teamMembers,user,t})=>{
               lines=text.split("\n").filter(l=>l.trim());
             }
             if(lines.length<2){window.toast.error(lang==="tr"?"Geçersiz dosya":"Invalid file");return;}
-            // Header: Pozisyon | İsim | Tarih1 | Tarih2...
-            const headers=lines[0].split("\t");
-            const dateHeaders=headers.slice(2); // İlk 2 kolon: Pozisyon, İsim
-            let imported=0;
-            const sb=initSupabase();if(!sb)return;
-            for(let i=1;i<lines.length;i++){
-              const cols=lines[i].split("\t");
-              if(cols.length<3)continue;
-              const role=cols[0]?.trim();
-              const name=cols[1]?.trim();
-              for(let j=0;j<dateHeaders.length;j++){
-                const dateStr=dateHeaders[j]?.trim();
-                const shiftStr=cols[j+2]?.trim();
-                if(!shiftStr||shiftStr==="OFF"||shiftStr==="TATİL"||shiftStr==="HOL"||!shiftStr.includes("-"))continue;
-                // "07:00-15:00" formatı
-                const [start,end]=shiftStr.split("-");
-                if(!start||!end)continue;
-                // Tarih parse — "30/4 Pzt" formatı
-                const dateMatch=dateStr.match(/(\d+)\/(\d+)/);
-                if(!dateMatch)continue;
-                const day=dateMatch[1].padStart(2,"0");
-                const month=dateMatch[2].padStart(2,"0");
-                const year=new Date().getFullYear();
-                const date=`${year}-${month}-${day}`;
-                // Üye bul
-                const member=teamMembers.find(m=>m.name===name||(m.name||"").includes(name));
-                await sb.from("shifts").upsert({
-                  team_id:team.id,name:role||"Vardiya",
-                  start_time:start.trim(),end_time:end.trim(),
-                  date,tasks:[],created_by:member?.userId||member?.user_id||user?.userId
-                },{onConflict:"team_id,date,created_by"});
-                imported++;
-              }
+            // AI ile parse et
+            const rows=lines.map(l=>l.split("\t"));
+            setAiLoading(true);
+            window.toast.info(lang==="tr"?"AI tabloyu analiz ediyor...":"AI is analyzing...");
+            try{
+              const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev/parse-shift-excel",{
+                method:"POST",
+                headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({rows,startDate:importStartDate,lang})
+              });
+              if(!resp.ok)throw new Error("AI servisi yanıt vermedi");
+              const aiResult=await resp.json();
+              if(aiResult.error)throw new Error(aiResult.error);
+              setAiPreview(aiResult);
+            }catch(err){
+              window.toast.error((lang==="tr"?"AI hatası: ":"AI error: ")+err.message);
+            }finally{
+              setAiLoading(false);
+              e.target.value="";
             }
-            // Yenile
-            sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:false}).limit(60).then(({data})=>{if(data)setShifts(data);});
-            window.toast.success(lang==="tr"?`✓ ${imported} vardiya içe aktarıldı`:`✓ ${imported} shifts imported`);
-            e.target.value="";
           }}/>
-        </label>
         <button onClick={()=>setShowNew(s=>!s)} style={{...bSt("p",t),fontSize:12}}>+</button>
       </div>
     </div>
@@ -6847,6 +6881,51 @@ const ShiftTab=({team,teamMembers,user,t})=>{
         </div>;})}
       </div>;
     })}
+    {aiLoading&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:24,textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>🤖</div>
+        <div style={{fontSize:14,fontWeight:600,color:t.text}}>{lang==="tr"?"AI tabloyu analiz ediyor...":"AI is analyzing..."}</div>
+        <div style={{fontSize:12,color:t.tm,marginTop:6}}>{lang==="tr"?"5-15 saniye sürebilir":"This may take 5-15 seconds"}</div>
+      </div>
+    </div>}
+    {aiPreview&&<div onClick={e=>{if(e.target===e.currentTarget)setAiPreview(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:600,width:"100%",maxHeight:"90vh",overflow:"auto"}}>
+        <div style={{fontSize:16,fontWeight:700,marginBottom:6,color:t.text,display:"flex",alignItems:"center",gap:8}}><span>🤖</span><span>{lang==="tr"?"AI Vardiya Önizleme":"AI Shift Preview"}</span></div>
+        <div style={{fontSize:12,color:t.tm,marginBottom:14}}>{aiPreview.totalShifts||0} {lang==="tr"?"vardiya bulundu":"shifts found"} • {lang==="tr"?"Başlangıç":"Start"}: {aiPreview.startDate}</div>
+        {aiPreview.notes&&<div style={{fontSize:11,color:t.tm,padding:"8px 10px",background:t.bg2||"#fef3c7",borderRadius:8,marginBottom:12,lineHeight:1.4}}>💡 {aiPreview.notes}</div>}
+        <div style={{maxHeight:300,overflow:"auto",border:`1px solid ${t.border||"#e5e7eb"}`,borderRadius:8,padding:8,marginBottom:14}}>
+          {(aiPreview.shifts||[]).slice(0,20).map((s,i)=><div key={i} style={{padding:"6px 4px",borderBottom:`1px solid ${t.border||"#f3f4f6"}`,fontSize:12}}>
+            <div style={{fontWeight:600,color:t.text}}>{s.name} <span style={{fontWeight:400,color:t.tm}}>({s.position||"-"})</span></div>
+            <div style={{color:t.tm,fontSize:11,marginTop:2}}>{(s.entries||[]).map(e=>`${e.date}: ${e.start}-${e.end}`).join(" • ")}</div>
+          </div>)}
+          {(aiPreview.shifts||[]).length>20&&<div style={{fontSize:11,color:t.tm,padding:6,textAlign:"center"}}>...+{aiPreview.shifts.length-20} {lang==="tr"?"daha":"more"}</div>}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>setAiPreview(null)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
+          <button onClick={async()=>{
+            let imported=0;
+            const sb=initSupabase();if(!sb){setAiPreview(null);return;}
+            for(const s of (aiPreview.shifts||[])){
+              const member=teamMembers.find(m=>m.name===s.name||(m.name||"").toLowerCase().includes((s.name||"").toLowerCase()));
+              for(const e of (s.entries||[])){
+                if(!e.date||!e.start||!e.end)continue;
+                await sb.from("shifts").upsert({
+                  team_id:team.id,
+                  name:s.position||"Vardiya",
+                  start_time:e.start,end_time:e.end,
+                  date:e.date,tasks:[],
+                  created_by:member?.userId||member?.user_id||user?.userId
+                },{onConflict:"team_id,date,created_by"});
+                imported++;
+              }
+            }
+            sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:false}).limit(60).then(({data})=>{if(data)setShifts(data);});
+            window.toast.success(lang==="tr"?`✓ ${imported} vardiya içe aktarıldı`:`✓ ${imported} shifts imported`);
+            setAiPreview(null);
+          }} style={{...bSt("p",t),flex:1}}>{lang==="tr"?`✓ ${aiPreview.totalShifts||0} Vardiyayı İçe Aktar`:`✓ Import ${aiPreview.totalShifts||0} shifts`}</button>
+        </div>
+      </div>
+    </div>}
   </div>;
 };
 
