@@ -6688,246 +6688,304 @@ const setTeamData=async(teamId,table,jsonData,userId)=>{
 
 const getTurkishHolidays=(year)=>{const h={};[`${year}-01-01`,`${year}-04-23`,`${year}-05-01`,`${year}-05-19`,`${year}-07-15`,`${year}-08-30`,`${year}-10-29`].forEach(d=>h[d]="Resmi Tatil");return h;};
 
-// ═══ AKILLI TARİH PARSER (Vardiya Import - yedek) ═══
-function parseSmartDate(raw, fallbackYear) {
-  if (raw == null || raw === '') return null;
-  const year = fallbackYear || new Date().getFullYear();
-  let s = String(raw).trim();
-  if (!s) return null;
-  if (/^\d+(\.\d+)?$/.test(s)) {
-    const num = parseFloat(s);
-    if (num > 1000 && num < 100000) {
-      const excelEpoch = new Date(1899, 11, 30);
-      const d = new Date(excelEpoch.getTime() + num * 86400000);
-      if (!isNaN(d)) return d.toISOString().slice(0, 10);
-    }
-    if (num >= 1 && num <= 31) {
-      const month = (new Date().getMonth() + 1).toString().padStart(2, '0');
-      return `${year}-${month}-${String(Math.floor(num)).padStart(2, '0')}`;
-    }
-    return null;
-  }
-  const dayPrefix = /^(Pzt|Sal|Çar|Per|Cum|Cmt|Paz|Pazartesi|Salı|Çarşamba|Perşembe|Cuma|Cumartesi|Pazar|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[,\s]+/i;
-  s = s.replace(dayPrefix, '').trim();
-  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-  if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
-  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
-  if (m) {
-    let a = parseInt(m[1]), b = parseInt(m[2]), yr = m[3];
-    if (yr.length === 2) yr = '20' + yr;
-    let day = a, month = b;
-    if (a > 12 && b <= 12) { day = a; month = b; }
-    else if (b > 12 && a <= 12) { day = b; month = a; }
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    return `${yr}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-  }
-  m = s.match(/^(\d{1,2})[-/.](\d{1,2})$/);
-  if (m) {
-    let a = parseInt(m[1]), b = parseInt(m[2]);
-    let day = a, month = b;
-    if (a > 12 && b <= 12) { day = a; month = b; }
-    else if (b > 12 && a <= 12) { day = b; month = a; }
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    return `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-  }
-  const d = new Date(s);
-  if (!isNaN(d) && d.getFullYear() > 1990 && d.getFullYear() < 2100) {
-    return d.toISOString().slice(0, 10);
-  }
-  return null;
-}
-
+// ═══ SHIFT TAB v2 (Sıfırdan, AI tabanlı) ═══
 const ShiftTab=({team,teamMembers,user,t})=>{
-  const[shifts,setShifts]=useState([]);const[loading,setLoading]=useState(true);const[showNew,setShowNew]=useState(false);
-  const[form,setForm]=useState({name:"Sabah",start:"07:00",end:"15:00",tasks:[],date:new Date().toISOString().slice(0,10)});
-  const importFileRef=useRef(null);
-  const[aiPreview,setAiPreview]=useState(null);
-  const[aiLoading,setAiLoading]=useState(false);
-  const[importStartDate,setImportStartDate]=useState(new Date().toISOString().slice(0,10));
-  const[holidays,setHolidays]=useState({});const[showHoliday,setShowHoliday]=useState(false);const[newHoliday,setNewHoliday]=useState({date:"",name:""});
   const lang=t.lang;
-  const shiftColors={"Sabah":"#f59e0b","Morning":"#f59e0b","Öğle":"#10b981","Afternoon":"#10b981","Akşam":"#6366f1","Evening":"#6366f1","Gece":"#1e293b","Night":"#1e293b"};
-  const shiftNames={tr:["Sabah","Öğle","Akşam","Gece"],en:["Morning","Afternoon","Evening","Night"]}[lang]||["Morning","Afternoon","Evening","Night"];
+  const[shifts,setShifts]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const fileInputRef=useRef(null);
+  const[importDate,setImportDate]=useState(new Date().toISOString().slice(0,10));
+  const[aiLoading,setAiLoading]=useState(false);
+  const[previewShifts,setPreviewShifts]=useState(null);
+  const[showNew,setShowNew]=useState(false);
+  const[form,setForm]=useState({name:"Sabah",start:"07:00",end:"15:00",date:new Date().toISOString().slice(0,10),memberId:""});
+  const[holidays,setHolidays]=useState({});
+  const[showHoliday,setShowHoliday]=useState(false);
+  const[newHoliday,setNewHoliday]=useState({date:"",name:""});
+
   useEffect(()=>{
-    if(!team?.id)return;const sb=initSupabase();if(!sb)return;
-    sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:false}).limit(60).then(({data})=>{if(data)setShifts(data);setLoading(false);});
-    const saved=JSON.parse(localStorage.getItem(`kmc_holidays_${team.id}`)||"{}");
-    setHolidays({...getTurkishHolidays(new Date().getFullYear()),...saved});
+    if(!team?.id)return;
+    const sb=initSupabase();if(!sb)return;
+    setLoading(true);
+    sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(200).then(({data,error})=>{
+      if(!error&&data)setShifts(data);
+      setLoading(false);
+    });
+    const year=new Date().getFullYear();
+    setHolidays({...getTurkishHolidays(year),...getTurkishHolidays(year+1)});
   },[team?.id]);
-  const saveHolidays=(h)=>{setHolidays(h);if(team?.id)localStorage.setItem(`kmc_holidays_${team.id}`,JSON.stringify(h));};
-  const saveShift=async()=>{
-    if(!team?.id||!user?.userId)return;const sb=initSupabase();if(!sb)return;
-    const{data,error}=await sb.from("shifts").insert({team_id:team.id,name:form.name,start_time:form.start,end_time:form.end,date:form.date,tasks:form.tasks,created_by:user.userId}).select().single();
-    if(!error&&data){setShifts(p=>[data,...p]);setShowNew(false);}
-  };
-  const deleteShift=async(id)=>{const sb=initSupabase();if(!sb)return;await sb.from("shifts").delete().eq("id",id);setShifts(p=>p.filter(s=>s.id!==id));};
-  const exportExcel=()=>{
-    if(!shifts.length){window.toast.error(lang==="tr"?"Vardiya yok":"No shifts");return;}
-    const byDate={};shifts.forEach(s=>{if(!byDate[s.date])byDate[s.date]=[];byDate[s.date].push(s);});
-    const dates=Object.keys(byDate).sort();
-    const dn={tr:["Paz","Pzt","Sal","Çar","Per","Cum","Cmt"],en:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]}[lang]||["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-    const headers=[lang==="tr"?"Pozisyon":"Position",lang==="tr"?"İsim":"Name",...dates.map(d=>{const dt=new Date(d+"T12:00:00");return `${dt.getDate()}/${dt.getMonth()+1} ${dn[dt.getDay()]}${holidays[d]?(lang==="tr"?" (TATİL)":" (HOL)"):""}`;})];
-    const rows=(teamMembers||[]).map(m=>[m.role||"",m.name||"",...dates.map(d=>{const s=(byDate[d]||[]).find(s=>s.created_by===(m.userId||m.user_id));return s?`${s.start_time}-${s.end_time}`:(holidays[d]?"OFF":"");})]);
-    if(typeof XLSX!=="undefined"){
-      const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
-      // Kolon genişlikleri
-      ws["!cols"]=[{wch:16},{wch:22},...dates.map(()=>({wch:13}))];
-      const wb=XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb,ws,lang==="tr"?"Vardiya":"Shifts");
-      const fname=`${lang==="tr"?"vardiya":"shifts"}_${new Date().toISOString().slice(0,10)}.xlsx`;
-      XLSX.writeFile(wb,fname);
-    }else{
-      // Fallback CSV
-      let csv=headers.join("\t")+"\n"+rows.map(r=>r.join("\t")).join("\n");
-      const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`vardiya.csv`;a.click();
+
+  const handleFileChange=async(e)=>{
+    const file=e.target.files?.[0];
+    e.target.value="";
+    if(!file)return;
+    if(!team?.id){window.toast.error(lang==="tr"?"Önce ekip oluşturun":"Create a team first");return;}
+    
+    let rows=[];
+    try{
+      const isExcel=/\.(xlsx|xls)$/i.test(file.name);
+      if(isExcel){
+        const buf=await file.arrayBuffer();
+        const wb=XLSX.read(buf,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""}).filter(r=>r.some(c=>String(c).trim()));
+      }else{
+        const text=await file.text();
+        rows=text.split(/\r?\n/).filter(l=>l.trim()).map(l=>l.split(/\t|,/));
+      }
+    }catch(err){
+      window.toast.error((lang==="tr"?"Dosya okunamadı: ":"File read error: ")+err.message);
+      return;
+    }
+    if(rows.length<2){window.toast.error(lang==="tr"?"Geçersiz dosya":"Invalid file");return;}
+    
+    setAiLoading(true);
+    try{
+      const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev/parse-shift-excel",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({rows:rows.map(r=>r.map(c=>String(c))),startDate:importDate,lang})
+      });
+      if(!resp.ok)throw new Error("HTTP "+resp.status);
+      const data=await resp.json();
+      if(data.error)throw new Error(data.error);
+      
+      const flat=[];
+      for(const s of (data.shifts||[])){
+        for(const e of (s.entries||[])){
+          if(!e.date||!e.start||!e.end)continue;
+          flat.push({
+            name:s.name||"",
+            position:s.position||"Vardiya",
+            date:e.date,
+            start:(e.start.length===5?e.start:e.start.slice(0,5)),
+            end:(e.end.length===5?e.end:e.end.slice(0,5))
+          });
+        }
+      }
+      if(flat.length===0){
+        window.toast.error(lang==="tr"?"AI hiç vardiya bulamadı":"AI found no shifts");
+      }else{
+        setPreviewShifts(flat);
+      }
+    }catch(err){
+      window.toast.error((lang==="tr"?"AI hatası: ":"AI error: ")+err.message);
+    }finally{
+      setAiLoading(false);
     }
   };
-  const byDate={};shifts.forEach(s=>{if(!byDate[s.date])byDate[s.date]=[];byDate[s.date].push(s);});
-  const dates=Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
-  if(!team)return <div style={{textAlign:"center",padding:"60px 20px",color:t.tm}}><div style={{fontSize:40}}>🕐</div><div style={{fontSize:13,marginTop:8,color:t.tm}}>{lang==="tr"?"Ekibe katılın":"Join a team"}</div></div>;
-  return <div style={{maxWidth:520,margin:"0 auto"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-      <h2 style={{fontSize:22,color:t.text,fontFamily:"'Fraunces',serif",margin:0}}>🕐 {lang==="tr"?"Vardiya":"Shifts"}</h2>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>setShowHoliday(s=>!s)} style={{...bSt("s",t),fontSize:11}}>🗓</button>
-        <button onClick={exportExcel} style={{...bSt("s",t),fontSize:11}}>📊 {lang==="tr"?"Dışa":"Export"}</button>
-        <input type="date" value={importStartDate} onChange={e=>setImportStartDate(e.target.value)} title={lang==="tr"?"Vardiyaların başlangıç tarihi":"Start date"} style={{...iSt(t),fontSize:11,padding:"6px 8px",width:130}}/>
-        <button onClick={()=>importFileRef.current&&importFileRef.current.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"İçe":"Import"}</button>
-        <input ref={importFileRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={async e=>{
-            const file=e.target.files?.[0];if(!file)return;
-            let lines=[];
-            const isExcel=file.name.toLowerCase().endsWith(".xlsx")||file.name.toLowerCase().endsWith(".xls");
-            if(isExcel){
-              try{
-                const buf=await file.arrayBuffer();
-                const wb=XLSX.read(buf,{type:"array"});
-                const ws=wb.Sheets[wb.SheetNames[0]];
-                const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
-                lines=aoa.filter(r=>r.some(c=>String(c).trim())).map(r=>r.map(c=>String(c)).join("\t"));
-              }catch(err){window.toast.error((lang==="tr"?"Excel okunamadı: ":"Excel read error: ")+err.message);return;}
-            }else{
-              const text=await file.text();
-              lines=text.split("\n").filter(l=>l.trim());
-            }
-            if(lines.length<2){window.toast.error(lang==="tr"?"Geçersiz dosya":"Invalid file");return;}
-            // AI ile parse et
-            const rows=lines.map(l=>l.split("\t"));
-            setAiLoading(true);
-            window.toast.info(lang==="tr"?"AI tabloyu analiz ediyor...":"AI is analyzing...");
-            try{
-              const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev/parse-shift-excel",{
-                method:"POST",
-                headers:{"Content-Type":"application/json"},
-                body:JSON.stringify({rows,startDate:importStartDate,lang})
-              });
-              if(!resp.ok)throw new Error("AI servisi yanıt vermedi");
-              const aiResult=await resp.json();
-              if(aiResult.error)throw new Error(aiResult.error);
-              setAiPreview(aiResult);
-            }catch(err){
-              window.toast.error((lang==="tr"?"AI hatası: ":"AI error: ")+err.message);
-            }finally{
-              setAiLoading(false);
-              e.target.value="";
-            }
-          }}/>
-        <button onClick={()=>setShowNew(s=>!s)} style={{...bSt("p",t),fontSize:12}}>+</button>
+
+  const updatePreview=(i,field,value)=>{
+    setPreviewShifts(prev=>{
+      const copy=[...prev];
+      copy[i]={...copy[i],[field]:value};
+      return copy;
+    });
+  };
+  const removePreview=(i)=>{
+    setPreviewShifts(prev=>prev.filter((_,idx)=>idx!==i));
+  };
+
+  const importAll=async()=>{
+    if(!previewShifts||!previewShifts.length)return;
+    const sb=initSupabase();if(!sb)return;
+    let success=0,failed=0;
+    for(const s of previewShifts){
+      const sName=(s.name||"").toLowerCase().trim();
+      const member=teamMembers.find(m=>{
+        const mn=(m.name||"").toLowerCase().trim();
+        return mn===sName||mn.includes(sName)||sName.includes(mn);
+      });
+      const creator=member?.userId||member?.user_id||user?.userId;
+      if(!creator){failed++;continue;}
+      
+      const payload={
+        team_id:team.id,
+        name:s.position||"Vardiya",
+        start_time:s.start.length===5?s.start+":00":s.start,
+        end_time:s.end.length===5?s.end+":00":s.end,
+        date:s.date,
+        tasks:[],
+        created_by:creator
+      };
+      const{error}=await sb.from("shifts").upsert(payload,{onConflict:"team_id,date,created_by"});
+      if(error){
+        console.error("Vardiya hatası:",error.message,payload);
+        failed++;
+      }else{
+        success++;
+      }
+    }
+    
+    const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(200);
+    if(data)setShifts(data);
+    
+    if(failed===0){
+      window.toast.success(lang==="tr"?`✓ ${success} vardiya eklendi`:`✓ ${success} shifts added`);
+    }else{
+      window.toast.warning(lang==="tr"?`${success} eklendi, ${failed} hata`:`${success} added, ${failed} failed`);
+    }
+    setPreviewShifts(null);
+  };
+
+  const addManual=async()=>{
+    if(!form.memberId){window.toast.error(lang==="tr"?"Üye seçin":"Select a member");return;}
+    const member=teamMembers.find(m=>(m.userId||m.user_id)===form.memberId);
+    if(!member)return;
+    const sb=initSupabase();if(!sb)return;
+    const{error}=await sb.from("shifts").upsert({
+      team_id:team.id,
+      name:form.name,
+      start_time:form.start+":00",
+      end_time:form.end+":00",
+      date:form.date,
+      tasks:[],
+      created_by:form.memberId
+    },{onConflict:"team_id,date,created_by"});
+    if(error){window.toast.error(error.message);return;}
+    const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(200);
+    if(data)setShifts(data);
+    setShowNew(false);
+    window.toast.success(lang==="tr"?"Vardiya eklendi":"Shift added");
+  };
+
+  const deleteShift=async(id)=>{
+    if(!confirm(lang==="tr"?"Silinsin mi?":"Delete?"))return;
+    const sb=initSupabase();if(!sb)return;
+    const{error}=await sb.from("shifts").delete().eq("id",id);
+    if(error){window.toast.error(error.message);return;}
+    setShifts(prev=>prev.filter(s=>s.id!==id));
+  };
+
+  if(!team){
+    return <div style={{padding:24,textAlign:"center",color:t.tm}}>
+      {lang==="tr"?"Vardiya için önce ekip oluşturun.":"Create a team first for shifts."}
+    </div>;
+  }
+
+  const byDate={};
+  shifts.forEach(s=>{
+    if(!byDate[s.date])byDate[s.date]=[];
+    byDate[s.date].push(s);
+  });
+  const sortedDates=Object.keys(byDate).sort();
+
+  return <div style={{padding:"12px 14px"}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+      <h2 style={{fontSize:18,fontWeight:700,color:t.text,margin:0,display:"flex",alignItems:"center",gap:8}}>
+        <span>⏰</span>{lang==="tr"?"Vardiya":"Shifts"}
+      </h2>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+        <input type="date" value={importDate} onChange={e=>setImportDate(e.target.value)} title={lang==="tr"?"Excel başlangıç tarihi":"Excel start date"} style={{...iSt(t),fontSize:11,padding:"6px 8px",width:130}}/>
+        <button onClick={()=>fileInputRef.current?.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"Excel İçe":"Import Excel"}</button>
+        <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={handleFileChange}/>
+        <button onClick={()=>setShowHoliday(!showHoliday)} style={{...bSt("s",t),fontSize:11}}>🎌</button>
+        <button onClick={()=>setShowNew(true)} style={{...bSt("p",t),fontSize:11}}>+ {lang==="tr"?"Ekle":"Add"}</button>
       </div>
     </div>
-    {showHoliday&&<div style={{...cSt(t),padding:14,marginBottom:14}}>
-      <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:8}}>🎌 {lang==="tr"?"Resmi Tatil":"Holiday"}</div>
-      <div style={{display:"flex",gap:8,marginBottom:8}}>
-        <input type="date" style={{...iSt(t),flex:1}} value={newHoliday.date} onChange={e=>setNewHoliday(h=>({...h,date:e.target.value}))}/>
-        <input style={{...iSt(t),flex:2}} placeholder={lang==="tr"?"Tatil adı...":"Holiday name..."} value={newHoliday.name} onChange={e=>setNewHoliday(h=>({...h,name:e.target.value}))}/>
-        <button onClick={()=>{if(!newHoliday.date)return;saveHolidays({...holidays,[newHoliday.date]:newHoliday.name||"Tatil"});setNewHoliday({date:"",name:""});}} style={{...bSt("p",t),padding:"8px 12px"}}>+</button>
-      </div>
-      {Object.entries(holidays).sort().map(([d,n])=><div key={d} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderTop:`1px solid ${t.border}`,fontSize:11}}>
-        <span style={{color:t.danger,fontWeight:600,minWidth:90}}>{d}</span><span style={{flex:1,marginLeft:8,color:t.text}}>{n}</span>
-        <button onClick={()=>{const h={...holidays};delete h[d];saveHolidays(h);}} style={{background:"none",border:"none",color:t.danger,cursor:"pointer"}}>✕</button>
-      </div>)}
+
+    {!loading&&shifts.length===0&&<div style={{textAlign:"center",padding:"40px 20px",color:t.tm}}>
+      <div style={{fontSize:32,marginBottom:8}}>⏰</div>
+      <div style={{fontSize:14}}>{lang==="tr"?"Vardiya yok":"No shifts"}</div>
+      <div style={{fontSize:12,marginTop:4}}>{lang==="tr"?"Excel'den içe aktarın veya manuel ekleyin":"Import Excel or add manually"}</div>
     </div>}
-    {showNew&&<div style={{...cSt(t),padding:16,marginBottom:16}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-        <select style={iSt(t)} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}>{shiftNames.map(n=><option key={n} value={n}>{n}</option>)}</select>
-        <input type="date" style={iSt(t)} value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/>
-        <input type="time" style={iSt(t)} value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/>
-        <input type="time" style={iSt(t)} value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/>
-      </div>
-      {(form.tasks||[]).map((task,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
-        <input style={{...iSt(t),flex:1,fontSize:13}} value={task} onChange={e=>{const t2=[...form.tasks];t2[i]=e.target.value;setForm(f=>({...f,tasks:t2}));}}/>
-        <button onClick={()=>setForm(f=>({...f,tasks:f.tasks.filter((_,j)=>j!==i)}))} style={{background:"none",border:`1px solid ${t.danger}`,borderRadius:8,color:t.danger,cursor:"pointer",padding:"4px 8px"}}>✕</button>
-      </div>)}
-      <button onClick={()=>setForm(f=>({...f,tasks:[...f.tasks,""]}))} style={{...bSt("s",t),fontSize:12,width:"100%",marginBottom:8}}>+ {lang==="tr"?"Görev":"Task"}</button>
-      <div style={{display:"flex",gap:8}}>
-        <button onClick={()=>setShowNew(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-        <button onClick={saveShift} style={{...bSt("p",t),flex:2}}>{lang==="tr"?"Kaydet":"Save"}</button>
-      </div>
-    </div>}
-    {loading&&<div style={{textAlign:"center",padding:20,color:t.tm}}>⏳</div>}
-    {!loading&&!shifts.length&&<div style={{textAlign:"center",padding:"40px 20px",color:t.tm}}><div style={{fontSize:32}}>🕐</div><div style={{fontSize:13,marginTop:8}}>{lang==="tr"?"Vardiya yok":"No shifts"}</div></div>}
-    {dates.map(date=>{
-      const isHol=holidays[date];const dt=new Date(date+"T12:00:00");
-      return <div key={date} style={{marginBottom:16}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:isHol?"#fef2f2":"transparent",borderRadius:8}}>
-          <span style={{color:isHol?t.danger:t.tm}}>{dt.toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long"})}</span>
-          {isHol&&<span style={{fontSize:11,color:"#fff",background:t.danger,padding:"2px 8px",borderRadius:8}}>🎌 {isHol}</span>}
+
+    {sortedDates.map(date=>{
+      const isHoliday=holidays[date];
+      return <div key={date} style={{...cSt(t),padding:12,marginBottom:8}}>
+        <div style={{fontSize:13,fontWeight:600,color:t.text,marginBottom:6,display:"flex",justifyContent:"space-between"}}>
+          <span>{new Date(date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"short"})}</span>
+          {isHoliday&&<span style={{fontSize:10,color:"#dc2626",background:"#fee2e2",padding:"2px 6px",borderRadius:4}}>🎌 {isHoliday}</span>}
         </div>
-        {byDate[date].map(shift=>{const color=isHol?"#dc2626":shiftColors[shift.name]||t.accent;return <div key={shift.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,borderLeft:`3px solid ${color}`}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:14,fontWeight:700,color}}>{shift.name}</span><span style={{fontSize:12,color:t.tm}}>{shift.start_time} - {shift.end_time}</span></div>
-            <button onClick={()=>deleteShift(shift.id)} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:16}}>✕</button>
-          </div>
-          {(shift.tasks||[]).map((task,i)=><div key={i} style={{fontSize:12,color:t.ts,padding:"2px 0"}}>• {task}</div>)}
-        </div>;})}
+        {byDate[date].map(s=>{
+          const member=teamMembers.find(m=>(m.userId||m.user_id)===s.created_by);
+          return <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderTop:`1px solid ${t.border||"#f3f4f6"}`,fontSize:12}}>
+            <div>
+              <div style={{fontWeight:600,color:t.text}}>{member?.name||"—"}</div>
+              <div style={{color:t.tm,fontSize:11}}>{s.name} • {s.start_time?.slice(0,5)}-{s.end_time?.slice(0,5)}</div>
+            </div>
+            <button onClick={()=>deleteShift(s.id)} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14}}>✕</button>
+          </div>;
+        })}
       </div>;
     })}
+
     {aiLoading&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:24,textAlign:"center"}}>
-        <div style={{fontSize:32,marginBottom:8}}>🤖</div>
-        <div style={{fontSize:14,fontWeight:600,color:t.text}}>{lang==="tr"?"AI tabloyu analiz ediyor...":"AI is analyzing..."}</div>
-        <div style={{fontSize:12,color:t.tm,marginTop:6}}>{lang==="tr"?"5-15 saniye sürebilir":"This may take 5-15 seconds"}</div>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:28,textAlign:"center",maxWidth:300}}>
+        <div style={{fontSize:36,marginBottom:10}}>🤖</div>
+        <div style={{fontSize:14,fontWeight:600,color:t.text,marginBottom:4}}>{lang==="tr"?"AI tabloyu okuyor...":"AI is reading..."}</div>
+        <div style={{fontSize:11,color:t.tm}}>{lang==="tr"?"5-15 saniye sürebilir":"5-15 seconds"}</div>
       </div>
     </div>}
-    {aiPreview&&<div onClick={e=>{if(e.target===e.currentTarget)setAiPreview(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:600,width:"100%",maxHeight:"90vh",overflow:"auto"}}>
-        <div style={{fontSize:16,fontWeight:700,marginBottom:6,color:t.text,display:"flex",alignItems:"center",gap:8}}><span>🤖</span><span>{lang==="tr"?"AI Vardiya Önizleme":"AI Shift Preview"}</span></div>
-        <div style={{fontSize:12,color:t.tm,marginBottom:14}}>{aiPreview.totalShifts||0} {lang==="tr"?"vardiya bulundu":"shifts found"} • {lang==="tr"?"Başlangıç":"Start"}: {aiPreview.startDate}</div>
-        {aiPreview.notes&&<div style={{fontSize:11,color:t.tm,padding:"8px 10px",background:t.bg2||"#fef3c7",borderRadius:8,marginBottom:12,lineHeight:1.4}}>💡 {aiPreview.notes}</div>}
-        <div style={{maxHeight:300,overflow:"auto",border:`1px solid ${t.border||"#e5e7eb"}`,borderRadius:8,padding:8,marginBottom:14}}>
-          {(aiPreview.shifts||[]).slice(0,20).map((s,i)=><div key={i} style={{padding:"6px 4px",borderBottom:`1px solid ${t.border||"#f3f4f6"}`,fontSize:12}}>
-            <div style={{fontWeight:600,color:t.text}}>{s.name} <span style={{fontWeight:400,color:t.tm}}>({s.position||"-"})</span></div>
-            <div style={{color:t.tm,fontSize:11,marginTop:2}}>{(s.entries||[]).map(e=>`${e.date}: ${e.start}-${e.end}`).join(" • ")}</div>
-          </div>)}
-          {(aiPreview.shifts||[]).length>20&&<div style={{fontSize:11,color:t.tm,padding:6,textAlign:"center"}}>...+{aiPreview.shifts.length-20} {lang==="tr"?"daha":"more"}</div>}
+
+    {previewShifts&&<div onClick={e=>{if(e.target===e.currentTarget)setPreviewShifts(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:18,maxWidth:700,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:16,fontWeight:700,color:t.text}}>🤖 {lang==="tr"?"Önizleme":"Preview"}</div>
+          <div style={{fontSize:11,color:t.tm}}>{previewShifts.length} {lang==="tr"?"vardiya":"shifts"}</div>
         </div>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>setAiPreview(null)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-          <button onClick={async()=>{
-            let imported=0;
-            const sb=initSupabase();if(!sb){setAiPreview(null);return;}
-            for(const s of (aiPreview.shifts||[])){
-              const member=teamMembers.find(m=>m.name===s.name||(m.name||"").toLowerCase().includes((s.name||"").toLowerCase()));
-              for(const e of (s.entries||[])){
-                if(!e.date||!e.start||!e.end)continue;
-                await sb.from("shifts").upsert({
-                  team_id:team.id,
-                  name:s.position||"Vardiya",
-                  start_time:e.start,end_time:e.end,
-                  date:e.date,tasks:[],
-                  created_by:member?.userId||member?.user_id||user?.userId
-                },{onConflict:"team_id,date,created_by"});
-                imported++;
-              }
-            }
-            sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:false}).limit(60).then(({data})=>{if(data)setShifts(data);});
-            window.toast.success(lang==="tr"?`✓ ${imported} vardiya içe aktarıldı`:`✓ ${imported} shifts imported`);
-            setAiPreview(null);
-          }} style={{...bSt("p",t),flex:1}}>{lang==="tr"?`✓ ${aiPreview.totalShifts||0} Vardiyayı İçe Aktar`:`✓ Import ${aiPreview.totalShifts||0} shifts`}</button>
+        <div style={{fontSize:11,color:t.tm,marginBottom:10,lineHeight:1.4}}>
+          {lang==="tr"?"Düzenleyebilir veya silebilirsin. İsim, ekipteki bir üye ile eşleşmelidir.":"You can edit or remove rows. Name must match a team member."}
         </div>
+        <div style={{flex:1,overflow:"auto",border:`1px solid ${t.border||"#e5e7eb"}`,borderRadius:8,padding:8}}>
+          {previewShifts.map((s,i)=>{
+            const memberMatch=teamMembers.find(m=>{
+              const sn=(s.name||"").toLowerCase().trim();
+              const mn=(m.name||"").toLowerCase().trim();
+              return mn===sn||mn.includes(sn)||sn.includes(mn);
+            });
+            return <div key={i} style={{display:"flex",gap:6,alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${t.border||"#f3f4f6"}`,flexWrap:"wrap"}}>
+              <input value={s.name} onChange={e=>updatePreview(i,"name",e.target.value)} placeholder={lang==="tr"?"İsim":"Name"} style={{...iSt(t),fontSize:11,padding:"4px 6px",flex:"1 1 100px",minWidth:100,borderColor:memberMatch?undefined:t.danger}}/>
+              <input value={s.position} onChange={e=>updatePreview(i,"position",e.target.value)} placeholder={lang==="tr"?"Pozisyon":"Position"} style={{...iSt(t),fontSize:11,padding:"4px 6px",flex:"1 1 80px",minWidth:80}}/>
+              <input type="date" value={s.date} onChange={e=>updatePreview(i,"date",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:130}}/>
+              <input type="time" value={s.start} onChange={e=>updatePreview(i,"start",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:80}}/>
+              <input type="time" value={s.end} onChange={e=>updatePreview(i,"end",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:80}}/>
+              <button onClick={()=>removePreview(i)} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14,padding:"0 4px"}}>✕</button>
+            </div>;
+          })}
+          {previewShifts.length===0&&<div style={{padding:20,textAlign:"center",color:t.tm,fontSize:12}}>{lang==="tr"?"Hiç satır kalmadı":"No rows"}</div>}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:12}}>
+          <button onClick={()=>setPreviewShifts(null)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
+          <button onClick={importAll} disabled={previewShifts.length===0} style={{...bSt("p",t),flex:2,opacity:previewShifts.length===0?0.5:1}}>{lang==="tr"?`✓ ${previewShifts.length} Vardiyayı Aktar`:`✓ Import ${previewShifts.length}`}</button>
+        </div>
+      </div>
+    </div>}
+
+    {showNew&&<div onClick={e=>{if(e.target===e.currentTarget)setShowNew(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:400,width:"100%"}}>
+        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:14}}>+ {lang==="tr"?"Vardiya Ekle":"Add Shift"}</div>
+        <div style={{display:"grid",gap:10}}>
+          <select value={form.memberId} onChange={e=>setForm({...form,memberId:e.target.value})} style={{...iSt(t)}}>
+            <option value="">{lang==="tr"?"Üye seç":"Select member"}</option>
+            {teamMembers.map(m=><option key={m.userId||m.user_id} value={m.userId||m.user_id}>{m.name}</option>)}
+          </select>
+          <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder={lang==="tr"?"Vardiya adı (Sabah)":"Shift name"} style={{...iSt(t)}}/>
+          <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={{...iSt(t)}}/>
+          <div style={{display:"flex",gap:8}}>
+            <input type="time" value={form.start} onChange={e=>setForm({...form,start:e.target.value})} style={{...iSt(t),flex:1}}/>
+            <input type="time" value={form.end} onChange={e=>setForm({...form,end:e.target.value})} style={{...iSt(t),flex:1}}/>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:14}}>
+          <button onClick={()=>setShowNew(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
+          <button onClick={addManual} style={{...bSt("p",t),flex:1}}>{lang==="tr"?"Ekle":"Add"}</button>
+        </div>
+      </div>
+    </div>}
+
+    {showHoliday&&<div onClick={e=>{if(e.target===e.currentTarget)setShowHoliday(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:400,width:"100%"}}>
+        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:10}}>🎌 {lang==="tr"?"Tatiller":"Holidays"}</div>
+        <div style={{maxHeight:300,overflow:"auto"}}>
+          {Object.entries(holidays).sort().map(([d,name])=><div key={d} style={{padding:6,fontSize:12,borderBottom:`1px solid ${t.border||"#f3f4f6"}`}}>{d} — {name}</div>)}
+        </div>
+        <button onClick={()=>setShowHoliday(false)} style={{...bSt("p",t),width:"100%",marginTop:12}}>{lang==="tr"?"Kapat":"Close"}</button>
       </div>
     </div>}
   </div>;
 };
+
 
 // ═══ KANBAN TAB ═══
 const ChildTeamsSection=({teamId,t,lang})=>{
