@@ -6689,7 +6689,7 @@ const setTeamData=async(teamId,table,jsonData,userId)=>{
 const getTurkishHolidays=(year)=>{const h={};[`${year}-01-01`,`${year}-04-23`,`${year}-05-01`,`${year}-05-19`,`${year}-07-15`,`${year}-08-30`,`${year}-10-29`].forEach(d=>h[d]="Resmi Tatil");return h;};
 
 // ═══ SHIFT TAB v2 (Sıfırdan, AI tabanlı) ═══
-const ShiftTab=({team,teamMembers,user,t})=>{
+const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>{
   const lang=t.lang;
   const[shifts,setShifts]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -6697,17 +6697,32 @@ const ShiftTab=({team,teamMembers,user,t})=>{
   const[importDate,setImportDate]=useState(new Date().toISOString().slice(0,10));
   const[aiLoading,setAiLoading]=useState(false);
   const[previewShifts,setPreviewShifts]=useState(null);
-  const[showNew,setShowNew]=useState(false);
-  const[form,setForm]=useState({name:"Sabah",start:"07:00",end:"15:00",date:new Date().toISOString().slice(0,10),memberId:""});
   const[holidays,setHolidays]=useState({});
   const[showHoliday,setShowHoliday]=useState(false);
-  const[newHoliday,setNewHoliday]=useState({date:"",name:""});
+  const[exportMenuOpen,setExportMenuOpen]=useState(false);
+  // Hafta navigasyonu (Pazartesi başlangıçlı hafta)
+  // Verilen tarihin haftasının Pazartesi'sini döndür (lokal saat dilimi)
+  const getMondayOf=(date)=>{
+    const d=new Date(date);
+    d.setHours(12,0,0,0); // gün geçişi sorunlarını önlemek için öğlene sabit
+    const day=d.getDay(); // 0=Paz, 1=Pzt, ..., 6=Cmt
+    const diff=day===0?-6:(1-day); // Paz ise 6 gün geri, değilse (1-day) gün
+    d.setDate(d.getDate()+diff);
+    // Yerel YYYY-MM-DD formatı (toISOString UTC verir, bizde kayma olabilir)
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,"0");
+    const dd=String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${dd}`;
+  };
+  const[weekStart,setWeekStart]=useState(()=>getMondayOf(new Date()));
+  // Hücre düzenleme modal
+  const[cellEdit,setCellEdit]=useState(null); // {memberId, memberType, date, existing, name}
 
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
     setLoading(true);
-    sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(200).then(({data,error})=>{
+    sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000).then(({data,error})=>{
       if(!error&&data)setShifts(data);
       setLoading(false);
     });
@@ -6715,12 +6730,130 @@ const ShiftTab=({team,teamMembers,user,t})=>{
     setHolidays({...getTurkishHolidays(year),...getTurkishHolidays(year+1)});
   },[team?.id]);
 
+  // Birleşik üye listesi (gerçek + phantom, linked olmayan)
+  const allMembers=useMemo(()=>{
+    const list=[
+      ...teamMembers.map(m=>({id:m.userId||m.user_id,type:"real",name:m.name||"",position:m.position||m.role||"",annual_leave_total:m.annual_leave_total||14,_obj:m})),
+      ...phantomMembers.filter(p=>!p.linked_user_id).map(p=>({id:p.id,type:"phantom",name:p.name||"",position:p.position||"",annual_leave_total:p.annual_leave_total||14,_obj:p}))
+    ];
+    return list;
+  },[teamMembers,phantomMembers]);
+
+  // Haftanın 7 günü
+  const weekDays=useMemo(()=>{
+    const days=[];
+    const start=new Date(weekStart+"T12:00:00");
+    for(let i=0;i<7;i++){
+      const d=new Date(start);
+      d.setDate(d.getDate()+i);
+      const y=d.getFullYear();
+      const m=String(d.getMonth()+1).padStart(2,"0");
+      const dd=String(d.getDate()).padStart(2,"0");
+      days.push({
+        date:`${y}-${m}-${dd}`,
+        dayNum:d.getDate(),
+        weekday:d.toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"short"}),
+        isWeekend:d.getDay()===0||d.getDay()===6
+      });
+    }
+    return days;
+  },[weekStart,lang]);
+
+  // Bu haftaki vardiyalar (member×date map)
+  const shiftMap=useMemo(()=>{
+    const m={};
+    const weekDates=new Set(weekDays.map(d=>d.date));
+    shifts.forEach(s=>{
+      if(!weekDates.has(s.date))return;
+      const key=(s.phantom_member_id||s.created_by)+"|"+s.date;
+      m[key]=s;
+    });
+    return m;
+  },[shifts,weekDays]);
+
+  // Üyenin haftalık toplam saati hesapla
+  const calcHours=(memberId)=>{
+    let total=0;
+    weekDays.forEach(d=>{
+      const s=shiftMap[memberId+"|"+d.date];
+      if(s&&s.type!=="leave"&&s.type!=="off"&&s.start_time&&s.end_time){
+        const[sh,sm]=s.start_time.split(":").map(Number);
+        const[eh,em]=s.end_time.split(":").map(Number);
+        let diff=(eh*60+em)-(sh*60+sm);
+        if(diff<0)diff+=24*60; // Gece vardiyası
+        total+=diff/60;
+      }
+    });
+    return total;
+  };
+
+  // Kullanılan yıllık izin
+  const calcUsedLeave=(memberId)=>{
+    return shifts.filter(s=>(s.phantom_member_id===memberId||s.created_by===memberId)&&s.type==="leave").length;
+  };
+
+  // Hafta navigasyonu
+  const shiftWeek=(delta)=>{
+    const d=new Date(weekStart+"T12:00:00");
+    d.setDate(d.getDate()+delta*7);
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,"0");
+    const dd=String(d.getDate()).padStart(2,"0");
+    setWeekStart(`${y}-${m}-${dd}`);
+  };
+
+  // Hücre kaydet
+  const saveCell=async({memberId,memberType,date,start,end,type,position,name})=>{
+    const sb=initSupabase();if(!sb)return;
+    // Önce sil
+    let delQ=sb.from("shifts").delete().eq("team_id",team.id).eq("date",date);
+    if(memberType==="real")delQ=delQ.eq("created_by",memberId);
+    else delQ=delQ.eq("phantom_member_id",memberId);
+    await delQ;
+    // Sonra ekle (eğer OFF değilse)
+    if(type!=="off"){
+      const payload={
+        team_id:team.id,
+        name:position||"Vardiya",
+        member_name:name,
+        start_time:type==="leave"?"00:00:00":(start.length===5?start+":00":start),
+        end_time:type==="leave"?"00:00:00":(end.length===5?end+":00":end),
+        date,
+        tasks:[],
+        type:type||"shift",
+        ...(memberType==="real"?{created_by:memberId}:{phantom_member_id:memberId})
+      };
+      const{error}=await sb.from("shifts").insert(payload);
+      if(error){window.toast.error(error.message);return false;}
+    }
+    // Refresh
+    const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
+    if(data)setShifts(data);
+    return true;
+  };
+
+  // Hücreye tıkla
+  const openCellEdit=(member,date)=>{
+    const existing=shiftMap[member.id+"|"+date];
+    setCellEdit({
+      memberId:member.id,
+      memberType:member.type,
+      memberName:member.name,
+      position:member.position,
+      date,
+      existing,
+      start:existing?.start_time?.slice(0,5)||"09:00",
+      end:existing?.end_time?.slice(0,5)||"18:00",
+      type:existing?.type||"shift"
+    });
+  };
+
+  // Excel İçe (AI parser)
   const handleFileChange=async(e)=>{
     const file=e.target.files?.[0];
     e.target.value="";
     if(!file)return;
     if(!team?.id){window.toast.error(lang==="tr"?"Önce ekip oluşturun":"Create a team first");return;}
-    
     let rows=[];
     try{
       const isExcel=/\.(xlsx|xls)$/i.test(file.name);
@@ -6733,258 +6866,327 @@ const ShiftTab=({team,teamMembers,user,t})=>{
         const text=await file.text();
         rows=text.split(/\r?\n/).filter(l=>l.trim()).map(l=>l.split(/\t|,/));
       }
-    }catch(err){
-      window.toast.error((lang==="tr"?"Dosya okunamadı: ":"File read error: ")+err.message);
-      return;
-    }
+    }catch(err){window.toast.error((lang==="tr"?"Dosya okunamadı: ":"File read error: ")+err.message);return;}
     if(rows.length<2){window.toast.error(lang==="tr"?"Geçersiz dosya":"Invalid file");return;}
-    
     setAiLoading(true);
     try{
       const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev/parse-shift-excel",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
+        method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({rows:rows.map(r=>r.map(c=>String(c))),startDate:importDate,lang})
       });
       if(!resp.ok)throw new Error("HTTP "+resp.status);
       const data=await resp.json();
       if(data.error)throw new Error(data.error);
-      
       const flat=[];
       for(const s of (data.shifts||[])){
         for(const e of (s.entries||[])){
           if(!e.date||!e.start||!e.end)continue;
-          flat.push({
-            name:s.name||"",
-            position:s.position||"Vardiya",
-            date:e.date,
-            start:(e.start.length===5?e.start:e.start.slice(0,5)),
-            end:(e.end.length===5?e.end:e.end.slice(0,5))
-          });
+          flat.push({name:s.name||"",position:s.position||"Vardiya",date:e.date,start:e.start.slice(0,5),end:e.end.slice(0,5)});
         }
       }
-      if(flat.length===0){
-        window.toast.error(lang==="tr"?"AI hiç vardiya bulamadı":"AI found no shifts");
-      }else{
-        setPreviewShifts(flat);
-      }
-    }catch(err){
-      window.toast.error((lang==="tr"?"AI hatası: ":"AI error: ")+err.message);
-    }finally{
-      setAiLoading(false);
-    }
+      if(flat.length===0)window.toast.error(lang==="tr"?"AI hiç vardiya bulamadı":"AI found no shifts");
+      else setPreviewShifts(flat);
+    }catch(err){window.toast.error((lang==="tr"?"AI hatası: ":"AI error: ")+err.message);}
+    finally{setAiLoading(false);}
   };
 
-  const updatePreview=(i,field,value)=>{
-    setPreviewShifts(prev=>{
-      const copy=[...prev];
-      copy[i]={...copy[i],[field]:value};
-      return copy;
-    });
-  };
-  const removePreview=(i)=>{
-    setPreviewShifts(prev=>prev.filter((_,idx)=>idx!==i));
-  };
+  const updatePreview=(i,field,value)=>setPreviewShifts(prev=>{const c=[...prev];c[i]={...c[i],[field]:value};return c;});
+  const removePreview=(i)=>setPreviewShifts(prev=>prev.filter((_,idx)=>idx!==i));
 
   const importAll=async()=>{
     if(!previewShifts||!previewShifts.length)return;
     const sb=initSupabase();if(!sb)return;
-    let success=0,failed=0;
+    let success=0,failed=0,newPhantoms=[];
     for(const s of previewShifts){
-      const sName=(s.name||"").toLowerCase().trim();
-      const member=teamMembers.find(m=>{
-        const mn=(m.name||"").toLowerCase().trim();
-        return mn===sName||mn.includes(sName)||sName.includes(mn);
-      });
-      const creator=member?.userId||member?.user_id||user?.userId;
-      if(!creator){failed++;continue;}
-      
-      const payload={
-        team_id:team.id,
-        name:s.position||"Vardiya",
-        start_time:s.start.length===5?s.start+":00":s.start,
-        end_time:s.end.length===5?s.end+":00":s.end,
-        date:s.date,
-        tasks:[],
-        created_by:creator
-      };
-      const{error}=await sb.from("shifts").upsert(payload,{onConflict:"team_id,date,created_by"});
-      if(error){
-        console.error("Vardiya hatası:",error.message,payload);
-        failed++;
-      }else{
-        success++;
+      const sName=(s.name||"").trim();
+      const sNameLower=sName.toLowerCase();
+      const realMember=teamMembers.find(m=>{const mn=(m.name||"").toLowerCase().trim();return mn===sNameLower||mn.includes(sNameLower)||sNameLower.includes(mn);});
+      let phantomId=null,creator=null;
+      if(realMember)creator=realMember.userId||realMember.user_id;
+      else{
+        const allP=[...phantomMembers,...newPhantoms];
+        let phantom=allP.find(p=>{const pn=(p.name||"").toLowerCase().trim();return pn===sNameLower||pn.includes(sNameLower)||sNameLower.includes(pn);});
+        if(!phantom){
+          const{data:created,error:perr}=await sb.from("team_phantom_members").insert({team_id:team.id,name:sName,position:s.position||null,created_by:user.userId}).select().single();
+          if(perr){failed++;continue;}
+          phantom=created;newPhantoms.push(created);
+        }
+        phantomId=phantom.id;
       }
+      try{
+        let delQ=sb.from("shifts").delete().eq("team_id",team.id).eq("date",s.date);
+        if(creator)delQ=delQ.eq("created_by",creator);
+        else if(phantomId)delQ=delQ.eq("phantom_member_id",phantomId);
+        await delQ;
+        const{error}=await sb.from("shifts").insert({
+          team_id:team.id,name:s.position||"Vardiya",member_name:sName,
+          start_time:s.start+":00",end_time:s.end+":00",date:s.date,tasks:[],type:"shift",
+          created_by:creator,phantom_member_id:phantomId
+        });
+        if(error){failed++;continue;}
+        success++;
+      }catch(e){failed++;}
     }
-    
-    const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(200);
+    if(newPhantoms.length>0&&setPhantomMembers){
+      setPhantomMembers(prev=>[...prev,...newPhantoms]);
+      LS.set("kmc_phantom_members",[...phantomMembers,...newPhantoms]);
+    }
+    const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
     if(data)setShifts(data);
-    
-    if(failed===0){
-      window.toast.success(lang==="tr"?`✓ ${success} vardiya eklendi`:`✓ ${success} shifts added`);
-    }else{
-      window.toast.warning(lang==="tr"?`${success} eklendi, ${failed} hata`:`${success} added, ${failed} failed`);
-    }
+    window.toast.success(lang==="tr"?`✓ ${success} vardiya${newPhantoms.length?` (${newPhantoms.length} yeni üye)`:""}`:`✓ ${success} shifts`);
     setPreviewShifts(null);
   };
 
-  const addManual=async()=>{
-    if(!form.memberId){window.toast.error(lang==="tr"?"Üye seçin":"Select a member");return;}
-    const member=teamMembers.find(m=>(m.userId||m.user_id)===form.memberId);
-    if(!member)return;
-    const sb=initSupabase();if(!sb)return;
-    const{error}=await sb.from("shifts").upsert({
-      team_id:team.id,
-      name:form.name,
-      start_time:form.start+":00",
-      end_time:form.end+":00",
-      date:form.date,
-      tasks:[],
-      created_by:form.memberId
-    },{onConflict:"team_id,date,created_by"});
-    if(error){window.toast.error(error.message);return;}
-    const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(200);
-    if(data)setShifts(data);
-    setShowNew(false);
-    window.toast.success(lang==="tr"?"Vardiya eklendi":"Shift added");
+  // ═══ DIŞA AKTAR — Excel ═══
+  const exportExcel=()=>{
+    if(typeof XLSX==="undefined"){window.toast.error("XLSX yüklenemedi");return;}
+    const headerRow=[lang==="tr"?"Pozisyon":"Position",lang==="tr"?"İsim":"Name",lang==="tr"?"Toplam Saat":"Total Hours",lang==="tr"?"Kalan İzin":"Leave Left"];
+    weekDays.forEach(d=>headerRow.push(`${d.dayNum} ${d.weekday}`));
+    const data=[headerRow];
+    allMembers.forEach(m=>{
+      const row=[m.position||"",m.name,calcHours(m.id),m.annual_leave_total-calcUsedLeave(m.id)];
+      weekDays.forEach(d=>{
+        const s=shiftMap[m.id+"|"+d.date];
+        if(!s)row.push("");
+        else if(s.type==="leave")row.push(lang==="tr"?"İZİN":"LEAVE");
+        else if(s.type==="off")row.push("OFF");
+        else row.push(`${s.start_time?.slice(0,5)}-${s.end_time?.slice(0,5)}`);
+      });
+      data.push(row);
+    });
+    const ws=XLSX.utils.aoa_to_sheet(data);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"Vardiya");
+    XLSX.writeFile(wb,`vardiya_${weekStart}.xlsx`);
+    setExportMenuOpen(false);
   };
 
-  const deleteShift=async(id)=>{
-    if(!confirm(lang==="tr"?"Silinsin mi?":"Delete?"))return;
-    const sb=initSupabase();if(!sb)return;
-    const{error}=await sb.from("shifts").delete().eq("id",id);
-    if(error){window.toast.error(error.message);return;}
-    setShifts(prev=>prev.filter(s=>s.id!==id));
+  // ═══ DIŞA AKTAR — PDF (yazdır penceresi PDF olarak kaydedebilir) ═══
+  const exportPDF=()=>{printTable("pdf");setExportMenuOpen(false);};
+  const exportPrint=()=>{printTable("print");setExportMenuOpen(false);};
+
+  const printTable=(mode)=>{
+    const w=window.open("","_blank");
+    if(!w){window.toast.error(lang==="tr"?"Popup engellendi":"Popup blocked");return;}
+    const weekLabel=`${new Date(weekDays[0].date).toLocaleDateString("tr-TR")} - ${new Date(weekDays[6].date).toLocaleDateString("tr-TR")}`;
+    let html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Vardiya ${weekLabel}</title>
+      <style>
+        body{font-family:Arial,sans-serif;font-size:11px;margin:20px}
+        h1{font-size:16px;margin-bottom:6px}
+        .meta{color:#666;font-size:10px;margin-bottom:12px}
+        table{border-collapse:collapse;width:100%}
+        th,td{border:1px solid #888;padding:4px 6px;text-align:center}
+        th{background:#f3f4f6;font-weight:bold}
+        .pos{text-align:left;background:#fbbf24;font-weight:bold}
+        .name{text-align:left;font-weight:600}
+        .weekend{background:#fef3c7}
+        .holiday{background:#fee2e2}
+        .leave{background:#dcfce7;font-weight:bold}
+        .off{background:#f3f4f6;color:#999}
+        @media print{body{margin:0}}
+      </style></head><body>
+      <h1>📅 ${team.name} — ${lang==="tr"?"Haftalık Vardiya":"Weekly Shifts"}</h1>
+      <div class="meta">${weekLabel}</div>
+      <table><thead><tr>
+        <th>${lang==="tr"?"Pozisyon":"Position"}</th>
+        <th>${lang==="tr"?"İsim":"Name"}</th>
+        <th>${lang==="tr"?"Toplam":"Total"}</th>
+        <th>${lang==="tr"?"İzin":"Leave"}</th>`;
+    weekDays.forEach(d=>{
+      const isH=!!holidays[d.date];
+      html+=`<th class="${isH?"holiday":(d.isWeekend?"weekend":"")}">${d.dayNum} ${d.weekday}${isH?" 🎌":""}</th>`;
+    });
+    html+=`</tr></thead><tbody>`;
+    allMembers.forEach(m=>{
+      html+=`<tr><td class="pos">${m.position||""}</td><td class="name">${m.name}</td><td>${calcHours(m.id)}</td><td>${m.annual_leave_total-calcUsedLeave(m.id)}</td>`;
+      weekDays.forEach(d=>{
+        const s=shiftMap[m.id+"|"+d.date];
+        const isH=!!holidays[d.date];
+        const cls=s?.type==="leave"?"leave":(s?.type==="off"?"off":(isH?"holiday":(d.isWeekend?"weekend":"")));
+        let txt="";
+        if(s){
+          if(s.type==="leave")txt=lang==="tr"?"İZİN":"LEAVE";
+          else if(s.type==="off")txt="OFF";
+          else txt=`${s.start_time?.slice(0,5)}-${s.end_time?.slice(0,5)}`;
+        }
+        html+=`<td class="${cls}">${txt}</td>`;
+      });
+      html+=`</tr>`;
+    });
+    html+=`</tbody></table>
+      <script>window.onload=()=>{${mode==="print"?"window.print();":""}};</script>
+      </body></html>`;
+    w.document.write(html);
+    w.document.close();
   };
 
   if(!team){
-    return <div style={{padding:24,textAlign:"center",color:t.tm}}>
-      {lang==="tr"?"Vardiya için önce ekip oluşturun.":"Create a team first for shifts."}
-    </div>;
+    return <div style={{padding:24,textAlign:"center",color:t.tm}}>{lang==="tr"?"Vardiya için önce ekip oluşturun.":"Create a team first."}</div>;
   }
 
-  const byDate={};
-  shifts.forEach(s=>{
-    if(!byDate[s.date])byDate[s.date]=[];
-    byDate[s.date].push(s);
-  });
-  const sortedDates=Object.keys(byDate).sort();
+  const weekLabel=`${new Date(weekDays[0].date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short"})} - ${new Date(weekDays[6].date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short",year:"numeric"})}`;
 
-  return <div style={{padding:"12px 14px"}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
-      <h2 style={{fontSize:18,fontWeight:700,color:t.text,margin:0,display:"flex",alignItems:"center",gap:8}}>
-        <span>⏰</span>{lang==="tr"?"Vardiya":"Shifts"}
-      </h2>
-      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-        <input type="date" value={importDate} onChange={e=>setImportDate(e.target.value)} title={lang==="tr"?"Excel başlangıç tarihi":"Excel start date"} style={{...iSt(t),fontSize:11,padding:"6px 8px",width:130}}/>
-        <button onClick={()=>fileInputRef.current?.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"Excel İçe":"Import Excel"}</button>
+  return <div style={{padding:"10px 12px"}}>
+    {/* Üst bar */}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <button onClick={()=>shiftWeek(-1)} style={{...bSt("s",t),padding:"6px 10px",fontSize:13}}>◀</button>
+        <div style={{fontSize:13,fontWeight:700,color:t.text,minWidth:140,textAlign:"center"}}>{weekLabel}</div>
+        <button onClick={()=>shiftWeek(1)} style={{...bSt("s",t),padding:"6px 10px",fontSize:13}}>▶</button>
+        <button onClick={()=>setWeekStart(getMondayOf(new Date()))} style={{...bSt("s",t),fontSize:10,padding:"4px 8px"}}>{lang==="tr"?"Bu Hafta":"This Week"}</button>
+      </div>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",position:"relative"}}>
+        <input type="date" value={importDate} onChange={e=>setImportDate(e.target.value)} title={lang==="tr"?"Excel başlangıç tarihi":"Excel start"} style={{...iSt(t),fontSize:10,padding:"4px 6px",width:120}}/>
+        <button onClick={()=>fileInputRef.current?.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"İçe":"Import"}</button>
         <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={handleFileChange}/>
+        <button onClick={()=>setExportMenuOpen(!exportMenuOpen)} style={{...bSt("s",t),fontSize:11}}>📤 {lang==="tr"?"Dışa":"Export"}</button>
+        {exportMenuOpen&&<div style={{position:"absolute",top:34,right:0,background:t.cardBg||t.bg,border:`1px solid ${t.border}`,borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.15)",zIndex:100,minWidth:160}}>
+          <button onClick={exportExcel} style={{display:"block",width:"100%",textAlign:"left",padding:"8px 12px",background:"transparent",border:"none",cursor:"pointer",color:t.text,fontSize:12}}>📊 Excel</button>
+          <button onClick={exportPDF} style={{display:"block",width:"100%",textAlign:"left",padding:"8px 12px",background:"transparent",border:"none",cursor:"pointer",color:t.text,fontSize:12}}>📄 PDF</button>
+          <button onClick={exportPrint} style={{display:"block",width:"100%",textAlign:"left",padding:"8px 12px",background:"transparent",border:"none",cursor:"pointer",color:t.text,fontSize:12}}>🖨️ {lang==="tr"?"Yazdır":"Print"}</button>
+        </div>}
         <button onClick={()=>setShowHoliday(!showHoliday)} style={{...bSt("s",t),fontSize:11}}>🎌</button>
-        <button onClick={()=>setShowNew(true)} style={{...bSt("p",t),fontSize:11}}>+ {lang==="tr"?"Ekle":"Add"}</button>
       </div>
     </div>
 
-    {!loading&&shifts.length===0&&<div style={{textAlign:"center",padding:"40px 20px",color:t.tm}}>
-      <div style={{fontSize:32,marginBottom:8}}>⏰</div>
-      <div style={{fontSize:14}}>{lang==="tr"?"Vardiya yok":"No shifts"}</div>
-      <div style={{fontSize:12,marginTop:4}}>{lang==="tr"?"Excel'den içe aktarın veya manuel ekleyin":"Import Excel or add manually"}</div>
+    {/* Tablo */}
+    {allMembers.length===0?<div style={{textAlign:"center",padding:40,color:t.tm}}>
+      <div style={{fontSize:32,marginBottom:8}}>👥</div>
+      <div style={{fontSize:13}}>{lang==="tr"?"Henüz üye yok":"No members"}</div>
+      <div style={{fontSize:11,marginTop:4}}>{lang==="tr"?"Ayarlar → Ekip'ten üye ekleyin":"Add members from Settings → Team"}</div>
+    </div>:<div style={{overflowX:"auto",border:`1px solid ${t.border}`,borderRadius:8,background:t.cardBg||t.bg}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:800}}>
+        <thead>
+          <tr style={{background:t.inBg||"#f9fafb"}}>
+            <th style={{padding:"6px 8px",textAlign:"left",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.tm,whiteSpace:"nowrap",position:"sticky",left:0,background:t.inBg||"#f9fafb",zIndex:2}}>{lang==="tr"?"Pozisyon":"Position"}</th>
+            <th style={{padding:"6px 8px",textAlign:"left",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.tm,whiteSpace:"nowrap"}}>{lang==="tr"?"İsim":"Name"}</th>
+            <th style={{padding:"6px 6px",textAlign:"center",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.tm,whiteSpace:"nowrap"}}>{lang==="tr"?"Saat":"Hrs"}</th>
+            <th style={{padding:"6px 6px",textAlign:"center",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.tm,whiteSpace:"nowrap"}}>{lang==="tr"?"İzin":"Lv"}</th>
+            {weekDays.map(d=>{
+              const isH=!!holidays[d.date];
+              const bg=isH?"#fee2e2":(d.isWeekend?"#fef3c7":(t.inBg||"#f9fafb"));
+              return <th key={d.date} style={{padding:"6px 4px",textAlign:"center",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.text,whiteSpace:"nowrap",background:bg,minWidth:80}}>
+                <div>{d.dayNum} {d.weekday}</div>
+                {isH&&<div style={{fontSize:9,color:"#dc2626"}}>🎌</div>}
+              </th>;
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {allMembers.map((m,idx)=>{
+            const hours=calcHours(m.id);
+            const leaveLeft=m.annual_leave_total-calcUsedLeave(m.id);
+            return <tr key={m.id}>
+              <td style={{padding:"5px 8px",borderBottom:`1px solid ${t.border}`,fontWeight:600,color:t.text,whiteSpace:"nowrap",position:"sticky",left:0,background:idx%2?t.bg:(t.cardBg||t.bg),zIndex:1,fontSize:11}}>{m.position||"—"}</td>
+              <td style={{padding:"5px 8px",borderBottom:`1px solid ${t.border}`,color:t.text,whiteSpace:"nowrap",fontSize:11}}>{m.name}{m.type==="phantom"&&<span style={{fontSize:9,color:t.tm,marginLeft:4}}>👤❓</span>}</td>
+              <td style={{padding:"5px 6px",borderBottom:`1px solid ${t.border}`,textAlign:"center",color:t.text,fontSize:11,fontWeight:600}}>{hours}</td>
+              <td style={{padding:"5px 6px",borderBottom:`1px solid ${t.border}`,textAlign:"center",color:leaveLeft<3?t.danger:t.tm,fontSize:11}}>{leaveLeft}</td>
+              {weekDays.map(d=>{
+                const s=shiftMap[m.id+"|"+d.date];
+                const isH=!!holidays[d.date];
+                let bg="transparent",txt="",fg=t.text,fw=400;
+                if(s){
+                  if(s.type==="leave"){bg="#dcfce7";txt=lang==="tr"?"İZİN":"LEAVE";fg="#15803d";fw=700;}
+                  else if(s.type==="off"){bg="#f3f4f6";txt="OFF";fg="#9ca3af";}
+                  else{txt=`${s.start_time?.slice(0,5)}-${s.end_time?.slice(0,5)}`;}
+                }
+                if(!s&&isH)bg="#fee2e2";
+                else if(!s&&d.isWeekend)bg="#fef9c3";
+                return <td key={d.date} onClick={()=>openCellEdit(m,d.date)} style={{padding:"5px 4px",borderBottom:`1px solid ${t.border}`,borderLeft:`1px solid ${t.border}`,textAlign:"center",cursor:"pointer",background:bg,color:fg,fontSize:10,fontWeight:fw,whiteSpace:"nowrap"}}>{txt||(isH?"🎌":"")}</td>;
+              })}
+            </tr>;
+          })}
+        </tbody>
+      </table>
     </div>}
 
-    {sortedDates.map(date=>{
-      const isHoliday=holidays[date];
-      return <div key={date} style={{...cSt(t),padding:12,marginBottom:8}}>
-        <div style={{fontSize:13,fontWeight:600,color:t.text,marginBottom:6,display:"flex",justifyContent:"space-between"}}>
-          <span>{new Date(date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"short"})}</span>
-          {isHoliday&&<span style={{fontSize:10,color:"#dc2626",background:"#fee2e2",padding:"2px 6px",borderRadius:4}}>🎌 {isHoliday}</span>}
-        </div>
-        {byDate[date].map(s=>{
-          const member=teamMembers.find(m=>(m.userId||m.user_id)===s.created_by);
-          return <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderTop:`1px solid ${t.border||"#f3f4f6"}`,fontSize:12}}>
-            <div>
-              <div style={{fontWeight:600,color:t.text}}>{member?.name||"—"}</div>
-              <div style={{color:t.tm,fontSize:11}}>{s.name} • {s.start_time?.slice(0,5)}-{s.end_time?.slice(0,5)}</div>
-            </div>
-            <button onClick={()=>deleteShift(s.id)} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14}}>✕</button>
-          </div>;
-        })}
-      </div>;
-    })}
+    {/* Renk açıklamaları */}
+    <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:8,fontSize:10,color:t.tm}}>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#fef9c3",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Hafta Sonu":"Weekend"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#fee2e2",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Resmi Tatil":"Holiday"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#dcfce7",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Yıllık İzin":"Annual Leave"}</span>
+      <span>👤❓ {lang==="tr"?"Kayıtsız üye":"Unregistered"}</span>
+    </div>
 
+    {/* AI Loading */}
     {aiLoading&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:28,textAlign:"center",maxWidth:300}}>
         <div style={{fontSize:36,marginBottom:10}}>🤖</div>
-        <div style={{fontSize:14,fontWeight:600,color:t.text,marginBottom:4}}>{lang==="tr"?"AI tabloyu okuyor...":"AI is reading..."}</div>
-        <div style={{fontSize:11,color:t.tm}}>{lang==="tr"?"5-15 saniye sürebilir":"5-15 seconds"}</div>
+        <div style={{fontSize:14,fontWeight:600,color:t.text}}>{lang==="tr"?"AI tabloyu okuyor...":"AI is reading..."}</div>
       </div>
     </div>}
 
+    {/* Önizleme modal (Excel import sonrası) */}
     {previewShifts&&<div onClick={e=>{if(e.target===e.currentTarget)setPreviewShifts(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:18,maxWidth:700,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <div style={{fontSize:16,fontWeight:700,color:t.text}}>🤖 {lang==="tr"?"Önizleme":"Preview"}</div>
           <div style={{fontSize:11,color:t.tm}}>{previewShifts.length} {lang==="tr"?"vardiya":"shifts"}</div>
         </div>
-        <div style={{fontSize:11,color:t.tm,marginBottom:10,lineHeight:1.4}}>
-          {lang==="tr"?"Düzenleyebilir veya silebilirsin. İsim, ekipteki bir üye ile eşleşmelidir.":"You can edit or remove rows. Name must match a team member."}
-        </div>
-        <div style={{flex:1,overflow:"auto",border:`1px solid ${t.border||"#e5e7eb"}`,borderRadius:8,padding:8}}>
-          {previewShifts.map((s,i)=>{
-            const memberMatch=teamMembers.find(m=>{
-              const sn=(s.name||"").toLowerCase().trim();
-              const mn=(m.name||"").toLowerCase().trim();
-              return mn===sn||mn.includes(sn)||sn.includes(mn);
-            });
-            return <div key={i} style={{display:"flex",gap:6,alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${t.border||"#f3f4f6"}`,flexWrap:"wrap"}}>
-              <input value={s.name} onChange={e=>updatePreview(i,"name",e.target.value)} placeholder={lang==="tr"?"İsim":"Name"} style={{...iSt(t),fontSize:11,padding:"4px 6px",flex:"1 1 100px",minWidth:100,borderColor:memberMatch?undefined:t.danger}}/>
-              <input value={s.position} onChange={e=>updatePreview(i,"position",e.target.value)} placeholder={lang==="tr"?"Pozisyon":"Position"} style={{...iSt(t),fontSize:11,padding:"4px 6px",flex:"1 1 80px",minWidth:80}}/>
-              <input type="date" value={s.date} onChange={e=>updatePreview(i,"date",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:130}}/>
-              <input type="time" value={s.start} onChange={e=>updatePreview(i,"start",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:80}}/>
-              <input type="time" value={s.end} onChange={e=>updatePreview(i,"end",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:80}}/>
-              <button onClick={()=>removePreview(i)} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14,padding:"0 4px"}}>✕</button>
-            </div>;
-          })}
-          {previewShifts.length===0&&<div style={{padding:20,textAlign:"center",color:t.tm,fontSize:12}}>{lang==="tr"?"Hiç satır kalmadı":"No rows"}</div>}
+        <div style={{flex:1,overflow:"auto",border:`1px solid ${t.border}`,borderRadius:8,padding:8}}>
+          {previewShifts.map((s,i)=><div key={i} style={{display:"flex",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`1px solid ${t.border}`,flexWrap:"wrap"}}>
+            <input value={s.name} onChange={e=>updatePreview(i,"name",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",flex:"1 1 100px"}}/>
+            <input value={s.position} onChange={e=>updatePreview(i,"position",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",flex:"1 1 80px"}}/>
+            <input type="date" value={s.date} onChange={e=>updatePreview(i,"date",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:130}}/>
+            <input type="time" value={s.start} onChange={e=>updatePreview(i,"start",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:80}}/>
+            <input type="time" value={s.end} onChange={e=>updatePreview(i,"end",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:80}}/>
+            <button onClick={()=>removePreview(i)} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14}}>✕</button>
+          </div>)}
         </div>
         <div style={{display:"flex",gap:8,marginTop:12}}>
           <button onClick={()=>setPreviewShifts(null)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-          <button onClick={importAll} disabled={previewShifts.length===0} style={{...bSt("p",t),flex:2,opacity:previewShifts.length===0?0.5:1}}>{lang==="tr"?`✓ ${previewShifts.length} Vardiyayı Aktar`:`✓ Import ${previewShifts.length}`}</button>
+          <button onClick={importAll} style={{...bSt("p",t),flex:2}}>{lang==="tr"?`✓ ${previewShifts.length} Aktar`:`✓ Import ${previewShifts.length}`}</button>
         </div>
       </div>
     </div>}
 
-    {showNew&&<div onClick={e=>{if(e.target===e.currentTarget)setShowNew(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:400,width:"100%"}}>
-        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:14}}>+ {lang==="tr"?"Vardiya Ekle":"Add Shift"}</div>
-        <div style={{display:"grid",gap:10}}>
-          <select value={form.memberId} onChange={e=>setForm({...form,memberId:e.target.value})} style={{...iSt(t)}}>
-            <option value="">{lang==="tr"?"Üye seç":"Select member"}</option>
-            {teamMembers.map(m=><option key={m.userId||m.user_id} value={m.userId||m.user_id}>{m.name}</option>)}
-          </select>
-          <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder={lang==="tr"?"Vardiya adı (Sabah)":"Shift name"} style={{...iSt(t)}}/>
-          <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} style={{...iSt(t)}}/>
-          <div style={{display:"flex",gap:8}}>
-            <input type="time" value={form.start} onChange={e=>setForm({...form,start:e.target.value})} style={{...iSt(t),flex:1}}/>
-            <input type="time" value={form.end} onChange={e=>setForm({...form,end:e.target.value})} style={{...iSt(t),flex:1}}/>
+    {/* Hücre düzenleme modal */}
+    {cellEdit&&<div onClick={e=>{if(e.target===e.currentTarget)setCellEdit(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:380,width:"100%"}}>
+        <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:4}}>{cellEdit.memberName}</div>
+        <div style={{fontSize:11,color:t.tm,marginBottom:14}}>{new Date(cellEdit.date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long"})}</div>
+        
+        {/* Vardiya saati */}
+        <div style={{padding:12,background:t.inBg||"#f9fafb",borderRadius:8,marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:600,color:t.tm,marginBottom:6}}>{lang==="tr"?"VARDİYA SAATİ":"SHIFT TIME"}</div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input type="time" value={cellEdit.start} onChange={e=>setCellEdit({...cellEdit,start:e.target.value,type:"shift"})} style={{...iSt(t),flex:1}}/>
+            <span style={{color:t.tm}}>→</span>
+            <input type="time" value={cellEdit.end} onChange={e=>setCellEdit({...cellEdit,end:e.target.value,type:"shift"})} style={{...iSt(t),flex:1}}/>
           </div>
+          <button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"shift",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ Kaydedildi":"✓ Saved");setCellEdit(null);}
+          }} style={{...bSt("p",t),width:"100%",marginTop:8,fontSize:12}}>{lang==="tr"?"✓ Vardiyayı Kaydet":"✓ Save Shift"}</button>
         </div>
-        <div style={{display:"flex",gap:8,marginTop:14}}>
-          <button onClick={()=>setShowNew(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-          <button onClick={addManual} style={{...bSt("p",t),flex:1}}>{lang==="tr"?"Ekle":"Add"}</button>
+
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"leave",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ İzin eklendi":"✓ Leave added");setCellEdit(null);}
+          }} style={{...bSt("s",t),flex:1,background:"#dcfce7",color:"#15803d",fontSize:12}}>🌴 {lang==="tr"?"YILLIK İZİN":"LEAVE"}</button>
+          <button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"off",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ OFF":"✓ OFF");setCellEdit(null);}
+          }} style={{...bSt("s",t),flex:1,fontSize:12}}>⊘ OFF / {lang==="tr"?"Sil":"Delete"}</button>
         </div>
+        <button onClick={()=>setCellEdit(null)} style={{...bSt("s",t),width:"100%",fontSize:12}}>{lang==="tr"?"İptal":"Cancel"}</button>
       </div>
     </div>}
 
+    {/* Tatiller modal */}
     {showHoliday&&<div onClick={e=>{if(e.target===e.currentTarget)setShowHoliday(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:400,width:"100%"}}>
-        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:10}}>🎌 {lang==="tr"?"Tatiller":"Holidays"}</div>
+        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:10}}>🎌 {lang==="tr"?"Resmi Tatiller":"Holidays"}</div>
         <div style={{maxHeight:300,overflow:"auto"}}>
-          {Object.entries(holidays).sort().map(([d,name])=><div key={d} style={{padding:6,fontSize:12,borderBottom:`1px solid ${t.border||"#f3f4f6"}`}}>{d} — {name}</div>)}
+          {Object.entries(holidays).sort().map(([d,name])=><div key={d} style={{padding:6,fontSize:12,borderBottom:`1px solid ${t.border}`}}>{new Date(d).toLocaleDateString(lang==="tr"?"tr-TR":"en-US")} — {name}</div>)}
         </div>
         <button onClick={()=>setShowHoliday(false)} style={{...bSt("p",t),width:"100%",marginTop:12}}>{lang==="tr"?"Kapat":"Close"}</button>
       </div>
     </div>}
   </div>;
 };
+
 
 
 // ═══ KANBAN TAB ═══
@@ -8156,6 +8358,18 @@ export default function App(){
   const[todos,setTodos]=useState(LS.get("kmc_todos",[]));
   const[team,setTeam]=useState(LS.get("kmc_team",null));
   const[teamMembers,setTeamMembers]=useState(LS.get("kmc_team_members",[]));
+  // Phantom üyeler — uygulamaya kayıtlı olmayan ekip üyeleri
+  const[phantomMembers,setPhantomMembers]=useState(LS.get("kmc_phantom_members",[]));
+  useEffect(()=>{
+    if(!team?.id)return;
+    const sb=initSupabase();if(!sb)return;
+    sb.from("team_phantom_members").select("*").eq("team_id",team.id).order("created_at",{ascending:true}).then(({data,error})=>{
+      if(!error&&data){
+        setPhantomMembers(data);
+        LS.set("kmc_phantom_members",data);
+      }
+    });
+  },[team?.id]);
 
 
   // Parent team bilgisini yükle
@@ -8870,7 +9084,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       {tab==="todo"&&<TodoTab todos={todos} setTodos={setTodos} t={t}/>}
 
       {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile} isManager={true}/>}
-      {tab==="shift"&&<ShiftTab team={team} teamMembers={teamMembers} user={user} t={t}/>}
+      {tab==="shift"&&<ShiftTab team={team} teamMembers={teamMembers} phantomMembers={phantomMembers} setPhantomMembers={setPhantomMembers} user={user} t={t}/>}
       {tab==="botrules"&&<BotRulesTab team={team} teamMembers={teamMembers} user={user} stock={stock} setBotMessages={setBotMessages} t={t}/>}
       {tab==="chat"&&<WAChatTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t} tier="manager"/>}
       {tab==="settings"&&<SettingsTab apiKey={apiKey} setApiKey={setApiKey} dark={dark} setDark={setDark} lang={lang} setLang={setLang} recipes={recipes} stock={stock} invoices={invoices} setRecipes={setRecipes} setStock={setStock} setInvoices={setInvoices} expenses={expenses} setExpenses={setExpenses} storageAreas={storageAreas} setStorageAreas={setStorageAreas} profile={profile} setProfile={setProfile} traceability={traceability} setTraceability={setTraceability} trackedIngs={trackedIngs} setTrackedIngs={setTrackedIngs} resetHour={resetHour} setResetHour={setResetHour} organizations={organizations} setOrganizations={setOrganizations} notifSettings={notifSettings} setNotifSettings={setNotifSettings} printers={printers} setPrinters={setPrinters} setBotMessages={setBotMessages} calorieDB={calorieDB} setCalorieDB={setCalorieDB} user={user} setUser={setUser} authRequired={authRequired} setAuthRequired={setAuthRequired} setShowAuth={setShowAuth} handleLogout={handleLogout} team={team} setTeam={setTeam} teamMembers={teamMembers} setTeamMembers={setTeamMembers} wallpaper={wallpaper} setWallpaper={setWallpaper} customWP={customWP} setCustomWP={setCustomWP} t={t}/>}
