@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
+import Holidays from 'date-holidays'
 
 
 // ═══ TOAST SİSTEMİ ═══
@@ -5071,6 +5072,30 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             📤 {lang==="tr"?"Davet Linkini Paylaş":"Share Invite Link"}
           </button>
         </div>}
+        {/* Ülke / Bölge ayarı */}
+        {team.role==="chef"&&<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🌍 {lang==="tr"?"ÜLKE / BÖLGE":"COUNTRY / REGION"}</div>
+          <div style={{fontSize:11,color:t.tm,marginBottom:8,lineHeight:1.4}}>
+            {lang==="tr"?"Resmi tatiller, hafta sonu günleri ve varsayılan yıllık izin günleri bu seçime göre belirlenir.":"Holidays, weekend days and default annual leave are determined by this selection."}
+          </div>
+          <select value={team.country||"TR"} onChange={async e=>{
+            const newCountry=e.target.value;
+            const newWeekend=getWeekendDays(newCountry);
+            const sb=initSupabase();if(!sb)return;
+            const{error}=await sb.from("teams").update({country:newCountry,weekend_days:newWeekend}).eq("id",team.id);
+            if(error){window.toast.error(error.message);return;}
+            const updated={...team,country:newCountry,weekend_days:newWeekend};
+            setTeam(updated);
+            LS.set("kmc_team",updated);
+            window.toast.success(lang==="tr"?"✓ Ülke güncellendi":"✓ Country updated");
+          }} style={{...iSt(t),width:"100%",fontSize:13}}>
+            {COMMON_COUNTRIES.map(c=><option key={c.code} value={c.code}>{c.flag} {c.name}</option>)}
+          </select>
+          <div style={{fontSize:10,color:t.tm,marginTop:6,lineHeight:1.4}}>
+            {lang==="tr"?`Varsayılan yıllık izin: ${getDefaultAnnualLeave(team.country||"TR")} gün`:`Default leave: ${getDefaultAnnualLeave(team.country||"TR")} days`}
+          </div>
+        </div>}
+        {team.role==="chef"&&<ShiftPresetsCard team={team} setTeam={setTeam} t={t} lang={lang}/>}
         {/* Üst Ekibe Bağlan */}
         {<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🔗 {lang==="tr"?"ÜST EKİP":"PARENT TEAM"}</div>
@@ -6686,7 +6711,59 @@ const setTeamData=async(teamId,table,jsonData,userId)=>{
 };
 
 
-const getTurkishHolidays=(year)=>{const h={};[`${year}-01-01`,`${year}-04-23`,`${year}-05-01`,`${year}-05-19`,`${year}-07-15`,`${year}-08-30`,`${year}-10-29`].forEach(d=>h[d]="Resmi Tatil");return h;};
+// ═══ TATİL HELPERS ═══
+const _hdCache={};
+const getHolidaysForCountry=(country="TR",year)=>{
+  const key=`${country}-${year}`;
+  if(_hdCache[key])return _hdCache[key];
+  try{
+    const hd=new Holidays(country);
+    const list=hd.getHolidays(year)||[];
+    const result={};
+    list.forEach(h=>{
+      if(h.type==="public"){
+        const d=new Date(h.date).toISOString().slice(0,10);
+        result[d]=h.name||"Holiday";
+      }
+    });
+    _hdCache[key]=result;
+    return result;
+  }catch(e){return {};}
+};
+const getTurkishHolidays=(year)=>getHolidaysForCountry("TR",year);
+const getWeekendDays=(country="TR")=>{
+  const israelLike=["IL"];
+  const fridayCountries=["SA","AE","BH","KW","OM","QA","YE","DZ","EG","IQ","JO","LY","SY","SD"];
+  if(israelLike.includes(country))return[5,6];
+  if(fridayCountries.includes(country))return[5,6];
+  return[0,6];
+};
+const getDefaultAnnualLeave=(country="TR")=>{
+  const map={TR:14,DE:20,FR:25,GB:28,US:10,IT:20,ES:22,NL:20,BE:20,AT:25,CH:20,PL:20,AU:20,JP:10,CA:10,SE:25,NO:25,DK:25,FI:25};
+  return map[country]||14;
+};
+const COMMON_COUNTRIES=[
+  {code:"TR",name:"Türkiye",flag:"🇹🇷"},{code:"DE",name:"Deutschland",flag:"🇩🇪"},
+  {code:"FR",name:"France",flag:"🇫🇷"},{code:"GB",name:"United Kingdom",flag:"🇬🇧"},
+  {code:"US",name:"United States",flag:"🇺🇸"},{code:"IT",name:"Italia",flag:"🇮🇹"},
+  {code:"ES",name:"España",flag:"🇪🇸"},{code:"NL",name:"Nederland",flag:"🇳🇱"},
+  {code:"BE",name:"België",flag:"🇧🇪"},{code:"AT",name:"Österreich",flag:"🇦🇹"},
+  {code:"CH",name:"Schweiz",flag:"🇨🇭"},{code:"PL",name:"Polska",flag:"🇵🇱"},
+  {code:"SE",name:"Sverige",flag:"🇸🇪"},{code:"NO",name:"Norge",flag:"🇳🇴"},
+  {code:"DK",name:"Danmark",flag:"🇩🇰"},{code:"FI",name:"Suomi",flag:"🇫🇮"},
+  {code:"GR",name:"Ελλάδα",flag:"🇬🇷"},{code:"PT",name:"Portugal",flag:"🇵🇹"},
+  {code:"IE",name:"Ireland",flag:"🇮🇪"},{code:"CZ",name:"Česko",flag:"🇨🇿"},
+  {code:"HU",name:"Magyarország",flag:"🇭🇺"},{code:"RO",name:"România",flag:"🇷🇴"},
+  {code:"RU",name:"Россия",flag:"🇷🇺"},{code:"UA",name:"Україна",flag:"🇺🇦"},
+  {code:"CA",name:"Canada",flag:"🇨🇦"},{code:"MX",name:"México",flag:"🇲🇽"},
+  {code:"BR",name:"Brasil",flag:"🇧🇷"},{code:"AR",name:"Argentina",flag:"🇦🇷"},
+  {code:"AU",name:"Australia",flag:"🇦🇺"},{code:"NZ",name:"New Zealand",flag:"🇳🇿"},
+  {code:"JP",name:"日本",flag:"🇯🇵"},{code:"KR",name:"한국",flag:"🇰🇷"},
+  {code:"CN",name:"中国",flag:"🇨🇳"},{code:"IN",name:"भारत",flag:"🇮🇳"},
+  {code:"AE",name:"الإمارات",flag:"🇦🇪"},{code:"SA",name:"السعودية",flag:"🇸🇦"},
+  {code:"IL",name:"ישראל",flag:"🇮🇱"},{code:"EG",name:"مصر",flag:"🇪🇬"},
+  {code:"ZA",name:"South Africa",flag:"🇿🇦"}
+];
 
 // ═══ SHIFT TAB v2 (Sıfırdan, AI tabanlı) ═══
 const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>{
@@ -6717,6 +6794,16 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
   const[weekStart,setWeekStart]=useState(()=>getMondayOf(new Date()));
   // Hücre düzenleme modal
   const[cellEdit,setCellEdit]=useState(null); // {memberId, memberType, date, existing, name}
+  const[yearSummary,setYearSummary]=useState(null);
+  // Hızlı vardiya şablonları (team'den yüklenir)
+  const[presets,setPresets]=useState(team?.shift_presets||[
+    {name:lang==="tr"?"Sabah":"Morning",start:"07:00",end:"15:00"},
+    {name:lang==="tr"?"Akşam":"Evening",start:"15:00",end:"23:00"},
+    {name:lang==="tr"?"Gece":"Night",start:"23:00",end:"07:00"}
+  ]);
+  useEffect(()=>{
+    if(team?.shift_presets&&Array.isArray(team.shift_presets))setPresets(team.shift_presets);
+  },[team?.id]);
 
   useEffect(()=>{
     if(!team?.id)return;
@@ -6727,7 +6814,8 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
       setLoading(false);
     });
     const year=new Date().getFullYear();
-    setHolidays({...getTurkishHolidays(year),...getTurkishHolidays(year+1)});
+    const country=team?.country||"TR";
+    setHolidays({...getHolidaysForCountry(country,year),...getHolidaysForCountry(country,year+1)});
   },[team?.id]);
 
   // Birleşik üye listesi (gerçek + phantom, linked olmayan)
@@ -6753,7 +6841,7 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
         date:`${y}-${m}-${dd}`,
         dayNum:d.getDate(),
         weekday:d.toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"short"}),
-        isWeekend:d.getDay()===0||d.getDay()===6
+        isWeekend:((team?.country?getWeekendDays(team.country):[0,6])).includes(d.getDay())
       });
     }
     return days;
@@ -6790,6 +6878,32 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
   // Kullanılan yıllık izin
   const calcUsedLeave=(memberId)=>{
     return shifts.filter(s=>(s.phantom_member_id===memberId||s.created_by===memberId)&&s.type==="leave").length;
+  };
+  // Tüm izin tiplerini say
+  const calcLeaveByType=(memberId,type)=>{
+    return shifts.filter(s=>(s.phantom_member_id===memberId||s.created_by===memberId)&&s.type===type).length;
+  };
+  // Yıllık özet hesabı
+  const getYearStats=(memberId,year)=>{
+    const yearStr=String(year);
+    const memberShifts=shifts.filter(s=>(s.phantom_member_id===memberId||s.created_by===memberId)&&s.date?.startsWith(yearStr));
+    let totalHours=0,shiftCount=0;
+    const byType={leave:0,sick:0,parental:0,training:0,unpaid:0,off:0};
+    memberShifts.forEach(s=>{
+      if(s.type==="shift"||!s.type){
+        shiftCount++;
+        if(s.start_time&&s.end_time){
+          const[sh,sm]=s.start_time.split(":").map(Number);
+          const[eh,em]=s.end_time.split(":").map(Number);
+          let diff=(eh*60+em)-(sh*60+sm);
+          if(diff<0)diff+=24*60;
+          totalHours+=diff/60;
+        }
+      }else if(byType[s.type]!==undefined){
+        byType[s.type]++;
+      }
+    });
+    return{shiftCount,totalHours,...byType};
   };
 
   // Hafta navigasyonu
@@ -7034,6 +7148,42 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
         <div style={{fontSize:13,fontWeight:700,color:t.text,minWidth:140,textAlign:"center"}}>{weekLabel}</div>
         <button onClick={()=>shiftWeek(1)} style={{...bSt("s",t),padding:"6px 10px",fontSize:13}}>▶</button>
         <button onClick={()=>setWeekStart(getMondayOf(new Date()))} style={{...bSt("s",t),fontSize:10,padding:"4px 8px"}}>{lang==="tr"?"Bu Hafta":"This Week"}</button>
+        <button onClick={async()=>{
+          if(!confirm(lang==="tr"?"Bu haftanın tüm vardiyaları sonraki haftaya kopyalansın mı?":"Copy all this week's shifts to next week?"))return;
+          const sb=initSupabase();if(!sb)return;
+          const weekShifts=shifts.filter(s=>weekDays.some(d=>d.date===s.date));
+          if(weekShifts.length===0){window.toast.info(lang==="tr"?"Bu hafta vardiya yok":"No shifts this week");return;}
+          const nextWeekStart=new Date(weekStart+"T12:00:00");
+          nextWeekStart.setDate(nextWeekStart.getDate()+7);
+          let success=0;
+          for(const s of weekShifts){
+            const oldDate=new Date(s.date+"T12:00:00");
+            const newDate=new Date(oldDate);
+            newDate.setDate(newDate.getDate()+7);
+            const newDateStr=`${newDate.getFullYear()}-${String(newDate.getMonth()+1).padStart(2,"0")}-${String(newDate.getDate()).padStart(2,"0")}`;
+            try{
+              let delQ=sb.from("shifts").delete().eq("team_id",team.id).eq("date",newDateStr);
+              if(s.created_by)delQ=delQ.eq("created_by",s.created_by);
+              else if(s.phantom_member_id)delQ=delQ.eq("phantom_member_id",s.phantom_member_id);
+              await delQ;
+              const{error}=await sb.from("shifts").insert({
+                team_id:team.id,name:s.name,member_name:s.member_name,
+                start_time:s.start_time,end_time:s.end_time,
+                date:newDateStr,tasks:[],type:s.type||"shift",
+                created_by:s.created_by,phantom_member_id:s.phantom_member_id
+              });
+              if(!error)success++;
+            }catch(e){}
+          }
+          const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
+          if(data)setShifts(data);
+          window.toast.success(lang==="tr"?`✓ ${success} vardiya kopyalandı`:`✓ ${success} copied`);
+          // Sonraki haftaya geç
+          const y=nextWeekStart.getFullYear();
+          const m=String(nextWeekStart.getMonth()+1).padStart(2,"0");
+          const dd=String(nextWeekStart.getDate()).padStart(2,"0");
+          setWeekStart(`${y}-${m}-${dd}`);
+        }} title={lang==="tr"?"Bu haftayı sonrakine kopyala":"Copy to next week"} style={{...bSt("s",t),fontSize:10,padding:"4px 8px"}}>📋➡</button>
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",position:"relative"}}>
         <input type="date" value={importDate} onChange={e=>setImportDate(e.target.value)} title={lang==="tr"?"Excel başlangıç tarihi":"Excel start"} style={{...iSt(t),fontSize:10,padding:"4px 6px",width:120}}/>
@@ -7078,7 +7228,7 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
             const leaveLeft=m.annual_leave_total-calcUsedLeave(m.id);
             return <tr key={m.id}>
               <td style={{padding:"5px 8px",borderBottom:`1px solid ${t.border}`,fontWeight:600,color:t.text,whiteSpace:"nowrap",position:"sticky",left:0,background:idx%2?t.bg:(t.cardBg||t.bg),zIndex:1,fontSize:11}}>{m.position||"—"}</td>
-              <td style={{padding:"5px 8px",borderBottom:`1px solid ${t.border}`,color:t.text,whiteSpace:"nowrap",fontSize:11}}>{m.name}{m.type==="phantom"&&<span style={{fontSize:9,color:t.tm,marginLeft:4}}>👤❓</span>}</td>
+              <td onClick={()=>setYearSummary({memberId:m.id,memberName:m.name,memberType:m.type})} style={{padding:"5px 8px",borderBottom:`1px solid ${t.border}`,color:t.text,whiteSpace:"nowrap",fontSize:11,cursor:"pointer",textDecoration:"underline",textDecorationColor:t.tm,textDecorationStyle:"dotted",textUnderlineOffset:3}}>{m.name}{m.type==="phantom"&&<span style={{fontSize:9,color:t.tm,marginLeft:4}}>👤❓</span>}</td>
               <td style={{padding:"5px 6px",borderBottom:`1px solid ${t.border}`,textAlign:"center",color:t.text,fontSize:11,fontWeight:600}}>{hours}</td>
               <td style={{padding:"5px 6px",borderBottom:`1px solid ${t.border}`,textAlign:"center",color:leaveLeft<3?t.danger:t.tm,fontSize:11}}>{leaveLeft}</td>
               {weekDays.map(d=>{
@@ -7087,6 +7237,10 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
                 let bg="transparent",txt="",fg=t.text,fw=400;
                 if(s){
                   if(s.type==="leave"){bg="#dcfce7";txt=lang==="tr"?"İZİN":"LEAVE";fg="#15803d";fw=700;}
+                  else if(s.type==="sick"){bg="#ffedd5";txt=lang==="tr"?"HSP":"SICK";fg="#c2410c";fw=700;}
+                  else if(s.type==="parental"){bg="#fce7f3";txt=lang==="tr"?"DOĞ":"PAR";fg="#9d174d";fw=700;}
+                  else if(s.type==="training"){bg="#dbeafe";txt=lang==="tr"?"EĞT":"TRN";fg="#1e40af";fw=700;}
+                  else if(s.type==="unpaid"){bg="#e5e7eb";txt=lang==="tr"?"ÜCR":"UNP";fg="#374151";fw=700;}
                   else if(s.type==="off"){bg="#f3f4f6";txt="OFF";fg="#9ca3af";}
                   else{txt=`${s.start_time?.slice(0,5)}-${s.end_time?.slice(0,5)}`;}
                 }
@@ -7105,7 +7259,10 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
       <span><span style={{display:"inline-block",width:10,height:10,background:"#fef9c3",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Hafta Sonu":"Weekend"}</span>
       <span><span style={{display:"inline-block",width:10,height:10,background:"#fee2e2",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Resmi Tatil":"Holiday"}</span>
       <span><span style={{display:"inline-block",width:10,height:10,background:"#dcfce7",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Yıllık İzin":"Annual Leave"}</span>
-      <span>👤❓ {lang==="tr"?"Kayıtsız üye":"Unregistered"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#ffedd5",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Hastalık":"Sick"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#fce7f3",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Doğum":"Parental"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#dbeafe",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Eğitim":"Training"}</span>
+      <span>👤❓ {lang==="tr"?"Kayıtsız":"Unregistered"}</span>
     </div>
 
     {/* AI Loading */}
@@ -7140,12 +7297,72 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
       </div>
     </div>}
 
+    {/* Yıllık Özet Modal */}
+    {yearSummary&&(()=>{
+      const year=new Date(weekStart).getFullYear();
+      const stats=getYearStats(yearSummary.memberId,year);
+      const m=allMembers.find(x=>x.id===yearSummary.memberId);
+      const leaveLeft=(m?.annual_leave_total||14)-stats.leave;
+      return <div onClick={e=>{if(e.target===e.currentTarget)setYearSummary(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:420,width:"100%"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:18,fontWeight:700,color:t.text}}>{yearSummary.memberName}</div>
+              <div style={{fontSize:12,color:t.tm}}>{year} {lang==="tr"?"yıllık özeti":"summary"}</div>
+            </div>
+            <button onClick={()=>setYearSummary(null)} style={{background:"transparent",border:"none",fontSize:18,cursor:"pointer",color:t.tm}}>✕</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div style={{padding:10,background:t.inBg||"#f9fafb",borderRadius:8}}>
+              <div style={{fontSize:10,color:t.tm,fontWeight:600}}>{lang==="tr"?"Toplam Vardiya":"Total Shifts"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:t.text}}>{stats.shiftCount}</div>
+            </div>
+            <div style={{padding:10,background:t.inBg||"#f9fafb",borderRadius:8}}>
+              <div style={{fontSize:10,color:t.tm,fontWeight:600}}>{lang==="tr"?"Toplam Saat":"Total Hours"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:t.text}}>{Math.round(stats.totalHours)}</div>
+            </div>
+            <div style={{padding:10,background:"#dcfce7",borderRadius:8}}>
+              <div style={{fontSize:10,color:"#15803d",fontWeight:600}}>🌴 {lang==="tr"?"Yıllık İzin":"Leave"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#15803d"}}>{stats.leave} / {m?.annual_leave_total||14}</div>
+              <div style={{fontSize:9,color:"#15803d",marginTop:2}}>{lang==="tr"?`${leaveLeft} gün kaldı`:`${leaveLeft} days left`}</div>
+            </div>
+            <div style={{padding:10,background:"#ffedd5",borderRadius:8}}>
+              <div style={{fontSize:10,color:"#c2410c",fontWeight:600}}>🤒 {lang==="tr"?"Hastalık":"Sick"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#c2410c"}}>{stats.sick}</div>
+            </div>
+            <div style={{padding:10,background:"#fce7f3",borderRadius:8}}>
+              <div style={{fontSize:10,color:"#9d174d",fontWeight:600}}>👶 {lang==="tr"?"Doğum/Babalık":"Parental"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#9d174d"}}>{stats.parental}</div>
+            </div>
+            <div style={{padding:10,background:"#dbeafe",borderRadius:8}}>
+              <div style={{fontSize:10,color:"#1e40af",fontWeight:600}}>📚 {lang==="tr"?"Eğitim":"Training"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#1e40af"}}>{stats.training}</div>
+            </div>
+            <div style={{padding:10,background:"#e5e7eb",borderRadius:8,gridColumn:"span 2"}}>
+              <div style={{fontSize:10,color:"#374151",fontWeight:600}}>💸 {lang==="tr"?"Ücretsiz İzin":"Unpaid Leave"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#374151"}}>{stats.unpaid}</div>
+            </div>
+          </div>
+        </div>
+      </div>;
+    })()}
+
     {/* Hücre düzenleme modal */}
     {cellEdit&&<div onClick={e=>{if(e.target===e.currentTarget)setCellEdit(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:380,width:"100%"}}>
         <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:4}}>{cellEdit.memberName}</div>
         <div style={{fontSize:11,color:t.tm,marginBottom:14}}>{new Date(cellEdit.date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long"})}</div>
         
+        {/* Hızlı şablonlar */}
+        {presets.length>0&&<div style={{marginBottom:10}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,marginBottom:6,letterSpacing:"0.05em"}}>⚡ {lang==="tr"?"HIZLI SEÇİM":"QUICK SELECT"}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {presets.map((p,i)=><button key={i} onClick={async()=>{
+              const ok=await saveCell({...cellEdit,start:p.start,end:p.end,type:"shift",name:cellEdit.memberName});
+              if(ok){window.toast.success(`✓ ${p.name}`);setCellEdit(null);}
+            }} style={{...bSt("s",t),fontSize:11,padding:"6px 10px",flex:"1 1 auto"}}>{p.name}<br/><span style={{fontSize:9,color:t.tm}}>{p.start}-{p.end}</span></button>)}
+          </div>
+        </div>}
         {/* Vardiya saati */}
         <div style={{padding:12,background:t.inBg||"#f9fafb",borderRadius:8,marginBottom:10}}>
           <div style={{fontSize:11,fontWeight:600,color:t.tm,marginBottom:6}}>{lang==="tr"?"VARDİYA SAATİ":"SHIFT TIME"}</div>
@@ -7160,16 +7377,39 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
           }} style={{...bSt("p",t),width:"100%",marginTop:8,fontSize:12}}>{lang==="tr"?"✓ Vardiyayı Kaydet":"✓ Save Shift"}</button>
         </div>
 
-        <div style={{display:"flex",gap:8,marginBottom:8}}>
+        {/* Tip butonları */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
           <button onClick={async()=>{
             const ok=await saveCell({...cellEdit,type:"leave",name:cellEdit.memberName});
-            if(ok){window.toast.success(lang==="tr"?"✓ İzin eklendi":"✓ Leave added");setCellEdit(null);}
-          }} style={{...bSt("s",t),flex:1,background:"#dcfce7",color:"#15803d",fontSize:12}}>🌴 {lang==="tr"?"YILLIK İZİN":"LEAVE"}</button>
+            if(ok){window.toast.success(lang==="tr"?"✓ Yıllık izin":"✓ Annual leave");setCellEdit(null);}
+          }} style={{...bSt("s",t),background:"#dcfce7",color:"#15803d",fontSize:11,padding:"8px 4px"}}>🌴 {lang==="tr"?"Yıllık İzin":"Leave"}</button>
           <button onClick={async()=>{
-            const ok=await saveCell({...cellEdit,type:"off",name:cellEdit.memberName});
-            if(ok){window.toast.success(lang==="tr"?"✓ OFF":"✓ OFF");setCellEdit(null);}
-          }} style={{...bSt("s",t),flex:1,fontSize:12}}>⊘ OFF / {lang==="tr"?"Sil":"Delete"}</button>
+            const ok=await saveCell({...cellEdit,type:"sick",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ Hastalık raporu":"✓ Sick leave");setCellEdit(null);}
+          }} style={{...bSt("s",t),background:"#ffedd5",color:"#c2410c",fontSize:11,padding:"8px 4px"}}>🤒 {lang==="tr"?"Hastalık":"Sick"}</button>
         </div>
+        {cellEdit.showMore?<>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+            <button onClick={async()=>{
+              const ok=await saveCell({...cellEdit,type:"parental",name:cellEdit.memberName});
+              if(ok){window.toast.success(lang==="tr"?"✓ Doğum/Babalık":"✓ Parental");setCellEdit(null);}
+            }} style={{...bSt("s",t),background:"#fce7f3",color:"#9d174d",fontSize:11,padding:"8px 4px"}}>👶 {lang==="tr"?"Doğum/Babalık":"Parental"}</button>
+            <button onClick={async()=>{
+              const ok=await saveCell({...cellEdit,type:"training",name:cellEdit.memberName});
+              if(ok){window.toast.success(lang==="tr"?"✓ Eğitim":"✓ Training");setCellEdit(null);}
+            }} style={{...bSt("s",t),background:"#dbeafe",color:"#1e40af",fontSize:11,padding:"8px 4px"}}>📚 {lang==="tr"?"Eğitim":"Training"}</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+            <button onClick={async()=>{
+              const ok=await saveCell({...cellEdit,type:"unpaid",name:cellEdit.memberName});
+              if(ok){window.toast.success(lang==="tr"?"✓ Ücretsiz izin":"✓ Unpaid");setCellEdit(null);}
+            }} style={{...bSt("s",t),background:"#f3f4f6",color:"#374151",fontSize:11,padding:"8px 4px"}}>💸 {lang==="tr"?"Ücretsiz":"Unpaid"}</button>
+            <button onClick={async()=>{
+              const ok=await saveCell({...cellEdit,type:"off",name:cellEdit.memberName});
+              if(ok){window.toast.success(lang==="tr"?"✓ OFF":"✓ OFF");setCellEdit(null);}
+            }} style={{...bSt("s",t),fontSize:11,padding:"8px 4px"}}>⊘ OFF / {lang==="tr"?"Sil":"Delete"}</button>
+          </div>
+        </>:<button onClick={()=>setCellEdit({...cellEdit,showMore:true})} style={{...bSt("s",t),width:"100%",fontSize:11,padding:"6px",marginBottom:8,color:t.tm}}>+ {lang==="tr"?"Diğer izin tipleri":"More leave types"}</button>}
         <button onClick={()=>setCellEdit(null)} style={{...bSt("s",t),width:"100%",fontSize:12}}>{lang==="tr"?"İptal":"Cancel"}</button>
       </div>
     </div>}
@@ -7188,6 +7428,244 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
 };
 
 
+
+// ═══ HIZLI VARDİYA ŞABLONLARI ═══
+const ShiftPresetsCard=({team,setTeam,t,lang})=>{
+  const defaults=[
+    {name:lang==="tr"?"Sabah":"Morning",start:"07:00",end:"15:00"},
+    {name:lang==="tr"?"Akşam":"Evening",start:"15:00",end:"23:00"},
+    {name:lang==="tr"?"Gece":"Night",start:"23:00",end:"07:00"}
+  ];
+  const[presets,setPresets]=useState(team?.shift_presets&&Array.isArray(team.shift_presets)?team.shift_presets:defaults);
+  const[showAdd,setShowAdd]=useState(false);
+  const[newP,setNewP]=useState({name:"",start:"09:00",end:"18:00"});
+
+  const savePresets=async(list)=>{
+    const sb=initSupabase();if(!sb)return;
+    const{error}=await sb.from("teams").update({shift_presets:list}).eq("id",team.id);
+    if(error){window.toast.error(error.message);return;}
+    setPresets(list);
+    setTeam({...team,shift_presets:list});
+    LS.set("kmc_team",{...team,shift_presets:list});
+  };
+
+  return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+    <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span>⚡ {lang==="tr"?"HIZLI VARDİYA ŞABLONLARI":"QUICK SHIFT TEMPLATES"}</span>
+      <button onClick={()=>setShowAdd(true)} style={{...bSt("s",t),fontSize:10,padding:"4px 10px"}}>+ {lang==="tr"?"Ekle":"Add"}</button>
+    </div>
+    <div style={{fontSize:11,color:t.tm,marginBottom:8,lineHeight:1.4}}>
+      {lang==="tr"?"Vardiya tablosunda bir hücreye tıkladığında bu şablonlar tek tıkla atanabilir.":"These templates appear as one-click options when editing shift cells."}
+    </div>
+    {presets.length===0&&<div style={{fontSize:11,color:t.tm,padding:8,textAlign:"center"}}>{lang==="tr"?"Henüz şablon yok":"No templates"}</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {presets.map((p,i)=><div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:t.bg,border:`1px solid ${t.border}`,borderRadius:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+          <div style={{fontSize:13,fontWeight:600,color:t.text}}>{p.name}</div>
+          <div style={{fontSize:11,color:t.tm}}>{p.start} → {p.end}</div>
+        </div>
+        <button onClick={()=>{if(confirm(lang==="tr"?"Silinsin mi?":"Delete?"))savePresets(presets.filter((_,idx)=>idx!==i));}} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>)}
+    </div>
+    {showAdd&&<div onClick={e=>{if(e.target===e.currentTarget)setShowAdd(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:380,width:"100%"}}>
+        <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:10}}>+ {lang==="tr"?"Yeni Şablon":"New Template"}</div>
+        <div style={{display:"grid",gap:8}}>
+          <input value={newP.name} onChange={e=>setNewP({...newP,name:e.target.value})} placeholder={lang==="tr"?"İsim (Sabah, Pastane vb.)":"Name"} style={{...iSt(t)}}/>
+          <div style={{display:"flex",gap:8}}>
+            <input type="time" value={newP.start} onChange={e=>setNewP({...newP,start:e.target.value})} style={{...iSt(t),flex:1}}/>
+            <input type="time" value={newP.end} onChange={e=>setNewP({...newP,end:e.target.value})} style={{...iSt(t),flex:1}}/>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:12}}>
+          <button onClick={()=>setShowAdd(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
+          <button onClick={async()=>{
+            if(!newP.name.trim()){window.toast.error(lang==="tr"?"İsim gerekli":"Name required");return;}
+            await savePresets([...presets,newP]);
+            setNewP({name:"",start:"09:00",end:"18:00"});
+            setShowAdd(false);
+          }} style={{...bSt("p",t),flex:1}}>{lang==="tr"?"Ekle":"Add"}</button>
+        </div>
+      </div>
+    </div>}
+  </div>;
+};
+
+// ═══ PHANTOM MEMBERS SECTION — Ekip üyeleri (gerçek + phantom) ═══
+const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,user,t,lang})=>{
+  const[showAdd,setShowAdd]=useState(false);
+  const[newPhantom,setNewPhantom]=useState({name:"",position:"",department:"",email:"",phone:""});
+  const[inviteFor,setInviteFor]=useState(null); // phantom obj — davet linki gösterme
+
+  const addPhantom=async()=>{
+    if(!newPhantom.name.trim()){window.toast.error(lang==="tr"?"İsim gerekli":"Name required");return;}
+    const sb=initSupabase();if(!sb)return;
+    const{data,error}=await sb.from("team_phantom_members").insert({
+      team_id:team.id,
+      name:newPhantom.name.trim(),
+      position:newPhantom.position.trim()||null,
+      department:newPhantom.department.trim()||null,
+      email:newPhantom.email.trim()||null,
+      phone:newPhantom.phone.trim()||null,
+      created_by:user.userId
+    }).select().single();
+    if(error){window.toast.error(error.message);return;}
+    setPhantomMembers(prev=>[...prev,data]);
+    LS.set("kmc_phantom_members",[...phantomMembers,data]);
+    setNewPhantom({name:"",position:"",department:"",email:"",phone:""});
+    setShowAdd(false);
+    window.toast.success(lang==="tr"?"✓ Üye eklendi":"✓ Member added");
+  };
+
+  const removePhantom=async(p)=>{
+    if(!confirm(lang==="tr"?`${p.name} silinsin mi? Bu kişinin tüm vardiyaları da silinecek.`:`Delete ${p.name}? All their shifts will be removed.`))return;
+    const sb=initSupabase();if(!sb)return;
+    const{error}=await sb.from("team_phantom_members").delete().eq("id",p.id);
+    if(error){window.toast.error(error.message);return;}
+    setPhantomMembers(prev=>prev.filter(x=>x.id!==p.id));
+    LS.set("kmc_phantom_members",phantomMembers.filter(x=>x.id!==p.id));
+    window.toast.success(lang==="tr"?"Silindi":"Deleted");
+  };
+
+  // Yıllık izin günü güncelle (gerçek veya phantom üye için)
+  const updateLeaveTotal=async(m,newTotal)=>{
+    const sb=initSupabase();if(!sb)return;
+    const val=parseInt(newTotal)||0;
+    if(m.type==="phantom"){
+      const{error}=await sb.from("team_phantom_members").update({annual_leave_total:val}).eq("id",m._id);
+      if(error){window.toast.error(error.message);return;}
+      setPhantomMembers(prev=>prev.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
+      LS.set("kmc_phantom_members",phantomMembers.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
+    }else{
+      const{error}=await sb.from("team_members").update({annual_leave_total:val}).eq("team_id",team.id).eq("user_id",m._id);
+      if(error){window.toast.error(error.message);return;}
+    }
+  };
+
+  const generateInviteToken=async(p)=>{
+    if(p.invite_token){
+      setInviteFor(p);
+      return;
+    }
+    const sb=initSupabase();if(!sb)return;
+    // 24 karakter rastgele token
+    const token=Array.from(crypto.getRandomValues(new Uint8Array(18))).map(b=>b.toString(36)).join("").substring(0,20);
+    const{data,error}=await sb.from("team_phantom_members").update({invite_token:token,invite_created_at:new Date().toISOString()}).eq("id",p.id).select().single();
+    if(error){window.toast.error(error.message);return;}
+    setPhantomMembers(prev=>prev.map(x=>x.id===p.id?data:x));
+    LS.set("kmc_phantom_members",phantomMembers.map(x=>x.id===p.id?data:x));
+    setInviteFor(data);
+  };
+
+  const copyInviteLink=async(p)=>{
+    const link=`${window.location.origin}${window.location.pathname}?invite=${p.invite_token}&team=${team.id}`;
+    try{
+      await navigator.clipboard.writeText(link);
+      window.toast.success(lang==="tr"?"✓ Link kopyalandı":"✓ Link copied");
+    }catch{
+      const ta=document.createElement("textarea");ta.value=link;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);
+      window.toast.success(lang==="tr"?"✓ Link kopyalandı":"✓ Link copied");
+    }
+  };
+
+  const shareWhatsApp=(p)=>{
+    const link=`${window.location.origin}${window.location.pathname}?invite=${p.invite_token}&team=${team.id}`;
+    const msg=lang==="tr"
+      ?`Merhaba ${p.name}, ${team.name} ekibine katılmak için bu linke tıkla:\n${link}`
+      :`Hi ${p.name}, click this link to join ${team.name}:\n${link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`,"_blank");
+  };
+
+  // Birleşik liste — gerçek + phantom (linked olmayan)
+  const allMembers=[
+    ...teamMembers.map(m=>({...m,type:"real",displayName:m.name,_id:m.userId||m.user_id})),
+    ...phantomMembers.filter(p=>!p.linked_user_id).map(p=>({...p,type:"phantom",displayName:p.name,_id:p.id}))
+  ];
+
+  return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12,background:t.inBg}}>
+    <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <span>👥 {lang==="tr"?"EKİP ÜYELERİ":"TEAM MEMBERS"} ({allMembers.length})</span>
+      <button onClick={()=>setShowAdd(true)} style={{...bSt("s",t),fontSize:10,padding:"4px 10px"}}>+ {lang==="tr"?"Üye":"Member"}</button>
+    </div>
+    {allMembers.length===0&&<div style={{fontSize:11,color:t.tm,padding:8,textAlign:"center"}}>{lang==="tr"?"Henüz ekip üyesi yok":"No members yet"}</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {allMembers.map((m,i)=>{
+        const isMe=m.type==="real"&&m._id===user?.userId;
+        const isChef=m.type==="real"&&(m.role==="chef"||m.role==="head_chef"||m.role==="executive_chef");
+        const isPhantom=m.type==="phantom";
+        return <div key={m._id||i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:t.bg,border:`1px solid ${isPhantom?t.tm:t.border}`,borderRadius:8,opacity:isPhantom?0.85:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:isChef?t.accent:(isPhantom?"transparent":t.tm),color:isPhantom?t.tm:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0,border:isPhantom?`2px dashed ${t.tm}`:"none"}}>
+              {(m.displayName||"?").charAt(0).toUpperCase()}
+            </div>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{fontSize:13,fontWeight:600,color:t.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
+                {m.displayName||"-"}
+                {isMe&&<span style={{fontSize:10,color:t.tm,fontWeight:400}}>({lang==="tr"?"Sen":"You"})</span>}
+                {isPhantom&&<span style={{fontSize:9,color:t.tm,fontWeight:400,background:t.bg2||"transparent",padding:"1px 6px",borderRadius:4,border:`1px solid ${t.tm}`}}>{lang==="tr"?"Kayıtsız":"Pending"}</span>}
+              </div>
+              <div style={{fontSize:10,color:t.tm,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                {isChef?"👑 ":""}
+                {isPhantom?(m.position||m.department||(lang==="tr"?"Pozisyon belirsiz":"No position")):
+                  (m.role==="chef"?(lang==="tr"?"Şef":"Chef"):
+                   m.role==="head_chef"?(lang==="tr"?"Baş Şef":"Head Chef"):
+                   m.role==="executive_chef"?(lang==="tr"?"Executive Şef":"Executive Chef"):
+                   m.role==="sous_chef"?"Sous Chef":
+                   m.role==="member"?(lang==="tr"?"Üye":"Member"):(m.role||""))}
+              </div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:t.tm}}>
+              <span title={lang==="tr"?"Yıllık izin günü":"Annual leave days"}>🌴</span>
+              <input type="number" min="0" max="60" defaultValue={m.annual_leave_total||getDefaultAnnualLeave(team?.country||"TR")} onBlur={e=>updateLeaveTotal(m,e.target.value)} style={{...iSt(t),width:48,fontSize:11,padding:"3px 4px",textAlign:"center"}}/>
+            </div>
+            {isPhantom&&<>
+              <button onClick={()=>generateInviteToken(m)} title={lang==="tr"?"Davet linki":"Invite link"} style={{...bSt("s",t),fontSize:11,padding:"4px 8px"}}>🔗</button>
+              <button onClick={()=>removePhantom(m)} title={lang==="tr"?"Sil":"Delete"} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14,padding:"0 4px"}}>✕</button>
+            </>}
+          </div>
+        </div>;
+      })}
+    </div>
+
+    {/* Yeni Phantom Ekle Modal */}
+    {showAdd&&<div onClick={e=>{if(e.target===e.currentTarget)setShowAdd(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:400,width:"100%"}}>
+        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:6}}>+ {lang==="tr"?"Yeni Üye":"New Member"}</div>
+        <div style={{fontSize:11,color:t.tm,marginBottom:12,lineHeight:1.4}}>{lang==="tr"?"Uygulamaya kayıtlı olmayan bir ekip üyesi ekle. Daha sonra davet linki gönderebilirsin.":"Add a member who isn't registered in the app yet. You can send an invite link later."}</div>
+        <div style={{display:"grid",gap:8}}>
+          <input value={newPhantom.name} onChange={e=>setNewPhantom({...newPhantom,name:e.target.value})} placeholder={lang==="tr"?"İsim Soyisim *":"Full name *"} style={{...iSt(t)}}/>
+          <input value={newPhantom.position} onChange={e=>setNewPhantom({...newPhantom,position:e.target.value})} placeholder={lang==="tr"?"Pozisyon (Pastry Chef)":"Position"} style={{...iSt(t)}}/>
+          <input value={newPhantom.department} onChange={e=>setNewPhantom({...newPhantom,department:e.target.value})} placeholder={lang==="tr"?"Departman (Pastane)":"Department"} style={{...iSt(t)}}/>
+          <input value={newPhantom.email} onChange={e=>setNewPhantom({...newPhantom,email:e.target.value})} placeholder="email@example.com" style={{...iSt(t)}}/>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:14}}>
+          <button onClick={()=>setShowAdd(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
+          <button onClick={addPhantom} style={{...bSt("p",t),flex:1}}>{lang==="tr"?"Ekle":"Add"}</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Davet Linki Modal */}
+    {inviteFor&&<div onClick={e=>{if(e.target===e.currentTarget)setInviteFor(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:420,width:"100%"}}>
+        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:4}}>🔗 {lang==="tr"?"Davet Linki":"Invite Link"}</div>
+        <div style={{fontSize:12,color:t.tm,marginBottom:14,lineHeight:1.4}}>
+          <strong>{inviteFor.name}</strong> {lang==="tr"?"için davet linki hazır. Linke tıklayan kişi kayıt olduğunda otomatik olarak bu phantom hesabıyla eşleşir.":"link is ready. When clicked and registered, the user is auto-linked to this phantom."}
+        </div>
+        <div style={{background:t.bg2||t.bg,border:`1px solid ${t.border}`,borderRadius:8,padding:10,marginBottom:12,fontSize:11,wordBreak:"break-all",fontFamily:"monospace",color:t.text}}>
+          {window.location.origin}{window.location.pathname}?invite={inviteFor.invite_token}&team={team.id}
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={()=>copyInviteLink(inviteFor)} style={{...bSt("p",t),flex:"1 1 100px"}}>📋 {lang==="tr"?"Kopyala":"Copy"}</button>
+          <button onClick={()=>shareWhatsApp(inviteFor)} style={{...bSt("s",t),flex:"1 1 100px"}}>💬 WhatsApp</button>
+          <button onClick={()=>setInviteFor(null)} style={{...bSt("s",t),flex:"1 1 100px"}}>{lang==="tr"?"Kapat":"Close"}</button>
+        </div>
+      </div>
+    </div>}
+  </div>;
+};
 
 // ═══ KANBAN TAB ═══
 const ChildTeamsSection=({teamId,t,lang})=>{
