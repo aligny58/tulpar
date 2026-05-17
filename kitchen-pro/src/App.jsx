@@ -7316,13 +7316,20 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
   const[showHoliday,setShowHoliday]=useState(false);
   const[exportMenuOpen,setExportMenuOpen]=useState(false);
   // Hafta navigasyonu (Pazartesi başlangıçlı hafta)
-  const[weekStart,setWeekStart]=useState(()=>{
-    const d=new Date();
-    const day=d.getDay()||7; // Paz=0 -> 7
-    d.setDate(d.getDate()-(day-1));
-    d.setHours(0,0,0,0);
-    return d.toISOString().slice(0,10);
-  });
+  // Verilen tarihin haftasının Pazartesi'sini döndür (lokal saat dilimi)
+  const getMondayOf=(date)=>{
+    const d=new Date(date);
+    d.setHours(12,0,0,0); // gün geçişi sorunlarını önlemek için öğlene sabit
+    const day=d.getDay(); // 0=Paz, 1=Pzt, ..., 6=Cmt
+    const diff=day===0?-6:(1-day); // Paz ise 6 gün geri, değilse (1-day) gün
+    d.setDate(d.getDate()+diff);
+    // Yerel YYYY-MM-DD formatı (toISOString UTC verir, bizde kayma olabilir)
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,"0");
+    const dd=String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${dd}`;
+  };
+  const[weekStart,setWeekStart]=useState(()=>getMondayOf(new Date()));
   // Hücre düzenleme modal
   const[cellEdit,setCellEdit]=useState(null); // {memberId, memberType, date, existing, name}
 
@@ -7350,12 +7357,15 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
   // Haftanın 7 günü
   const weekDays=useMemo(()=>{
     const days=[];
-    const start=new Date(weekStart+"T00:00:00");
+    const start=new Date(weekStart+"T12:00:00");
     for(let i=0;i<7;i++){
       const d=new Date(start);
       d.setDate(d.getDate()+i);
+      const y=d.getFullYear();
+      const m=String(d.getMonth()+1).padStart(2,"0");
+      const dd=String(d.getDate()).padStart(2,"0");
       days.push({
-        date:d.toISOString().slice(0,10),
+        date:`${y}-${m}-${dd}`,
         dayNum:d.getDate(),
         weekday:d.toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"short"}),
         isWeekend:d.getDay()===0||d.getDay()===6
@@ -7399,9 +7409,12 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
 
   // Hafta navigasyonu
   const shiftWeek=(delta)=>{
-    const d=new Date(weekStart+"T00:00:00");
+    const d=new Date(weekStart+"T12:00:00");
     d.setDate(d.getDate()+delta*7);
-    setWeekStart(d.toISOString().slice(0,10));
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,"0");
+    const dd=String(d.getDate()).padStart(2,"0");
+    setWeekStart(`${y}-${m}-${dd}`);
   };
 
   // Hücre kaydet
@@ -7635,10 +7648,7 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
         <button onClick={()=>shiftWeek(-1)} style={{...bSt("s",t),padding:"6px 10px",fontSize:13}}>◀</button>
         <div style={{fontSize:13,fontWeight:700,color:t.text,minWidth:140,textAlign:"center"}}>{weekLabel}</div>
         <button onClick={()=>shiftWeek(1)} style={{...bSt("s",t),padding:"6px 10px",fontSize:13}}>▶</button>
-        <button onClick={()=>{
-          const d=new Date();const day=d.getDay()||7;d.setDate(d.getDate()-(day-1));d.setHours(0,0,0,0);
-          setWeekStart(d.toISOString().slice(0,10));
-        }} style={{...bSt("s",t),fontSize:10,padding:"4px 8px"}}>{lang==="tr"?"Bu Hafta":"This Week"}</button>
+        <button onClick={()=>setWeekStart(getMondayOf(new Date()))} style={{...bSt("s",t),fontSize:10,padding:"4px 8px"}}>{lang==="tr"?"Bu Hafta":"This Week"}</button>
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",position:"relative"}}>
         <input type="date" value={importDate} onChange={e=>setImportDate(e.target.value)} title={lang==="tr"?"Excel başlangıç tarihi":"Excel start"} style={{...iSt(t),fontSize:10,padding:"4px 6px",width:120}}/>
