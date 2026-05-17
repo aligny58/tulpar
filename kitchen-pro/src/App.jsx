@@ -31,100 +31,6 @@ const ToastContainer=()=>{
       <span style={{fontSize:16,fontWeight:700}}>{c.icon}</span>
       <span style={{flex:1,lineHeight:1.4,wordBreak:"break-word"}}>{t.message}</span>
     </div>;})}
-
-    {/* Manuel Etkinlik Modal */}
-    {showManual&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowManual(false);}}>
-      <div style={{background:t.bg,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",padding:"16px 14px calc(20px + env(safe-area-inset-bottom))"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontSize:16,fontWeight:700,color:t.text,fontFamily:"'Fraunces',serif"}}>{manualPreview?(lang==="tr"?"Önizleme — Düzenle":"Preview — Edit"):(lang==="tr"?"Manuel Etkinlik":"Manual Event")}</div>
-          <button onClick={()=>{setShowManual(false);setManualPreview(null);}} style={{background:"none",border:"none",fontSize:22,color:t.tm,cursor:"pointer",padding:"0 6px"}}>✕</button>
-        </div>
-
-        {!manualPreview?<>
-          {/* Form */}
-          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
-            <input style={iSt(t)} placeholder={lang==="tr"?"Etkinlik adı *":"Event name *"} value={manualForm.name} onChange={e=>setManualForm(f=>({...f,name:e.target.value}))}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-              <input style={iSt(t)} type="date" value={manualForm.event_date} onChange={e=>setManualForm(f=>({...f,event_date:e.target.value}))}/>
-              <input style={iSt(t)} type="time" value={manualForm.start_time} onChange={e=>setManualForm(f=>({...f,start_time:e.target.value}))}/>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:6}}>
-              <input style={iSt(t)} type="number" placeholder={lang==="tr"?"Kişi (pax)":"Pax"} value={manualForm.pax} onChange={e=>setManualForm(f=>({...f,pax:e.target.value}))}/>
-              <input style={iSt(t)} placeholder={lang==="tr"?"Lokasyon":"Location"} value={manualForm.location} onChange={e=>setManualForm(f=>({...f,location:e.target.value}))}/>
-            </div>
-            <textarea style={{...iSt(t),minHeight:60,resize:"vertical"}} placeholder={lang==="tr"?"Notlar (opsiyonel)":"Notes (optional)"} value={manualForm.notes} onChange={e=>setManualForm(f=>({...f,notes:e.target.value}))}/>
-            <div>
-              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>🍽 {lang==="tr"?"MENÜ KALEMLERI (her satıra bir kalem)":"MENU ITEMS (one per line)"}</div>
-              <textarea style={{...iSt(t),minHeight:120,resize:"vertical",fontFamily:"monospace",fontSize:13}} placeholder={lang==="tr"?"Domates çorbası\nLevrek ızgara\nCrème brûlée\nKokteyl seçimi":"Tomato soup\nGrilled sea bass\nCrème brûlée\nCocktail selection"} value={manualForm.items} onChange={e=>setManualForm(f=>({...f,items:e.target.value}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>📷 {lang==="tr"?"FOTOĞRAFLAR (opsiyonel, max 5)":"PHOTOS (optional, max 5)"}</div>
-              {manualForm.photos.length>0&&<div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
-                {manualForm.photos.map((p,i)=><div key={i} style={{position:"relative",width:60,height:60}}>
-                  <img src={p} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8,border:`1px solid ${t.border}`}}/>
-                  <button onClick={()=>setManualForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:10,background:t.danger,color:"#fff",border:"none",fontSize:11,cursor:"pointer"}}>✕</button>
-                </div>)}
-              </div>}
-              {manualForm.photos.length<5&&<label style={{...bSt("g",t),fontSize:12,padding:"8px 12px",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
-                + {lang==="tr"?"Foto Ekle":"Add Photo"}
-                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)handleManualPhoto(f);e.target.value="";}}/>
-              </label>}
-            </div>
-          </div>
-
-          <button onClick={aiDistributeManual} disabled={manualBusy} style={{...bSt("p",t),width:"100%",padding:"12px",fontSize:14,fontWeight:700,opacity:manualBusy?0.6:1}}>
-            {manualBusy?"🤖 "+(lang==="tr"?"AI Dağıtıyor...":"AI Distributing..."):"🤖 "+(lang==="tr"?"AI ile Departmanlara Ata":"AI Distribute to Departments")}
-          </button>
-          <div style={{fontSize:11,color:t.tm,textAlign:"center",marginTop:6,lineHeight:1.4}}>{lang==="tr"?"AI menü kalemlerini analiz edip uygun departmanlara atayacak. Sonra düzenleyebilirsin.":"AI will analyze items and assign departments. You can edit after."}</div>
-        </>:<>
-          {/* Önizleme + düzenle */}
-          <div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.acB,borderColor:t.accent}}>
-            <div style={{fontSize:14,fontWeight:700,color:t.text}}>{manualPreview.name}</div>
-            <div style={{fontSize:11,color:t.tm,marginTop:2}}>
-              {manualPreview.event_date&&<>📅 {manualPreview.event_date} </>}
-              {manualPreview.start_time&&<>🕐 {manualPreview.start_time} </>}
-              {manualPreview.pax&&<>👥 {manualPreview.pax} pax </>}
-              {manualPreview.location&&<>📍 {manualPreview.location}</>}
-            </div>
-          </div>
-
-          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🏢 {lang==="tr"?"DEPARTMAN ATAMASI (yanlışsa düzenle)":"DEPARTMENT ASSIGNMENT (edit if wrong)"}</div>
-          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
-            {Object.entries(manualPreview.departments).map(([deptId,items])=>{
-              const dept=DEPARTMENTS.find(d=>d.id===deptId);
-              return (items||[]).map((item,idx)=><div key={`${deptId}-${idx}`} style={{display:"flex",gap:6,alignItems:"center",background:t.inBg,padding:"6px 10px",borderRadius:8}}>
-                <span style={{flex:1,fontSize:12,color:t.text}}>{item}</span>
-                <select value={deptId} onChange={e=>{
-                  const newDept=e.target.value;
-                  if(newDept===deptId)return;
-                  setManualPreview(p=>{
-                    const newDepts={...p.departments};
-                    newDepts[deptId]=(newDepts[deptId]||[]).filter((_,i)=>i!==idx);
-                    if(!newDepts[deptId].length)delete newDepts[deptId];
-                    newDepts[newDept]=[...(newDepts[newDept]||[]),item];
-                    return{...p,departments:newDepts};
-                  });
-                }} style={{...iSt(t),fontSize:11,padding:"4px 8px",width:130}}>
-                  {DEPARTMENTS.map(d=><option key={d.id} value={d.id}>{d.icon} {lang==="tr"?d.tr:d.en}</option>)}
-                </select>
-                <button onClick={()=>setManualPreview(p=>{
-                  const newDepts={...p.departments};
-                  newDepts[deptId]=(newDepts[deptId]||[]).filter((_,i)=>i!==idx);
-                  if(!newDepts[deptId].length)delete newDepts[deptId];
-                  return{...p,departments:newDepts};
-                })} style={{background:"none",border:"none",color:t.danger,cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
-              </div>);
-            })}
-          </div>
-
-          <div style={{display:"flex",gap:6}}>
-            <button onClick={()=>setManualPreview(null)} style={{...bSt("g",t),flex:1,fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
-            <button onClick={saveManualEvent} style={{...bSt("p",t),flex:2,fontSize:13,fontWeight:700}}>✓ {lang==="tr"?"Kaydet":"Save"}</button>
-          </div>
-        </>}
-      </div>
-    </div>}
-
   </div>;
 };
 
@@ -132,9 +38,9 @@ const ToastContainer=()=>{
 
 // ═══ STORAGE ═══
 const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-// ═══ PRO STORAGE PREFIX ═══
+// ═══ CHEF STORAGE PREFIX ═══
 (()=>{
-  // Eski tk_ key'leri kmp_'ye taşı
+  // Eski tk_ key'leri kmc_'ye taşı
   const toMigrate=["tk_recipes","tk_stock","tk_invoices","tk_lang","tk_dark",
     "tk_menus","tk_expenses","tk_storage","tk_productions","tk_reportcats",
     "tk_profile","tk_traceability","tk_lots","tk_trackedings","tk_resethour",
@@ -143,32 +49,32 @@ const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v)
   for(const k of toMigrate){
     const val=localStorage.getItem(k);
     if(val!==null){
-      const newKey="kmp_"+k.slice(3);
+      const newKey="kmc_"+k.slice(3);
       if(!localStorage.getItem(newKey))localStorage.setItem(newKey,val);
       localStorage.removeItem(k);
     }
   }
-  // km_ ve kmc_ verilerini temizle — ama kmp_ ve sb- verilerine dokunma
+  // KM'nin km_ verilerini temizle — ama kmc_ ve sb- verilerine dokunma
   const allKeys=[];
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
     if(k)allKeys.push(k);
   }
   allKeys.forEach(k=>{
-    if((k.startsWith("km_")||k.startsWith("kmc_"))&&!k.startsWith("kmp_"))localStorage.removeItem(k);
+    if(k.startsWith("km_")&&!k.startsWith("kmc_"))localStorage.removeItem(k);
   });
 })();
 
 const SK={
-  key:"kmp_apikey",recipes:"kmp_recipes",stock:"kmp_stock",invoices:"kmp_invoices",
-  lang:"kmp_lang",dark:"kmp_dark",logs:"kmp_logs",menus:"kmp_menus",
-  expenses:"kmp_expenses",storage:"kmp_storage",productions:"kmp_productions",
-  reportCats:"kmp_reportcats",profile:"kmp_profile",traceability:"kmp_traceability",
-  lots:"kmp_lots",trackedIngs:"kmp_trackedings",resetHour:"kmp_resethour",
-  organizations:"kmp_organizations",storageChecks:"kmp_storagechecks",
-  menuTemplates:"kmp_menutemplates",conversations:"kmp_conversations",
-  activeConvId:"kmp_activeconv",notifSettings:"kmp_notifsettings",
-  botMessages:"kmp_botmessages",calorieDB:"kmp_caloriedb",printers:"kmp_printers"
+  key:"kmc_apikey",recipes:"kmc_recipes",stock:"kmc_stock",invoices:"kmc_invoices",
+  lang:"kmc_lang",dark:"kmc_dark",logs:"kmc_logs",menus:"kmc_menus",
+  expenses:"kmc_expenses",storage:"kmc_storage",productions:"kmc_productions",
+  reportCats:"kmc_reportcats",profile:"kmc_profile",traceability:"kmc_traceability",
+  lots:"kmc_lots",trackedIngs:"kmc_trackedings",resetHour:"kmc_resethour",
+  organizations:"kmc_organizations",storageChecks:"kmc_storagechecks",
+  menuTemplates:"kmc_menutemplates",conversations:"kmc_conversations",
+  activeConvId:"kmc_activeconv",notifSettings:"kmc_notifsettings",
+  botMessages:"kmc_botmessages",calorieDB:"kmc_caloriedb",printers:"kmc_printers"
 };
 
 // Default organizasyonlar (numune etiketi için)
@@ -438,7 +344,7 @@ const initSupabase=()=>{
   if(supabase)return supabase;
   if(true){
     supabase=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
-      auth:{storageKey:"kmp-auth",storage:window.localStorage}
+      auth:{storageKey:"kmc-auth",storage:window.localStorage}
     });
     return supabase;
   }
@@ -554,8 +460,7 @@ const KITCHEN_TITLES=[
   "F&B Manager","Kitchen Manager","Barista","Bartender","Waiter"
 ];
 
-// ═══ HİYERARŞİK ROL SİSTEMİ (Pro) ═══
-// Kademe yüksek = otorite yüksek. Sadece daha düşük kademeye görev verilebilir.
+// ═══ HİYERARŞİK ROL SİSTEMİ ═══
 const ROLE_HIERARCHY={
   // En üst yönetim — sadece Pro'da
   "executive_chef":{level:100,label:{tr:"Executive Chef (Baş Aşçı)",en:"Executive Chef"},icon:"👑",app:"pro"},
@@ -578,19 +483,10 @@ const ROLE_HIERARCHY={
   "waiter":{level:15,label:{tr:"Waiter (Garson)",en:"Waiter"},icon:"🍽",app:"chef"},
   "member":{level:10,label:{tr:"Member (Üye)",en:"Member"},icon:"👤",app:"chef"}
 };
-
-// Bir kullanıcı diğerine görev atayabilir mi?
 const canAssignTo=(myRole,otherRole)=>{
-  const me=ROLE_HIERARCHY[myRole];
-  const them=ROLE_HIERARCHY[otherRole];
-  if(!me||!them)return false;
-  return me.level>them.level;
+  const me=ROLE_HIERARCHY[myRole];const them=ROLE_HIERARCHY[otherRole];
+  if(!me||!them)return false;return me.level>them.level;
 };
-
-// Bir rol Pro/Manager/Chef hangi uygulama için uygun?
-const getAppForRole=(role)=>ROLE_HIERARCHY[role]?.app||"chef";
-
-// Pro yöneticileri (üst kademe — sadece Pro'da görünür/kullanılır)
 const PRO_ROLES=Object.entries(ROLE_HIERARCHY).filter(([k,v])=>v.app==="pro").map(([k])=>k);
 const MANAGER_ROLES=Object.entries(ROLE_HIERARCHY).filter(([k,v])=>v.app==="manager").map(([k])=>k);
 const CHEF_ROLES=Object.entries(ROLE_HIERARCHY).filter(([k,v])=>v.app==="chef").map(([k])=>k);
@@ -1224,7 +1120,7 @@ const KeyModal=({onSave,t,initial})=>{
   const[k,setK]=useState(initial||"");
   return <div style={mOv(t)}><div style={mPn(t)}>
     <Logo size={56} c={t.accent}/>
-    <h2 style={{fontSize:24,marginTop:14,marginBottom:6,color:t.text}}>Kitchen Manager Pro</h2>
+    <h2 style={{fontSize:24,marginTop:14,marginBottom:6,color:t.text}}>Kitchen Manager</h2>
     <p style={{color:t.tm,fontSize:14,marginTop:0,marginBottom:20}}>Devam etmek için Anthropic API anahtarınızı girin. Anahtar sadece bu cihazda saklanır.</p>
     <input style={iSt(t)} value={k} onChange={e=>setK(e.target.value)} placeholder="sk-ant-api03-..." type="password"/>
     <button onClick={()=>{if(k.trim())onSave(k.trim())}} style={{...bSt("p",t),width:"100%",marginTop:14,padding:14}}>Kaydet ve Devam Et</button>
@@ -2700,6 +2596,7 @@ Tarih formatı mutlaka YYYY-MM-DD olsun.`,
             };
             reader.readAsDataURL(file);
           }}/>
+        </label>
         <button onClick={()=>setBarcodeStep("done")} style={{...bSt("s",t),flex:1,fontSize:12}}>
           {t.lang==="tr"?"Atla":"Skip"}
         </button>
@@ -4766,7 +4663,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
       </div>
 
       <div style={{textAlign:"center",fontSize:12,color:t.tm,marginTop:24,padding:"16px 0"}}>
-        <div style={{fontWeight:600,color:t.ts,fontFamily:"'Fraunces',serif",fontSize:14}}>Kitchen Manager Pro</div>
+        <div style={{fontWeight:600,color:t.ts,fontFamily:"'Fraunces',serif",fontSize:14}}>Kitchen Manager</div>
         <div style={{fontSize:10,marginTop:4,opacity:0.7}}>v1.0.0 · by Tulpar Kitchen Software</div>
       </div>
     </div>;
@@ -4782,7 +4679,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
         <div style={{fontSize:13,fontWeight:600,color:t.text,marginBottom:12}}>{lang==="tr"?"Arka Plan":"Wallpaper"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:6}}>
           {WALLPAPERS.filter(w=>w.id!=="custom").map(wp=><button key={wp.id} onClick={()=>{
-            setWallpaper(wp.id);localStorage.setItem("kmp_wallpaper",wp.id);
+            setWallpaper(wp.id);localStorage.setItem("kmc_wallpaper",wp.id);
           }} style={{aspectRatio:"1",borderRadius:10,border:wallpaper===wp.id?`2px solid ${t.accent}`:`2px solid ${t.border}`,cursor:"pointer",overflow:"hidden",position:"relative",...(wp.id==="default"?{background:t.bg}:wp.style),minHeight:40}}>
             {wallpaper===wp.id&&<span style={{position:"absolute",bottom:2,right:2,fontSize:7,background:t.accent,color:"#fff",borderRadius:"50%",width:14,height:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</span>}
           </button>)}
@@ -4810,8 +4707,8 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
                 canvas.getContext("2d").drawImage(img,0,0,w,h);
                 const url=canvas.toDataURL("image/jpeg",0.75);
                 try{
-                  localStorage.setItem("kmp_customwp",url);
-                  localStorage.setItem("kmp_wallpaper","custom");
+                  localStorage.setItem("kmc_customwp",url);
+                  localStorage.setItem("kmc_wallpaper","custom");
                   setCustomWP(url);setWallpaper("custom");
                 }catch(err){
                   window.toast.info(lang==="tr"?"Fotoğraf çok büyük, daha küçük seçin":"Photo too large, try a smaller one");
@@ -4822,9 +4719,10 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             };
             reader.readAsDataURL(file);e.target.value="";
           }}/>
+        </label>
         {wallpaper==="custom"&&customWP&&<div style={{marginTop:8,position:"relative"}}>
           <img src={customWP} style={{width:"100%",height:80,objectFit:"cover",borderRadius:8}} alt="wallpaper"/>
-          <button onClick={()=>{setWallpaper("default");setCustomWP("");localStorage.removeItem("kmp_wallpaper");localStorage.removeItem("kmp_customwp");}} style={{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.6)",border:"none",borderRadius:"50%",width:20,height:20,color:"#fff",cursor:"pointer",fontSize:11}}>✕</button>
+          <button onClick={()=>{setWallpaper("default");setCustomWP("");localStorage.removeItem("kmc_wallpaper");localStorage.removeItem("kmc_customwp");}} style={{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.6)",border:"none",borderRadius:"50%",width:20,height:20,color:"#fff",cursor:"pointer",fontSize:11}}>✕</button>
         </div>}
       </div>
     </div>}
@@ -4897,16 +4795,16 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             </div>
           </div>
           <div><label style={lSt(t)}>{t.L.department}</label><input style={iSt(t)} placeholder={t.L.placeholderDept||t.L.settingsProfileDeptPh} value={profile.department} onChange={e=>setProfile({...profile,department:e.target.value})}/></div>
-          <div><label style={lSt(t)}>{t.L.role} <span style={{color:t.accent,fontSize:10,fontWeight:700}}>(PRO)</span></label>
+          <div><label style={lSt(t)}>{t.L.role} <span style={{color:t.accent,fontSize:10,fontWeight:700}}>(MANAGER)</span></label>
             <select style={iSt(t)} value={ROLE_HIERARCHY[profile.role]?profile.role:""}
               onChange={e=>setProfile({...profile,role:e.target.value})}>
               <option value="">{lang==="tr"?"-- Görev Seçin --":"-- Select Role --"}</option>
-              <optgroup label={lang==="tr"?"👑 Üst Yönetim (Pro)":"👑 Top Management (Pro)"}>
-                {PRO_ROLES.map(r=><option key={r} value={r}>{ROLE_HIERARCHY[r].icon} {ROLE_HIERARCHY[r].label[lang]||ROLE_HIERARCHY[r].label.en}</option>)}
+              <optgroup label={lang==="tr"?"🎩 Yönetici Kademesi (Manager)":"🎩 Manager Level"}>
+                {MANAGER_ROLES.map(r=><option key={r} value={r}>{ROLE_HIERARCHY[r].icon} {ROLE_HIERARCHY[r].label[lang]||ROLE_HIERARCHY[r].label.en}</option>)}
               </optgroup>
             </select>
             <div style={{fontSize:10,color:t.tm,marginTop:6,lineHeight:1.5}}>
-              💡 {lang==="tr"?"Pro yöneticisi olarak alt kademedeki herkese görev atayabilir, ekipler kurabilirsiniz.":"As Pro manager, you can assign tasks to all subordinates and create teams."}
+              💡 {lang==="tr"?"Manager olarak alt kademedeki çalışanlara görev atayabilirsiniz.":"As Manager, you can assign tasks to lower-level staff."}
             </div>
           </div>
         </div>
@@ -5144,10 +5042,10 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
               const newTeam=await createTeam(name,user.userId,realName);
               const newTeam2={...newTeam,role:"chef",inviteCode:newTeam.invite_code};
               setTeam(newTeam2);
-              LS.set("kmp_team",newTeam2);
+              LS.set("kmc_team",newTeam2);
               const chefMember=[{userId:user.userId,name:realName,role:"chef"}];
               setTeamMembers(chefMember);
-              LS.set("kmp_team_members",chefMember);
+              LS.set("kmc_team_members",chefMember);
               // Davet kodunu göster ve kopyala
               const code=newTeam.invite_code;
               const shareText=`${lang==="tr"?"Kitchen Manager'a katıl!":"Join Kitchen Manager!"}\n${lang==="tr"?"Ekip":"Team"}: ${name}\n${lang==="tr"?"Davet Kodu":"Invite Code"}: ${code}\n${window.location.origin}${window.location.pathname}`;
@@ -5167,7 +5065,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
           <div style={{fontSize:28,fontWeight:900,color:t.accent,letterSpacing:"0.3em",textAlign:"center",marginBottom:8}}>{team.inviteCode||team.invite_code}</div>
           <button onClick={async()=>{
             const code=team.inviteCode||team.invite_code;
-            const shareText=`${lang==="tr"?"Kitchen Manager'a katıl!":"Join Kitchen Manager!"}\n${lang==="tr"?"Ekip":"Team"}: ${team.name}\n${lang==="tr"?"Davet Kodu":"Invite Code"}: ${code}\n${window.location.origin}${window.location.pathname.replace("pro.html","index.html")}`;
+            const shareText=`${lang==="tr"?"Kitchen Manager'a katıl!":"Join Kitchen Manager!"}\n${lang==="tr"?"Ekip":"Team"}: ${team.name}\n${lang==="tr"?"Davet Kodu":"Invite Code"}: ${code}\n${window.location.origin}${window.location.pathname.replace("chef.html","index.html")}`;
             if(navigator.share){try{await navigator.share({title:"Kitchen Manager",text:shareText});}catch{}}
             else{const ta=document.createElement("textarea");ta.value=shareText;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand("copy");}catch{}document.body.removeChild(ta);flash(lang==="tr"?"✓ Kopyalandı":"✓ Copied");}
           }} style={{...bSt("p",t),width:"100%",fontSize:13}}>
@@ -5188,16 +5086,15 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             if(error){window.toast.error(error.message);return;}
             const updated={...team,country:newCountry,weekend_days:newWeekend};
             setTeam(updated);
-            LS.set("kmp_team",updated);
+            LS.set("kmc_team",updated);
             window.toast.success(lang==="tr"?"✓ Ülke güncellendi":"✓ Country updated");
           }} style={{...iSt(t),width:"100%",fontSize:13}}>
             {COMMON_COUNTRIES.map(c=><option key={c.code} value={c.code}>{c.flag} {c.name}</option>)}
           </select>
           <div style={{fontSize:10,color:t.tm,marginTop:6,lineHeight:1.4}}>
-            {lang==="tr"?`Varsayılan yıllık izin: ${getDefaultAnnualLeave(team.country||"TR")} gün • Hafta sonu: ${(team.weekend_days||[0,6]).map(d=>["Paz","Pzt","Sal","Çar","Per","Cum","Cmt"][d]).join(", ")}`:`Default leave: ${getDefaultAnnualLeave(team.country||"TR")} days • Weekend: ${(team.weekend_days||[0,6]).map(d=>["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]).join(", ")}`}
+            {lang==="tr"?`Varsayılan yıllık izin: ${getDefaultAnnualLeave(team.country||"TR")} gün`:`Default leave: ${getDefaultAnnualLeave(team.country||"TR")} days`}
           </div>
         </div>}
-        {/* Hızlı Vardiya Şablonları */}
         {team.role==="chef"&&<ShiftPresetsCard team={team} setTeam={setTeam} t={t} lang={lang}/>}
         {/* Üst Ekibe Bağlan */}
         {<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
@@ -5234,8 +5131,39 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
         {/* Alt Ekipler */}
         {<ChildTeamsSection teamId={team.id} t={t} lang={lang}/>}
 
-        {/* Ekip Üyeleri Listesi (Gerçek + Phantom) */}
-        <PhantomMembersSection team={team} teamMembers={teamMembers} phantomMembers={phantomMembers} setPhantomMembers={setPhantomMembers} user={user} t={t} lang={lang}/>
+        {/* Ekip Üyeleri Listesi */}
+        {teamMembers&&teamMembers.length>0&&<div style={{...cSt(t),padding:"12px 14px",marginBottom:12,background:t.inBg}}>
+          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>👥 {lang==="tr"?"EKİP ÜYELERİ":"TEAM MEMBERS"} ({teamMembers.length})</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {teamMembers.map((m,i)=>{
+              const isMe=(m.userId||m.user_id)===user?.userId;
+              const isChef=m.role==="chef"||m.role==="head_chef"||m.role==="executive_chef";
+              return <div key={(m.userId||m.user_id||i)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:t.bg,border:`1px solid ${t.border}`,borderRadius:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
+                  <div style={{width:32,height:32,borderRadius:"50%",background:isChef?t.accent:t.tm,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>
+                    {(m.name||"?").charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:t.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                      {m.name||"-"}{isMe&&<span style={{fontSize:10,color:t.tm,fontWeight:400,marginLeft:6}}>({lang==="tr"?"Sen":"You"})</span>}
+                    </div>
+                    <div style={{fontSize:10,color:t.tm,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                      {isChef?"👑 ":""}
+                      {m.role==="chef"?(lang==="tr"?"Şef":"Chef"):
+                       m.role==="head_chef"?(lang==="tr"?"Baş Şef":"Head Chef"):
+                       m.role==="executive_chef"?(lang==="tr"?"Executive Şef":"Executive Chef"):
+                       m.role==="sous_chef"?"Sous Chef":
+                       m.role==="member"?(lang==="tr"?"Üye":"Member"):
+                       (m.role||"")}
+                    </div>
+                  </div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>}
         <button onClick={async()=>{
           if(!team?.id||!user?.userId)return;
           try{
@@ -5249,14 +5177,14 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             if(syncProd&&syncProd.length>0)setProductions(syncProd);
             if(syncRecipes&&syncRecipes.length>0)setRecipes(syncRecipes);
             if(syncTodos&&syncTodos.length>0)setTodos(syncTodos);
-            LS.set("kmp_last_sync",new Date().toISOString());
+            LS.set("kmc_last_sync",new Date().toISOString());
             flash(lang==="tr"?"✓ Senkronize edildi":"✓ Synced");
           }catch(e){window.toast.info(e.message);}
         }} style={{...bSt("s",t),width:"100%",marginBottom:10}}>
           🔄 {lang==="tr"?"Şimdi Senkronize Et":"Sync Now"}
         </button>
-        {LS.get("kmp_last_sync",null)&&<div style={{fontSize:10,color:t.tm,textAlign:"center",marginBottom:12}}>
-          {lang==="tr"?"Son sync:":"Last sync:"} {new Date(LS.get("kmp_last_sync","")).toLocaleString()}
+        {LS.get("kmc_last_sync",null)&&<div style={{fontSize:10,color:t.tm,textAlign:"center",marginBottom:12}}>
+          {lang==="tr"?"Son sync:":"Last sync:"} {new Date(LS.get("kmc_last_sync","")).toLocaleString()}
         </div>}
         <button onClick={()=>{
           if(window.confirm(lang==="tr"?"Ekipten ayrılmak istediğinize emin misiniz?":"Leave team?")){
@@ -5616,7 +5544,7 @@ const AuthModal=({onClose,onLogin,t})=>{
 
   return <div style={mOv(t)}><div onClick={e=>e.stopPropagation()} style={{...mPn(t),maxWidth:400}}>
     <div style={{textAlign:"center",marginBottom:18}}>
-      <div style={{fontSize:28,fontFamily:"'Fraunces',serif",fontWeight:700,color:t.text}}>Kitchen Manager <span style={{fontSize:14,color:"#fff",background:`linear-gradient(135deg,${t.accent} 0%,#8b6332 100%)`,padding:"3px 8px",borderRadius:5,letterSpacing:"0.1em",fontWeight:800,marginLeft:4,verticalAlign:"middle"}}>PRO</span></div>
+      <div style={{fontSize:28,fontFamily:"'Fraunces',serif",fontWeight:700,color:t.text}}>Kitchen Manager</div>
       <div style={{fontSize:11,color:t.tm,marginTop:4}}>by Tulpar Kitchen Software</div>
     </div>
     <div style={{display:"flex",gap:4,marginBottom:16,background:t.inBg,padding:3,borderRadius:10}}>
@@ -5724,7 +5652,7 @@ const ChatTab=({team,teamMembers,user,recipes,menus,stock,productions,t})=>{
   const lang=t.lang;
 
   const myName=user?.name||user?.email||"?";
-  const myRole=(()=>{try{return JSON.parse(localStorage.getItem("kmp_profile")||"{}")?.role||"";}catch(e){return "";}})();
+  const myRole=(()=>{try{return JSON.parse(localStorage.getItem("kmc_profile")||"{}")?.role||"";}catch(e){return "";}})();
   const[chatError,setChatError]=useState("");
 
   const L={
@@ -5780,7 +5708,7 @@ const ChatTab=({team,teamMembers,user,recipes,menus,stock,productions,t})=>{
       const uid=session?.user?.id||user?.userId||user?.id;
       const uname=session?.user?.user_metadata?.name||session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||myName;
       if(!uid){setSending(false);return;}
-      const profile=JSON.parse(localStorage.getItem("kmp_profile")||"{}");
+      const profile=JSON.parse(localStorage.getItem("kmc_profile")||"{}");
       await sb.from("team_messages").insert({
         team_id:team.id,
         user_id:uid,
@@ -6222,7 +6150,7 @@ const UnifiedChatTab=({team,teamMembers,user,recipes,menus,stock,productions,api
     const{data:{session}}=await sb.auth.getSession();
     const uid=session?.user?.id||myUid;
     const uname=session?.user?.user_metadata?.name||session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||user?.name||"?";
-    const profile=JSON.parse(localStorage.getItem("kmp_profile")||"{}");
+    const profile=JSON.parse(localStorage.getItem("kmc_profile")||"{}");
     await sb.from("team_messages").insert({
       team_id:team.id,user_id:uid,user_name:uname,
       user_role:profile.role||"",private_to:otherUid,
@@ -6783,549 +6711,7 @@ const setTeamData=async(teamId,table,jsonData,userId)=>{
 };
 
 
-const EventsTab=({team,teamMembers,user,apiKey,t})=>{
-  const lang=t.lang;
-  const[events,setEvents]=useState([]);
-  const[loading,setLoading]=useState(true);
-  const[showNew,setShowNew]=useState(false);
-  const[parsing,setParsing]=useState(false);
-  const[parseProgress,setParseProgress]=useState("");
-  const[selectedEvent,setSelectedEvent]=useState(null);
-  const[error,setError]=useState("");
-  const[showManual,setShowManual]=useState(false);
-  const[manualForm,setManualForm]=useState({name:"",event_date:"",start_time:"",pax:"",location:"",notes:"",items:"",photos:[]});
-  const[manualBusy,setManualBusy]=useState(false);
-  const[manualPreview,setManualPreview]=useState(null);
-
-  // Departman tanımları
-  const DEPARTMENTS=[
-    {id:"kitchen",icon:"🍳",tr:"Sıcak Mutfak",en:"Hot Kitchen",color:"#dc2626"},
-    {id:"cold",icon:"🥗",tr:"Soğuk Mutfak",en:"Cold Kitchen",color:"#0891b2"},
-    {id:"pastry",icon:"🥐",tr:"Pastane",en:"Pastry",color:"#c8965a"},
-    {id:"bakery",icon:"🍞",tr:"Fırın",en:"Bakery",color:"#92400e"},
-    {id:"butcher",icon:"🥩",tr:"Kasap",en:"Butchery",color:"#7f1d1d"},
-    {id:"service",icon:"🍽",tr:"Servis",en:"Banquet Service",color:"#7c3aed"},
-    {id:"bar",icon:"🍷",tr:"Bar",en:"Bar",color:"#059669"},
-    {id:"setup",icon:"🪑",tr:"Kurulum",en:"Setup",color:"#525252"},
-    {id:"accounting",icon:"💰",tr:"Muhasebe",en:"Accounting",color:"#1e40af"},
-    {id:"general",icon:"📋",tr:"Genel",en:"General",color:"#6b7280"}
-  ];
-
-  // Yükle
-  useEffect(()=>{
-    if(!team?.id){setLoading(false);return;}
-    const sb=initSupabase();if(!sb){setLoading(false);return;}
-    sb.from("events").select("*").eq("team_id",team.id).order("event_date",{ascending:false}).limit(50)
-      .then(({data,error})=>{
-        if(error){console.warn("[events] load error:",error.message);setEvents([]);setLoading(false);return;}
-        setEvents(data||[]);setLoading(false);
-      });
-  },[team?.id]);
-
-  // PDF metnini çıkar (PDF.js)
-  const extractPDFText=async(file)=>{
-    // PDF.js yükle
-    if(!window.pdfjsLib){
-      await new Promise((res,rej)=>{
-        const s=document.createElement("script");
-        s.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-        s.onload=res;s.onerror=rej;document.head.appendChild(s);
-      });
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    }
-    const buf=await file.arrayBuffer();
-    const pdf=await window.pdfjsLib.getDocument({data:buf}).promise;
-    const pages=[];
-    let totalLen=0;
-    for(let i=1;i<=pdf.numPages;i++){
-      const page=await pdf.getPage(i);
-      const content=await page.getTextContent();
-      const txt=content.items.map(it=>it.str).join(" ");
-      pages.push(txt);
-      totalLen+=txt.replace(/\s/g,"").length;
-    }
-    return{text:pages.join("\n\n--- SAYFA ---\n\n"),isImageBased:totalLen<200,pageCount:pdf.numPages};
-  };
-
-  // PDF'i base64'e çevir (vision için)
-  const pdfToBase64=(file)=>new Promise((res,rej)=>{
-    const r=new FileReader();
-    r.onload=()=>res(r.result.split(",")[1]);
-    r.onerror=()=>rej(new Error("Dosya okunamadı"));
-    r.readAsDataURL(file);
-  });
-
-  // AI ile parse et
-  const parseWithAI=async(file)=>{
-    setParsing(true);setError("");
-    try{
-      setParseProgress(lang==="tr"?"PDF okunuyor...":"Reading PDF...");
-      const{text,isImageBased,pageCount}=await extractPDFText(file);
-
-      const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data and assign tasks to relevant kitchen/service departments.
-
-Output VALID JSON ONLY (no markdown, no explanation), matching this schema:
-{
-  "name": "Event name (e.g. Wedding Tasting, Conference Lunch)",
-  "contractNo": "Contract/booking number if shown",
-  "date": "YYYY-MM-DD or null",
-  "startTime": "HH:MM or null",
-  "endTime": "HH:MM or null",
-  "pax": number or null,
-  "location": "Room/venue name",
-  "departments": {
-    "kitchen": ["Hot kitchen items: main courses, hot starters, hot canapes"],
-    "cold": ["Cold kitchen items: cold starters, cold canapes, salads"],
-    "pastry": ["Desserts, pastries, baklava, cake"],
-    "bakery": ["Bread items, viennoiserie, simit, brioche"],
-    "butcher": ["Meat preparation requirements: beef tenderloin, lamb, etc."],
-    "service": ["Banquet service notes: setup, table arrangements"],
-    "bar": ["Beverage items: drinks, cocktails, wine"],
-    "setup": ["Furniture/equipment setup: podium, AV, signage"],
-    "accounting": ["Pricing, billing notes"],
-    "general": ["Any other notes that don't fit above"]
-  },
-  "summary": "1-2 sentence summary in ${lang==="tr"?"Turkish":"English"}"
-}
-
-Rules:
-- Only include departments that have actual items; omit empty ones.
-- Each item should be a clear, actionable kitchen instruction (not full sentences from the BEO).
-- For meat items, ALSO add to "butcher" if preparation is needed (cuts, marinades).
-- Bakery vs Pastry: Bread/viennoiserie = bakery; Desserts/cake/baklava = pastry.
-- If date is "30 May 2026" format, convert to "2026-05-30".
-- Extract exact pax number from "100 pax", "Exp/Gtd: 12 / 12", etc.
-- Use original language item names (don't translate menu items).`;
-
-      let userMessages;
-      if(isImageBased){
-        setParseProgress(lang==="tr"?"Resim PDF tespit edildi, vision ile analiz ediliyor...":"Image-based PDF detected, analyzing with vision...");
-        // Sayfa sayfa base64 ve vision
-        const base64=await pdfToBase64(file);
-        userMessages=[{
-          role:"user",
-          content:[
-            {type:"document",source:{type:"base64",media_type:"application/pdf",data:base64}},
-            {type:"text",text:"Extract event details and assign items to departments per the schema."}
-          ]
-        }];
-      }else{
-        setParseProgress(lang==="tr"?"AI analiz ediyor...":"AI analyzing..."+ ` (${pageCount} pages)`);
-        userMessages=[{
-          role:"user",
-          content:`Analyze this BEO and output JSON:\n\n${text.slice(0,12000)}`
-        }];
-      }
-
-      const model=isImageBased?"claude-sonnet-4-5":"claude-haiku-4-5";
-      const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev",{
-        method:"POST",
-        headers:{"Content-Type":"application/json","X-Worker-Auth":"km_2026_x9k4n7j2p8r5t1w6"},
-        body:JSON.stringify({model,max_tokens:3000,system:sysPrompt,messages:userMessages})
-      });
-      if(!resp.ok){throw new Error("AI hatası: HTTP "+resp.status);}
-      const data=await resp.json();
-      const aiText=data?.content?.[0]?.text||"";
-
-      // JSON parse — markdown fence varsa temizle
-      let jsonStr=aiText.trim();
-      jsonStr=jsonStr.replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
-      let parsed;
-      try{parsed=JSON.parse(jsonStr);}
-      catch(e){throw new Error("AI JSON döndürmedi:\n"+aiText.slice(0,200));}
-
-      setParseProgress(lang==="tr"?"Tamamlandı":"Done");
-      return{parsed,rawText:text.slice(0,5000),isImageBased};
-    }finally{
-      setParsing(false);
-    }
-  };
-
-  // Yeni event yükle
-  const handleUpload=async(file)=>{
-    if(!file||!team?.id)return;
-    if(file.size>10*1024*1024){setError(lang==="tr"?"PDF 10MB'dan büyük olamaz":"PDF must be under 10MB");return;}
-    setError("");
-    try{
-      const{parsed,rawText,isImageBased}=await parseWithAI(file);
-      // Doğrudan formu aç
-      setSelectedEvent({
-        id:null,
-        team_id:team.id,
-        name:parsed.name||file.name.replace(/\.pdf$/i,""),
-        contract_no:parsed.contractNo||"",
-        event_date:parsed.date||"",
-        start_time:parsed.startTime||"",
-        end_time:parsed.endTime||"",
-        pax:parsed.pax||0,
-        location:parsed.location||"",
-        departments:parsed.departments||{},
-        ai_summary:parsed.summary||"",
-        raw_text:rawText,
-        pdf_name:file.name,
-        status:"draft",
-        notes:"",
-        _isNew:true,
-        _isImageBased:isImageBased
-      });
-      setShowNew(false);
-    }catch(e){
-      setError((lang==="tr"?"Hata: ":"Error: ")+e.message);
-    }
-  };
-
-  // Kaydet
-  const saveEvent=async()=>{
-    if(!selectedEvent||!selectedEvent.name?.trim())return;
-    const sb=initSupabase();if(!sb)return;
-    const payload={
-      team_id:team.id,
-      name:selectedEvent.name.trim(),
-      contract_no:selectedEvent.contract_no||null,
-      event_date:selectedEvent.event_date||null,
-      start_time:selectedEvent.start_time||null,
-      end_time:selectedEvent.end_time||null,
-      pax:selectedEvent.pax||null,
-      location:selectedEvent.location||null,
-      departments:selectedEvent.departments||{},
-      ai_summary:selectedEvent.ai_summary||null,
-      raw_text:selectedEvent.raw_text||null,
-      pdf_name:selectedEvent.pdf_name||null,
-      status:selectedEvent.status||"draft",
-      notes:selectedEvent.notes||null,
-      created_by:user?.userId||null
-    };
-    let res;
-    if(selectedEvent.id){
-      res=await sb.from("events").update(payload).eq("id",selectedEvent.id).select().single();
-    }else{
-      res=await sb.from("events").insert(payload).select().single();
-    }
-    if(res.error){window.toast.error((lang==="tr"?"Kayıt başarısız: ":"Save failed: ")+res.error.message);return;}
-    if(res.data){
-      if(selectedEvent.id){
-        setEvents(p=>p.map(e=>e.id===res.data.id?res.data:e));
-      }else{
-        setEvents(p=>[res.data,...p]);
-      }
-      setSelectedEvent(null);
-    }
-  };
-
-  // Departmanlara dağıt — sohbete mesaj at
-
-  // Manuel etkinlik AI ile departmanlara dağıt
-  const aiDistributeManual=async()=>{
-    if(!manualForm.name?.trim()){window.toast.error(lang==="tr"?"Etkinlik adı gerekli":"Event name required");return;}
-    if(!manualForm.items?.trim()){window.toast.error(lang==="tr"?"En az 1 menü kalemi gerekli":"At least 1 menu item required");return;}
-    setManualBusy(true);setError("");
-    try{
-      const items=manualForm.items.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
-      if(!items.length){throw new Error(lang==="tr"?"Geçerli kalem yok":"No valid items");}
-      
-      // AI prompt
-      const prompt=`You are a banquet kitchen dispatcher. Categorize each menu/event item into one of these departments:
-- kitchen (Hot Kitchen): hot mains, hot starters, soups, hot canapes, grilled, fried items
-- cold (Cold Kitchen): cold starters, salads, cold canapes, mezes, hummus
-- pastry: desserts, baklava, cakes, ice cream, sweets
-- bakery: bread, simit, brioche, viennoiserie
-- butcher: meat preparation requirements, lamb, beef tenderloin
-- service (Banquet Service): table setup, service notes, decorations
-- bar: drinks, cocktails, wine, beverages, coffee, tea
-- setup: equipment, av, signage, podium
-- accounting: pricing, billing
-- general: anything that doesn't fit
-
-Items to categorize:
-${items.map((it,i)=>`${i+1}. ${it}`).join("\n")}
-
-Respond with ONLY a JSON object, no other text:
-{
-  "kitchen": ["item1","item2"],
-  "cold": [],
-  "pastry": ["item3"],
-  ...all 10 departments, empty arrays if none...
-}
-
-Use the EXACT item text as input. Each item should appear in exactly one department.`;
-      
-      const proxyUrl="https://kitchen-manager-ai.aligny0.workers.dev";
-      const res=await fetch(proxyUrl,{
-        method:"POST",
-        headers:{"Content-Type":"application/json","X-KM-Token":"km_2026_x9k4n7j2p8r5t1w6"},
-        body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1024,messages:[{role:"user",content:prompt}]})
-      });
-      if(!res.ok){const txt=await res.text();throw new Error(`API ${res.status}: ${txt.slice(0,100)}`);}
-      const data=await res.json();
-      const text=data.content?.[0]?.text||"";
-      // JSON çıkar
-      const m=text.match(/\{[\s\S]*\}/);
-      if(!m)throw new Error(lang==="tr"?"AI yanıtı anlaşılamadı":"AI response unclear");
-      const departments=JSON.parse(m[0]);
-      // Boş departmanları temizle
-      Object.keys(departments).forEach(k=>{if(!Array.isArray(departments[k])||!departments[k].length)delete departments[k];});
-      
-      // Önizlemeyi göster
-      setManualPreview({...manualForm,departments,_isNew:true,team_id:team.id});
-    }catch(e){
-      console.warn("[manual ai]",e);
-      // AI hata verirse → kullanıcıya tüm kalemleri "general" olarak ata, manuel düzeltsin
-      const items=manualForm.items.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
-      setManualPreview({...manualForm,departments:{general:items},_isNew:true,team_id:team.id});
-      window.toast.info(lang==="tr"?"AI ulaşılamadı, manuel atayın":"AI unavailable, assign manually");
-    }
-    setManualBusy(false);
-  };
-
-  // Manuel formu kaydet (önizlemeden)
-  const saveManualEvent=async()=>{
-    if(!manualPreview)return;
-    const sb=initSupabase();if(!sb)return;
-    const payload={
-      team_id:team.id,
-      name:manualPreview.name,
-      event_date:manualPreview.event_date||null,
-      start_time:manualPreview.start_time||null,
-      pax:manualPreview.pax?parseInt(manualPreview.pax,10):null,
-      location:manualPreview.location||null,
-      summary:manualPreview.notes||null,
-      departments:manualPreview.departments||{},
-      photos:manualPreview.photos||[],
-      source:"manual",
-      created_by:user?.userId||null
-    };
-    try{
-      const{data,error}=await sb.from("events").insert(payload).select().single();
-      if(error)throw error;
-      setEvents(p=>[data,...p]);
-      window.toast.success(lang==="tr"?"✓ Etkinlik kaydedildi":"✓ Event saved");
-      setShowManual(false);
-      setManualPreview(null);
-      setManualForm({name:"",event_date:"",start_time:"",pax:"",location:"",notes:"",items:"",photos:[]});
-    }catch(e){window.toast.error(e.message);}
-  };
-
-  // Foto yükleme (base64'e çevir, küçült)
-  const handleManualPhoto=async(file)=>{
-    if(!file)return;
-    if(file.size>5*1024*1024){window.toast.error(lang==="tr"?"Foto 5MB'dan büyük olamaz":"Photo > 5MB");return;}
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      const img=new Image();
-      img.onload=()=>{
-        const MAX=800;
-        const sc=Math.min(MAX/img.width,MAX/img.height,1);
-        const cv=document.createElement("canvas");
-        cv.width=img.width*sc;cv.height=img.height*sc;
-        cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
-        const dataUrl=cv.toDataURL("image/jpeg",0.75);
-        setManualForm(f=>({...f,photos:[...(f.photos||[]),dataUrl].slice(0,5)}));
-      };
-      img.src=ev.target.result;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const distributeToDepartments=async(ev)=>{
-    if(!ev?.departments||!team?.id)return;
-    const sb=initSupabase();if(!sb)return;
-    if(!window.confirm(lang==="tr"?"Departmanlara görevler ekip sohbetine gönderilecek. Onaylıyor musun?":"Tasks will be sent to team chat. Confirm?"))return;
-    let count=0;
-    for(const[deptId,items] of Object.entries(ev.departments)){
-      if(!items||!items.length)continue;
-      const dept=DEPARTMENTS.find(d=>d.id===deptId);
-      const deptLabel=dept?(lang==="tr"?dept.tr:dept.en):deptId;
-      const deptIcon=dept?.icon||"📋";
-      const dateStr=ev.event_date?new Date(ev.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US"):"";
-      const msg=`${deptIcon} **${deptLabel.toUpperCase()}** — ${ev.name}\n📅 ${dateStr}${ev.start_time?` ${ev.start_time}`:""} ${ev.pax?`· ${ev.pax} pax`:""}${ev.location?`\n📍 ${ev.location}`:""}\n\n${items.map((it,i)=>`${i+1}. ${it}`).join("\n")}`;
-      await sb.from("team_messages").insert({
-        team_id:team.id,
-        user_id:user?.userId||"event",
-        user_name:`📅 Event: ${ev.name}`,
-        user_role:"event",
-        type:"text",
-        text:msg
-      });
-      // Fotolar varsa her departmana ayrı mesaj olarak gönder
-      if(Array.isArray(ev.photos)&&ev.photos.length){
-        for(const photo of ev.photos.slice(0,5)){
-          await sb.from("team_messages").insert({
-            team_id:team.id,
-            user_id:user?.userId||"event",
-            user_name:`📅 Event: ${ev.name}`,
-            user_role:"event",
-            type:"image",
-            text:`📷 ${ev.name} — ${deptLabel}`,
-            attachment:photo
-          }).then(()=>{}).catch(()=>{});
-        }
-      }
-      count++;
-    }
-    window.toast.success(lang==="tr"?`✓ ${count} departmana dağıtıldı`:`✓ Distributed to ${count} departments`);
-  };
-
-  const deleteEvent=async(id)=>{
-    if(!window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?"))return;
-    const sb=initSupabase();if(!sb)return;
-    await sb.from("events").delete().eq("id",id);
-    setEvents(p=>p.filter(e=>e.id!==id));
-    if(selectedEvent?.id===id)setSelectedEvent(null);
-  };
-
-  // Form: department editor
-  const updateDept=(deptId,items)=>{
-    setSelectedEvent(s=>({...s,departments:{...s.departments,[deptId]:items}}));
-  };
-
-  if(!team){
-    return <div style={{padding:20,textAlign:"center"}}>
-      <div style={{fontSize:48,marginBottom:12,opacity:0.3}}>🎉</div>
-      <div style={{fontSize:14,color:t.tm}}>{lang==="tr"?"Ekip kurun veya katılın — Etkinlikler özelliği için ekip gerekli.":"Create or join a team — Events feature requires a team."}</div>
-    </div>;
-  }
-
-  // Detail/edit form
-  if(selectedEvent){
-    return <div style={{padding:"12px 14px",paddingBottom:60}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-        <button onClick={()=>setSelectedEvent(null)} style={{...bSt("g",t),padding:"6px 12px",fontSize:12}}>← {lang==="tr"?"Geri":"Back"}</button>
-        <div style={{fontSize:12,color:t.tm}}>{selectedEvent._isNew?(lang==="tr"?"Yeni Etkinlik":"New Event"):(lang==="tr"?"Etkinlik Düzenle":"Edit Event")}</div>
-      </div>
-
-      {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"15",border:`1px solid ${t.accent}40`}}>
-        <div style={{fontSize:9,fontWeight:700,color:t.accent,letterSpacing:"0.1em",marginBottom:4}}>🤖 AI ÖZET</div>
-        <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selectedEvent.ai_summary}</div>
-        {selectedEvent._isImageBased&&<div style={{fontSize:9,color:t.tm,marginTop:6}}>📷 {lang==="tr"?"Resim PDF — Vision ile analiz edildi":"Image PDF — Analyzed with Vision"}</div>}
-      </div>}
-
-      <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10}}>
-          <div><label style={lSt(t)}>{lang==="tr"?"Etkinlik Adı":"Event Name"} *</label>
-            <input style={iSt(t)} value={selectedEvent.name||""} onChange={e=>setSelectedEvent(s=>({...s,name:e.target.value}))}/>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><label style={lSt(t)}>{lang==="tr"?"Tarih":"Date"}</label>
-              <input type="date" style={iSt(t)} value={selectedEvent.event_date||""} onChange={e=>setSelectedEvent(s=>({...s,event_date:e.target.value}))}/>
-            </div>
-            <div><label style={lSt(t)}>{lang==="tr"?"Misafir":"Pax"}</label>
-              <input type="number" style={iSt(t)} value={selectedEvent.pax||""} onChange={e=>setSelectedEvent(s=>({...s,pax:parseInt(e.target.value,10)||0}))}/>
-            </div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><label style={lSt(t)}>{lang==="tr"?"Başlangıç":"Start"}</label>
-              <input type="time" style={iSt(t)} value={selectedEvent.start_time||""} onChange={e=>setSelectedEvent(s=>({...s,start_time:e.target.value}))}/>
-            </div>
-            <div><label style={lSt(t)}>{lang==="tr"?"Bitiş":"End"}</label>
-              <input type="time" style={iSt(t)} value={selectedEvent.end_time||""} onChange={e=>setSelectedEvent(s=>({...s,end_time:e.target.value}))}/>
-            </div>
-          </div>
-          <div><label style={lSt(t)}>{lang==="tr"?"Konum":"Location"}</label>
-            <input style={iSt(t)} value={selectedEvent.location||""} placeholder={lang==="tr"?"Salon adı...":"Venue name..."} onChange={e=>setSelectedEvent(s=>({...s,location:e.target.value}))}/>
-          </div>
-          <div><label style={lSt(t)}>{lang==="tr"?"Kontrat No":"Contract No"}</label>
-            <input style={iSt(t)} value={selectedEvent.contract_no||""} onChange={e=>setSelectedEvent(s=>({...s,contract_no:e.target.value}))}/>
-          </div>
-        </div>
-      </div>
-
-      <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.05em",marginBottom:8,marginTop:16}}>
-        🏢 {lang==="tr"?"DEPARTMAN GÖREVLERİ":"DEPARTMENT TASKS"}
-      </div>
-      {DEPARTMENTS.map(d=>{
-        const items=(selectedEvent.departments?.[d.id])||[];
-        return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:items.length?8:0}}>
-            <div style={{fontSize:12,fontWeight:700,color:t.text}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
-            <button onClick={()=>updateDept(d.id,[...items,""])} style={{...bSt("g",t),padding:"3px 8px",fontSize:11}}>+ {lang==="tr"?"Ekle":"Add"}</button>
-          </div>
-          {items.map((item,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:4}}>
-            <input style={{...iSt(t),flex:1,fontSize:12,padding:"6px 8px"}} value={item} onChange={e=>{
-              const newItems=[...items];newItems[i]=e.target.value;updateDept(d.id,newItems);
-            }}/>
-            <button onClick={()=>updateDept(d.id,items.filter((_,x)=>x!==i))} style={{...bSt("d",t),padding:"4px 8px",fontSize:11}}>✕</button>
-          </div>)}
-        </div>;
-      })}
-
-      <div><label style={lSt(t)}>{lang==="tr"?"Notlar":"Notes"}</label>
-        <textarea style={{...iSt(t),minHeight:60,resize:"vertical"}} value={selectedEvent.notes||""} onChange={e=>setSelectedEvent(s=>({...s,notes:e.target.value}))}/>
-      </div>
-
-      <div style={{display:"flex",gap:8,marginTop:16,position:"sticky",bottom:60,background:t.bg+"e0",backdropFilter:"blur(10px)",padding:"8px 0"}}>
-        <button onClick={()=>setSelectedEvent(null)} style={{...bSt("g",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-        <button onClick={saveEvent} disabled={!selectedEvent.name?.trim()} style={{...bSt("p",t),flex:2,opacity:selectedEvent.name?.trim()?1:0.5}}>
-          ✓ {lang==="tr"?"Kaydet":"Save"}
-        </button>
-      </div>
-
-      {!selectedEvent._isNew&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("s",t),width:"100%",marginTop:10,fontSize:13,fontWeight:700}}>
-        📤 {lang==="tr"?"Departmanlara Dağıt":"Distribute to Departments"}
-      </button>}
-    </div>;
-  }
-
-  // List view
-  return <div style={{padding:"12px 14px",paddingBottom:60}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-      <div>
-        <div style={{fontSize:18,fontWeight:700,color:t.text,fontFamily:"'Fraunces',serif"}}>🎉 {lang==="tr"?"Etkinlikler":"Events"}</div>
-        <div style={{fontSize:11,color:t.tm,marginTop:2}}>{lang==="tr"?"BEO yükle, AI departmanlara dağıtsın":"Upload BEO, AI distributes to departments"}</div>
-      </div>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>{setShowManual(true);setManualPreview(null);}} style={{...bSt("s",t),padding:"8px 12px",fontSize:13,display:"flex",alignItems:"center",gap:4}}>
-          ✍️ {lang==="tr"?"Manuel":"Manual"}
-        </button>
-        <label style={{...bSt("p",t),padding:"8px 14px",fontSize:13,cursor:parsing?"wait":"pointer",opacity:parsing?0.6:1,display:"flex",alignItems:"center",gap:6}}>
-          {parsing?"⏳":"📄+"} {parsing?(parseProgress||"..."):(lang==="tr"?"PDF":"PDF")}
-          <input type="file" accept=".pdf" disabled={parsing} style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)handleUpload(f);e.target.value="";}}/>
-        </label>
-      </div>
-    </div>
-
-    {error&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:"#fee",border:"1px solid #fbb",color:"#900"}}>
-      ⚠️ {error}
-    </div>}
-
-    {parsing&&<div style={{...cSt(t),padding:"14px",marginBottom:12,background:t.accent+"15",border:`1px dashed ${t.accent}`}}>
-      <div style={{fontSize:13,fontWeight:600,color:t.accent,marginBottom:4}}>🤖 {lang==="tr"?"AI Analiz Ediyor":"AI Analyzing"}</div>
-      <div style={{fontSize:11,color:t.tm}}>{parseProgress}</div>
-    </div>}
-
-    {loading?<div style={{padding:30,textAlign:"center",color:t.tm}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>:
-     events.length===0?<div style={{padding:40,textAlign:"center"}}>
-      <div style={{fontSize:48,marginBottom:12,opacity:0.3}}>📭</div>
-      <div style={{fontSize:13,color:t.tm}}>{lang==="tr"?"Henüz etkinlik yok. PDF yükle veya manuel ekle.":"No events yet. Upload a PDF or add manually."}</div>
-    </div>:events.map(ev=>{
-      const dateStr=ev.event_date?new Date(ev.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short",year:"numeric"}):"";
-      const deptCount=Object.keys(ev.departments||{}).filter(k=>ev.departments[k]?.length).length;
-      const totalItems=Object.values(ev.departments||{}).reduce((sum,arr)=>sum+(arr?.length||0),0);
-      const isPast=ev.event_date&&new Date(ev.event_date)<new Date(new Date().toDateString());
-      return <div key={ev.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,opacity:isPast?0.6:1,cursor:"pointer"}}
-        onClick={()=>setSelectedEvent(ev)}>
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.name}</div>
-            <div style={{fontSize:10,color:t.tm,display:"flex",gap:8,flexWrap:"wrap"}}>
-              {dateStr&&<span>📅 {dateStr}</span>}
-              {ev.start_time&&<span>🕐 {ev.start_time}</span>}
-              {ev.pax&&<span>👥 {ev.pax} pax</span>}
-              {ev.location&&<span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:140}}>📍 {ev.location}</span>}
-            </div>
-            <div style={{fontSize:10,color:t.accent,marginTop:6,fontWeight:600}}>
-              🏢 {deptCount} {lang==="tr"?"departman":"departments"} · {totalItems} {lang==="tr"?"görev":"tasks"}
-            </div>
-          </div>
-          <button onClick={e=>{e.stopPropagation();deleteEvent(ev.id);}} style={{...bSt("d",t),padding:"4px 8px",fontSize:11}}>✕</button>
-        </div>
-      </div>;
-    })}
-  </div>;
-};
-
-
-// ═══ SHIFT TAB ═══
-// ═══ TATİL HELPERS (date-holidays paketi) ═══
+// ═══ TATİL HELPERS ═══
 const _hdCache={};
 const getHolidaysForCountry=(country="TR",year)=>{
   const key=`${country}-${year}`;
@@ -7335,7 +6721,6 @@ const getHolidaysForCountry=(country="TR",year)=>{
     const list=hd.getHolidays(year)||[];
     const result={};
     list.forEach(h=>{
-      // Sadece resmi (public) tatilleri al
       if(h.type==="public"){
         const d=new Date(h.date).toISOString().slice(0,10);
         result[d]=h.name||"Holiday";
@@ -7343,72 +6728,41 @@ const getHolidaysForCountry=(country="TR",year)=>{
     });
     _hdCache[key]=result;
     return result;
-  }catch(e){
-    console.warn("Tatil verisi alınamadı:",country,e.message);
-    return {};
-  }
+  }catch(e){return {};}
 };
-// Geri uyumluluk için (eski kod hala kullanıyor olabilir)
 const getTurkishHolidays=(year)=>getHolidaysForCountry("TR",year);
-
-// Ülkeye göre hafta sonu günleri (0=Paz, 6=Cmt)
 const getWeekendDays=(country="TR")=>{
-  const fridayCountries=["SA","AE","BH","KW","OM","QA","YE","DZ","EG","IQ","JO","LY","SY","SD"];
   const israelLike=["IL"];
-  if(israelLike.includes(country))return[5,6]; // Cuma, Cumartesi
-  if(fridayCountries.includes(country))return[5,6]; // Cuma, Cumartesi
-  return[0,6]; // Pazar, Cumartesi (varsayılan)
+  const fridayCountries=["SA","AE","BH","KW","OM","QA","YE","DZ","EG","IQ","JO","LY","SY","SD"];
+  if(israelLike.includes(country))return[5,6];
+  if(fridayCountries.includes(country))return[5,6];
+  return[0,6];
 };
-
-// Ülkeye göre default yıllık izin
 const getDefaultAnnualLeave=(country="TR")=>{
   const map={TR:14,DE:20,FR:25,GB:28,US:10,IT:20,ES:22,NL:20,BE:20,AT:25,CH:20,PL:20,AU:20,JP:10,CA:10,SE:25,NO:25,DK:25,FI:25};
   return map[country]||14;
 };
-
-// Yaygın ülke listesi (dropdown için)
 const COMMON_COUNTRIES=[
-  {code:"TR",name:"Türkiye",flag:"🇹🇷"},
-  {code:"DE",name:"Deutschland",flag:"🇩🇪"},
-  {code:"FR",name:"France",flag:"🇫🇷"},
-  {code:"GB",name:"United Kingdom",flag:"🇬🇧"},
-  {code:"US",name:"United States",flag:"🇺🇸"},
-  {code:"IT",name:"Italia",flag:"🇮🇹"},
-  {code:"ES",name:"España",flag:"🇪🇸"},
-  {code:"NL",name:"Nederland",flag:"🇳🇱"},
-  {code:"BE",name:"België",flag:"🇧🇪"},
-  {code:"AT",name:"Österreich",flag:"🇦🇹"},
-  {code:"CH",name:"Schweiz",flag:"🇨🇭"},
-  {code:"PL",name:"Polska",flag:"🇵🇱"},
-  {code:"SE",name:"Sverige",flag:"🇸🇪"},
-  {code:"NO",name:"Norge",flag:"🇳🇴"},
-  {code:"DK",name:"Danmark",flag:"🇩🇰"},
-  {code:"FI",name:"Suomi",flag:"🇫🇮"},
-  {code:"GR",name:"Ελλάδα",flag:"🇬🇷"},
-  {code:"PT",name:"Portugal",flag:"🇵🇹"},
-  {code:"IE",name:"Ireland",flag:"🇮🇪"},
-  {code:"CZ",name:"Česko",flag:"🇨🇿"},
-  {code:"HU",name:"Magyarország",flag:"🇭🇺"},
-  {code:"RO",name:"România",flag:"🇷🇴"},
-  {code:"RU",name:"Россия",flag:"🇷🇺"},
-  {code:"UA",name:"Україна",flag:"🇺🇦"},
-  {code:"US",name:"United States",flag:"🇺🇸"},
-  {code:"CA",name:"Canada",flag:"🇨🇦"},
-  {code:"MX",name:"México",flag:"🇲🇽"},
-  {code:"BR",name:"Brasil",flag:"🇧🇷"},
-  {code:"AR",name:"Argentina",flag:"🇦🇷"},
-  {code:"AU",name:"Australia",flag:"🇦🇺"},
-  {code:"NZ",name:"New Zealand",flag:"🇳🇿"},
-  {code:"JP",name:"日本",flag:"🇯🇵"},
-  {code:"KR",name:"한국",flag:"🇰🇷"},
-  {code:"CN",name:"中国",flag:"🇨🇳"},
-  {code:"IN",name:"भारत",flag:"🇮🇳"},
-  {code:"AE",name:"الإمارات",flag:"🇦🇪"},
-  {code:"SA",name:"السعودية",flag:"🇸🇦"},
-  {code:"IL",name:"ישראל",flag:"🇮🇱"},
-  {code:"EG",name:"مصر",flag:"🇪🇬"},
-  {code:"ZA",name:"South Africa",flag:"🇿🇦"},
-  {code:"NG",name:"Nigeria",flag:"🇳🇬"}
+  {code:"TR",name:"Türkiye",flag:"🇹🇷"},{code:"DE",name:"Deutschland",flag:"🇩🇪"},
+  {code:"FR",name:"France",flag:"🇫🇷"},{code:"GB",name:"United Kingdom",flag:"🇬🇧"},
+  {code:"US",name:"United States",flag:"🇺🇸"},{code:"IT",name:"Italia",flag:"🇮🇹"},
+  {code:"ES",name:"España",flag:"🇪🇸"},{code:"NL",name:"Nederland",flag:"🇳🇱"},
+  {code:"BE",name:"België",flag:"🇧🇪"},{code:"AT",name:"Österreich",flag:"🇦🇹"},
+  {code:"CH",name:"Schweiz",flag:"🇨🇭"},{code:"PL",name:"Polska",flag:"🇵🇱"},
+  {code:"SE",name:"Sverige",flag:"🇸🇪"},{code:"NO",name:"Norge",flag:"🇳🇴"},
+  {code:"DK",name:"Danmark",flag:"🇩🇰"},{code:"FI",name:"Suomi",flag:"🇫🇮"},
+  {code:"GR",name:"Ελλάδα",flag:"🇬🇷"},{code:"PT",name:"Portugal",flag:"🇵🇹"},
+  {code:"IE",name:"Ireland",flag:"🇮🇪"},{code:"CZ",name:"Česko",flag:"🇨🇿"},
+  {code:"HU",name:"Magyarország",flag:"🇭🇺"},{code:"RO",name:"România",flag:"🇷🇴"},
+  {code:"RU",name:"Россия",flag:"🇷🇺"},{code:"UA",name:"Україна",flag:"🇺🇦"},
+  {code:"CA",name:"Canada",flag:"🇨🇦"},{code:"MX",name:"México",flag:"🇲🇽"},
+  {code:"BR",name:"Brasil",flag:"🇧🇷"},{code:"AR",name:"Argentina",flag:"🇦🇷"},
+  {code:"AU",name:"Australia",flag:"🇦🇺"},{code:"NZ",name:"New Zealand",flag:"🇳🇿"},
+  {code:"JP",name:"日本",flag:"🇯🇵"},{code:"KR",name:"한국",flag:"🇰🇷"},
+  {code:"CN",name:"中国",flag:"🇨🇳"},{code:"IN",name:"भारत",flag:"🇮🇳"},
+  {code:"AE",name:"الإمارات",flag:"🇦🇪"},{code:"SA",name:"السعودية",flag:"🇸🇦"},
+  {code:"IL",name:"ישראל",flag:"🇮🇱"},{code:"EG",name:"مصر",flag:"🇪🇬"},
+  {code:"ZA",name:"South Africa",flag:"🇿🇦"}
 ];
 
 // ═══ SHIFT TAB v2 (Sıfırdan, AI tabanlı) ═══
@@ -7689,7 +7043,7 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
     }
     if(newPhantoms.length>0&&setPhantomMembers){
       setPhantomMembers(prev=>[...prev,...newPhantoms]);
-      LS.set("kmp_phantom_members",[...phantomMembers,...newPhantoms]);
+      LS.set("kmc_phantom_members",[...phantomMembers,...newPhantoms]);
     }
     const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
     if(data)setShifts(data);
@@ -8074,7 +7428,7 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
 };
 
 
-// ═══ KANBAN TAB ═══
+
 // ═══ HIZLI VARDİYA ŞABLONLARI ═══
 const ShiftPresetsCard=({team,setTeam,t,lang})=>{
   const defaults=[
@@ -8092,7 +7446,7 @@ const ShiftPresetsCard=({team,setTeam,t,lang})=>{
     if(error){window.toast.error(error.message);return;}
     setPresets(list);
     setTeam({...team,shift_presets:list});
-    LS.set("kmp_team",{...team,shift_presets:list});
+    LS.set("kmc_team",{...team,shift_presets:list});
   };
 
   return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
@@ -8157,7 +7511,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
     }).select().single();
     if(error){window.toast.error(error.message);return;}
     setPhantomMembers(prev=>[...prev,data]);
-    LS.set("kmp_phantom_members",[...phantomMembers,data]);
+    LS.set("kmc_phantom_members",[...phantomMembers,data]);
     setNewPhantom({name:"",position:"",department:"",email:"",phone:""});
     setShowAdd(false);
     window.toast.success(lang==="tr"?"✓ Üye eklendi":"✓ Member added");
@@ -8169,7 +7523,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
     const{error}=await sb.from("team_phantom_members").delete().eq("id",p.id);
     if(error){window.toast.error(error.message);return;}
     setPhantomMembers(prev=>prev.filter(x=>x.id!==p.id));
-    LS.set("kmp_phantom_members",phantomMembers.filter(x=>x.id!==p.id));
+    LS.set("kmc_phantom_members",phantomMembers.filter(x=>x.id!==p.id));
     window.toast.success(lang==="tr"?"Silindi":"Deleted");
   };
 
@@ -8181,7 +7535,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
       const{error}=await sb.from("team_phantom_members").update({annual_leave_total:val}).eq("id",m._id);
       if(error){window.toast.error(error.message);return;}
       setPhantomMembers(prev=>prev.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
-      LS.set("kmp_phantom_members",phantomMembers.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
+      LS.set("kmc_phantom_members",phantomMembers.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
     }else{
       const{error}=await sb.from("team_members").update({annual_leave_total:val}).eq("team_id",team.id).eq("user_id",m._id);
       if(error){window.toast.error(error.message);return;}
@@ -8199,7 +7553,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
     const{data,error}=await sb.from("team_phantom_members").update({invite_token:token,invite_created_at:new Date().toISOString()}).eq("id",p.id).select().single();
     if(error){window.toast.error(error.message);return;}
     setPhantomMembers(prev=>prev.map(x=>x.id===p.id?data:x));
-    LS.set("kmp_phantom_members",phantomMembers.map(x=>x.id===p.id?data:x));
+    LS.set("kmc_phantom_members",phantomMembers.map(x=>x.id===p.id?data:x));
     setInviteFor(data);
   };
 
@@ -8313,6 +7667,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
   </div>;
 };
 
+// ═══ KANBAN TAB ═══
 const ChildTeamsSection=({teamId,t,lang})=>{
   const[children,setChildren]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -8329,8 +7684,8 @@ const ChildTeamsSection=({teamId,t,lang})=>{
       const newStats={};
       await Promise.all(list.map(async(child)=>{
         const[stockRes,prodRes,membersRes]=await Promise.all([
-          sb.from("stock").select("*").eq("team_id",child.id),
-          sb.from("productions").select("*").eq("team_id",child.id),
+          sb.from("team_stock").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_productions").select("data").eq("team_id",child.id).maybeSingle(),
           sb.from("team_members").select("id").eq("team_id",child.id),
         ]);
         const stock=Array.isArray(stockRes?.data?.data)?stockRes.data.data:[];
@@ -8415,21 +7770,14 @@ const HubTab=({team,user,t})=>{
       const data={};
       await Promise.all(teams.map(async(child)=>{
         const[stockRes,prodRes,membersRes]=await Promise.all([
-          sb.from("stock").select("*").eq("team_id",child.id),
-          sb.from("productions").select("*").eq("team_id",child.id),
-          sb.from("team_members").select("user_id,position,role").eq("team_id",child.id),
+          sb.from("team_stock").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_productions").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_members").select("user_id,name,role").eq("team_id",child.id),
         ]);
-        const memberData=membersRes?.data||[];
-        const uids=memberData.map(m=>m.user_id);
-        let profileMap={};
-        if(uids.length>0){
-          const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
-          (profs||[]).forEach(p=>{profileMap[p.id]=p.full_name||p.email?.split("@")[0]||p.id;});
-        }
         data[child.id]={
-          stock:stockRes?.data||[],
-          productions:prodRes?.data||[],
-          members:memberData.map(m=>({...m,name:profileMap[m.user_id]||m.position||m.user_id})),
+          stock:Array.isArray(stockRes?.data?.data)?stockRes.data.data:[],
+          productions:Array.isArray(prodRes?.data?.data)?prodRes.data.data:[],
+          members:membersRes?.data||[],
         };
       }));
       setAllData(data);
@@ -8862,7 +8210,6 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
             <button onClick={()=>toggleCheckItem(card,i)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${item.done?t.accent:t.inBo}`,background:item.done?t.accent:"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11}}>{item.done?"✓":""}</button>
             <span style={{flex:1,fontSize:13,color:t.text,textDecoration:item.done?"line-through":"none",opacity:item.done?0.6:1}}>{item.text}</span>
             {canEdit&&<button onClick={()=>deleteCheckItem(card,i)} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:14}}>×</button>}
-            {isAssigned&&!item.done&&<button onClick={()=>toggleCheckItem(card,i)} style={{fontSize:10,background:t.accent+"22",color:t.accent,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer"}}>✓</button>}
           </div>)}
           {canEdit&&<div style={{display:"flex",gap:6,marginTop:8}}>
             <input style={{...iSt(t),flex:1,fontSize:13}} placeholder={lang==="tr"?"Madde ekle...":"Add item..."} value={checkInput} onChange={e=>setCheckInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){addCheckItem(card,checkInput);setCheckInput("");}}}/>
@@ -8881,16 +8228,7 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
                 {(c.by===myUid||canManage)&&<button onClick={()=>deleteComment(card,i)} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:12}}>×</button>}
               </div>
             </div>
-            {c.isProgress&&<span style={{fontSize:10,background:t.accent+"22",color:t.accent,padding:"2px 6px",borderRadius:4,marginBottom:4,display:"inline-block"}}>📝 {lang==="tr"?"İlerleme":"Progress"}</span>}
-            {c.text&&<div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{c.text}</div>}
-            {c.attachment&&<div style={{marginTop:6}}>
-              {isImage(c.attachment.ext)?
-                <img src={c.attachment.url} style={{maxWidth:"100%",maxHeight:200,borderRadius:8,display:"block"}} alt={c.attachment.name} onClick={()=>window.open(c.attachment.url,"_blank")}/>:
-                <a href={c.attachment.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",background:t.bg,borderRadius:6,fontSize:12,color:t.accent,textDecoration:"none"}}>
-                  {isPDF(c.attachment.ext)?"📄":"📎"} {c.attachment.name}
-                </a>
-              }
-            </div>}
+            <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{c.text}</div>
           </div>)}
           <div style={{display:"flex",gap:6,marginTop:8}}>
             <input style={{...iSt(t),flex:1,fontSize:13}} placeholder={lang==="tr"?"Yorum yaz...":"Add comment..."} value={newComment} onChange={e=>setNewComment(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){addComment(card);}}}/>
@@ -8901,7 +8239,6 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
         {/* Aksiyonlar */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {canEdit&&<button onClick={()=>{setEditCard(card);onClose();}} style={{...bSt("s",t),flex:1,fontSize:13}}>✏️ {lang==="tr"?"Düzenle":"Edit"}</button>}
-          {isAssigned&&!canEdit&&<button onClick={()=>{setProgressCard(card);setShowProgress(true);onClose();}} style={{...bSt("p",t),flex:1,fontSize:13}}>📝 {lang==="tr"?"İlerleme Ekle":"Add Progress"}</button>}
           {COLS.filter(c=>c.id!==card.col).map(c=><button key={c.id} onClick={()=>{moveCard(card.id,c.id);onClose();}} style={{...bSt("s",t),flex:1,fontSize:12}}>{c.icon} {colLabel(c)}</button>)}
           {(canManage||card.created_by===myUid)&&<button onClick={()=>deleteCard(card.id,card)} style={{...bSt("s",t),flex:1,fontSize:13,color:t.danger}}>🗑</button>}
         </div>
@@ -8909,89 +8246,7 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
     </div>;
   };
 
-  // İlerleme modalı
-  const ProgressModal=()=>{
-    if(!showProgress||!progressCard)return null;
-    const fileRef=React.useRef(null);
-    const addProgress=async()=>{
-      if(!progressNote.trim()&&!progressCard._pendingFile)return;
-      setProgressUploading(true);
-      try{
-        let attachment=null;
-        if(progressCard._pendingFile){
-          const f=progressCard._pendingFile;
-          const uploaded=await uploadFile(f,team.id,"kanban");
-          attachment={url:uploaded.url,path:uploaded.path,name:uploaded.name,type:uploaded.type,ext:uploaded.ext};
-        }
-        const comment={
-          id:Date.now().toString(),
-          by:myUid,
-          name:myName,
-          text:progressNote.trim()||"",
-          at:new Date().toISOString(),
-          isProgress:true,
-          attachment
-        };
-        const updated={...progressCard,comments:[...(progressCard.comments||[]),comment]};
-        await updateCard(progressCard.id,{comments:updated.comments});
-        setCards(p=>p.map(c=>c.id===progressCard.id?updated:c));
-        setProgressNote("");
-        setProgressCard(c=>({...c,_pendingFile:null}));
-        setShowProgress(false);
-        window.toast.success(lang==="tr"?"İlerleme eklendi":"Progress added");
-      }catch(e){window.toast.error(e.message);}
-      setProgressUploading(false);
-    };
-    return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:400,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget){setShowProgress(false);}}}>
-      <div style={{...cSt(t),width:"100%",maxWidth:520,borderRadius:"20px 20px 0 0",padding:"20px 18px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <strong style={{fontSize:16,color:t.text}}>📝 {lang==="tr"?"İlerleme Ekle":"Add Progress"}</strong>
-          <button onClick={()=>setShowProgress(false)} style={{background:"none",border:"none",fontSize:22,color:t.tm,cursor:"pointer"}}>×</button>
-        </div>
-        <div style={{fontSize:13,color:t.tm,marginBottom:12,padding:"8px 12px",background:t.inBg,borderRadius:8}}>
-          📋 {progressCard.text}
-        </div>
-        <textarea
-          style={{...iSt(t),minHeight:80,resize:"none",marginBottom:10}}
-          placeholder={lang==="tr"?"Not yaz... (fotoğraf veya dosya da ekleyebilirsin)":"Add note... (you can also attach photo or file)"}
-          value={progressNote}
-          onChange={e=>setProgressNote(e.target.value)}
-        />
-        {progressCard._pendingFile&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:t.inBg,borderRadius:8,marginBottom:10}}>
-          {isImage(progressCard._pendingFile.name.split(".").pop())?
-            <img src={URL.createObjectURL(progressCard._pendingFile)} style={{width:48,height:48,objectFit:"cover",borderRadius:6}} alt=""/>:
-            <span style={{fontSize:24}}>{isPDF(progressCard._pendingFile.name.split(".").pop())?"📄":"📎"}</span>
-          }
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:12,fontWeight:600,color:t.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{progressCard._pendingFile.name}</div>
-            <div style={{fontSize:10,color:t.tm}}>{(progressCard._pendingFile.size/1024).toFixed(0)}KB</div>
-          </div>
-          <button onClick={()=>setProgressCard(c=>({...c,_pendingFile:null}))} style={{background:"none",border:"none",color:t.danger,cursor:"pointer",fontSize:16}}>×</button>
-        </div>}
-        <input ref={fileRef} type="file" accept="image/*,video/*,.pdf,.xlsx,.xls,.docx,.txt" style={{display:"none"}} onChange={e=>{
-          const f=e.target.files?.[0];
-          if(f){
-            if(f.size>50*1024*1024){window.toast.error(lang==="tr"?"Dosya 50MB'dan büyük":"File too large (50MB max)");return;}
-            setProgressCard(c=>({...c,_pendingFile:f}));
-          }
-          e.target.value="";
-        }}/>
-        <div style={{display:"flex",gap:8,marginBottom:12}}>
-          <button onClick={()=>fileRef.current?.click()} style={{...bSt("s",t),flex:1,fontSize:13}}>📷 {lang==="tr"?"Fotoğraf/Dosya":"Photo/File"}</button>
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>setShowProgress(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-          <button onClick={addProgress} disabled={progressUploading||(!progressNote.trim()&&!progressCard._pendingFile)} style={{...bSt("p",t),flex:2,opacity:(progressUploading||(!progressNote.trim()&&!progressCard._pendingFile))?0.5:1}}>
-            {progressUploading?"⏳ ":""}
-            {lang==="tr"?"Kaydet":"Save"}
-          </button>
-        </div>
-      </div>
-    </div>;
-  };
-
   return <div style={{maxWidth:"100%"}}>
-    {showProgress&&<ProgressModal/>}
     {/* Başlık */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
       <h2 style={{fontSize:20,color:t.text,fontFamily:"'Fraunces',serif",margin:0}}>📋 {lang==="tr"?"Görevler":"Tasks"}</h2>
@@ -9578,24 +8833,18 @@ export default function App(){
   const[notifSettings,setNotifSettings]=useState(LS.get(SK.notifSettings,{enabled:true,storageCheck:true,expiredSKT:true,lowStock:true,lotReminder:true}));
   const[calorieDB,setCalorieDB]=useState(LS.get(SK.calorieDB,{}));
   const[printers,setPrinters]=useState(LS.get(SK.printers,[]));
-  const[todos,setTodos]=useState(LS.get("kmp_todos",[]));
-  const[team,setTeam]=useState(LS.get("kmp_team",null));
-  const[teamMembers,setTeamMembers]=useState(()=>{
-    // Eski cache'te UUID varsa temizle, Supabase'den yeniden çekecek
-    const cached=LS.get("kmp_team_members",[]);
-    if(cached.some(m=>m.name&&m.name.length===36&&m.name.includes("-")))return[];
-    return cached;
-  });
+  const[todos,setTodos]=useState(LS.get("kmc_todos",[]));
+  const[team,setTeam]=useState(LS.get("kmc_team",null));
+  const[teamMembers,setTeamMembers]=useState(LS.get("kmc_team_members",[]));
   // Phantom üyeler — uygulamaya kayıtlı olmayan ekip üyeleri
-  const[phantomMembers,setPhantomMembers]=useState(LS.get("kmp_phantom_members",[]));
-  // Phantom üyeleri Supabase'den yükle
+  const[phantomMembers,setPhantomMembers]=useState(LS.get("kmc_phantom_members",[]));
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
     sb.from("team_phantom_members").select("*").eq("team_id",team.id).order("created_at",{ascending:true}).then(({data,error})=>{
       if(!error&&data){
         setPhantomMembers(data);
-        LS.set("kmp_phantom_members",data);
+        LS.set("kmc_phantom_members",data);
       }
     });
   },[team?.id]);
@@ -9618,52 +8867,37 @@ export default function App(){
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
-    // Tüm üyeleri yükle: kendi ekibi + alt ekipler
-    (async()=>{
-      try{
-        // 1. Kendi ekibinin üyeleri
-        const{data:ownMembers}=await sb.from("team_members").select("user_id,role,position").eq("team_id",team.id);
-        // 2. Alt ekiplerin üyeleri
-        const{data:childTeams}=await sb.from("teams").select("id,name").eq("parent_team_id",team.id);
-        let childMembers=[];
-        if(childTeams&&childTeams.length>0){
-          const childIds=childTeams.map(t=>t.id);
-          const{data:cm}=await sb.from("team_members").select("user_id,role,position,team_id").in("team_id",childIds);
-          if(cm)childMembers=cm.map(m=>({...m,teamName:(childTeams.find(t=>t.id===m.team_id)||{}).name||""}));
-        }
-        // 3. Tüm user_id'leri topla, profiles'dan isim çek
-        const allRaw=[...(ownMembers||[]),...childMembers];
-        const allUids=[...new Set(allRaw.map(m=>m.user_id))];
-        const{data:profiles}=await sb.from("profiles").select("id,full_name,email").in("id",allUids);
-        const getName=(uid)=>{const p=(profiles||[]).find(p=>p.id===uid);return p?.full_name||p?.email?.split("@")[0]||uid;};
-        const mapped=allRaw.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position,teamName:m.teamName||""}));
-        setTeamMembers(mapped);
-        LS.set("kmp_team_members",mapped);
-      }catch(e){console.warn("Üye yüklenemedi:",e.message);}
-    })();
-    // Team'in kendisini de doğrula
+    // Team_members'ı yükle
+    sb.from("team_members").select("*").eq("team_id",team.id).then(({data,error})=>{
+      if(error){console.warn("team_members fetch error:",error.message);return;}
+      if(data&&data.length>0)setTeamMembers(data.map(m=>({userId:m.user_id,name:m.position||m.user_id,role:m.role})));
+    });
+    // Team'in kendisini de doğrula — Supabase'den varsa fresh data alalım
     sb.from("teams").select("*").eq("id",team.id).single().then(({data,error})=>{
       if(error){console.warn("team fetch error:",error.message);return;}
       if(data){
+        // Eğer team değişmişse update et
         const updated={...data,role:team.role,inviteCode:data.invite_code};
-        if(JSON.stringify(updated)!==JSON.stringify(team)){setTeam(updated);}
+        if(JSON.stringify(updated)!==JSON.stringify(team)){
+          setTeam(updated);
+        }
       }
     });
   },[team?.id]);
   useEffect(()=>{
-    if(team)LS.set("kmp_team",team);
-    else localStorage.removeItem("kmp_team");
+    if(team)LS.set("kmc_team",team);
+    else localStorage.removeItem("kmc_team");
   },[team]);
   useEffect(()=>{
-    if(teamMembers?.length>0)LS.set("kmp_team_members",teamMembers);
+    if(teamMembers?.length>0)LS.set("kmc_team_members",teamMembers);
   },[teamMembers]);
-  useEffect(()=>{LS.set("kmp_todos",todos)},[todos]);
+  useEffect(()=>{LS.set("kmc_todos",todos)},[todos]);
   // Etiket takip numarası: YYYYMMDD-XXXX formatı, günlük sıfırlanır
   const getLabelSeq=()=>{
     const today=new Date().toISOString().slice(0,10).replace(/-/g,"");
-    const stored=LS.get("kmp_labelseq",{date:"",seq:0});
+    const stored=LS.get("kmc_labelseq",{date:"",seq:0});
     let seq=stored.date===today?stored.seq+1:1;
-    LS.set("kmp_labelseq",{date:today,seq});
+    LS.set("kmc_labelseq",{date:today,seq});
     return `${today}-${String(seq).padStart(4,"0")}`;
   };
   // AUTH
@@ -9685,7 +8919,7 @@ export default function App(){
       const currentMinutes=now.getHours()*60+now.getMinutes();
       const DAY_MAP={0:"SU",1:"MO",2:"TU",3:"WE",4:"TH",5:"FR",6:"SA"};
       const todayKey=DAY_MAP[now.getDay()];
-      const lastRunKey=`kmp_bot_lastrun_${team.id}`;
+      const lastRunKey=`kmc_bot_lastrun_${team.id}`;
       const lastRun=JSON.parse(localStorage.getItem(lastRunKey)||"{}");
       const currentStock=stockRef.current||[];
       const currentUser=userRef.current;
@@ -9729,8 +8963,8 @@ export default function App(){
     return()=>clearInterval(interval);
   },[team?.id]);
 
-  const[wallpaper,setWallpaper]=useState(localStorage.getItem("kmp_wallpaper")||"default");
-  const[customWP,setCustomWP]=useState(localStorage.getItem("kmp_customwp")||"");
+  const[wallpaper,setWallpaper]=useState(localStorage.getItem("kmc_wallpaper")||"default");
+  const[customWP,setCustomWP]=useState(localStorage.getItem("kmc_customwp")||"");
   // Kullanıcı adı güncelleme — session'dan gerçek isim al
   useEffect(()=>{
     if(!user?.userId)return;
@@ -9740,7 +8974,7 @@ export default function App(){
       const realName=session.user.user_metadata?.name||session.user.user_metadata?.full_name||session.user.email?.split("@")[0];
       if(realName&&realName!==user.name){
         setUser(u=>u?{...u,name:realName}:u);
-        LS.set("kmp_user",{...user,name:realName});
+        LS.set("kmc_user",{...user,name:realName});
       }
     });
   },[user?.userId]);
@@ -9757,62 +8991,8 @@ export default function App(){
       setShowAuth(true);
     }
   },[]);
-  const[authRequired,setAuthRequired]=useState(LS.get("kmp_authrequired",true));
-  useEffect(()=>{LS.set("kmp_authrequired",authRequired)},[authRequired]);
-
-  // ═══ DAVET TOKEN İŞLEME (?invite=xxx&team=yyy) ═══
-  useEffect(()=>{
-    if(!user?.userId)return; // Önce giriş yapması lazım
-    const p=new URLSearchParams(window.location.search);
-    const token=p.get("invite");
-    const inviteTeamId=p.get("team");
-    if(!token||!inviteTeamId)return;
-    
-    (async()=>{
-      const sb=initSupabase();if(!sb)return;
-      try{
-        // Token'la phantom bul
-        const{data:phantom,error}=await sb.from("team_phantom_members").select("*").eq("invite_token",token).eq("team_id",inviteTeamId).maybeSingle();
-        if(error||!phantom){
-          window.toast.error(lang==="tr"?"Geçersiz davet linki":"Invalid invite link");
-          return;
-        }
-        if(phantom.linked_user_id){
-          window.toast.info(lang==="tr"?"Bu davet zaten kullanılmış":"Invite already used");
-          return;
-        }
-        // Phantom'u user'a bağla
-        const{error:upErr}=await sb.from("team_phantom_members").update({
-          linked_user_id:user.userId,
-          linked_at:new Date().toISOString()
-        }).eq("id",phantom.id);
-        if(upErr){window.toast.error(upErr.message);return;}
-        
-        // team_members'a ekle
-        const{data:teamData}=await sb.from("teams").select("*").eq("id",inviteTeamId).maybeSingle();
-        if(teamData){
-          await sb.from("team_members").upsert({
-            team_id:inviteTeamId,
-            user_id:user.userId,
-            role:"member",
-            position:phantom.position||null
-          },{onConflict:"team_id,user_id"});
-          setTeam({...teamData,role:"member",inviteCode:teamData.invite_code});
-          LS.set("kmp_team",{...teamData,role:"member",inviteCode:teamData.invite_code});
-        }
-        // Phantom'un yerini gerçek üye alıyor → vardiyalarını da güncelle
-        await sb.from("shifts").update({created_by:user.userId,phantom_member_id:null}).eq("phantom_member_id",phantom.id);
-        
-        // URL'den token'ı temizle
-        const newUrl=window.location.pathname;
-        window.history.replaceState({},"",newUrl);
-        window.toast.success(lang==="tr"?`✓ ${teamData?.name||"Ekibe"} katıldın!`:`✓ Joined ${teamData?.name||"team"}!`);
-      }catch(e){
-        console.error("Davet işleme hatası:",e);
-        window.toast.error(e.message);
-      }
-    })();
-  },[user?.userId]);
+  const[authRequired,setAuthRequired]=useState(LS.get("kmc_authrequired",true));
+  useEffect(()=>{LS.set("kmc_authrequired",authRequired)},[authRequired]);
 
   // Supabase oturum kontrolü - sayfa açıldığında mevcut oturumu yükle
   useEffect(()=>{
@@ -9833,40 +9013,12 @@ export default function App(){
             accessToken:data.session.access_token
           };
           setUser(u);
-          LS.set("kmp_user",u);
-          // localStorage'da team yoksa Supabase'den otomatik yükle
-          if(!LS.get("kmp_team",null)){
-            (async()=>{try{
-              const uid=data.session.user.id;
-              let teamData=null;let memberRole="pro";
-              const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).order("created_at",{ascending:false}).limit(1).single();
-              if(ownedTeam){teamData=ownedTeam;memberRole="pro";}
-              else{
-                const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",uid).order("joined_at",{ascending:false}).limit(1);
-                const membership=members_raw?.[0]||null;
-                if(membership?.team_id){
-                  const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
-                  if(td){teamData=td;memberRole=membership.role||"pro";}
-                }
-              }
-              if(teamData){
-                const loadedTeam={...teamData,role:memberRole,inviteCode:teamData.invite_code};
-                setTeam(loadedTeam);LS.set("kmp_team",loadedTeam);
-                const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
-                if(members){
-                  const uids=members.map(m=>m.user_id);
-                  const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
-                  const getName=(uid2)=>{const p=(profs||[]).find(p=>p.id===uid2);return p?.full_name||p?.email?.split("@")[0]||uid2;};
-                  setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
-                }
-              }
-            }catch(e){console.warn("Ekip yüklenemedi (session):",e.message);}})();
-          }
+          LS.set("kmc_user",u);
         }
         setAuthChecked(true);
       }).catch(()=>{clearTimeout(_authTimeout);setAuthChecked(true);});
       const{data:listener}=sb.auth.onAuthStateChange((event,session)=>{
-        if(event==="SIGNED_OUT"){setUser(null);LS.set("kmp_user",null);}
+        if(event==="SIGNED_OUT"){setUser(null);LS.set("kmc_user",null);}
         else if(event==="PASSWORD_RECOVERY"){
           // Şifre sıfırlama linki tıklandı — yeni şifre ekranını göster, giriş yapma
           localStorage.setItem("km_password_recovery","true");
@@ -9883,32 +9035,23 @@ export default function App(){
             userId:session.user.id,
             accessToken:session.access_token
           };
-          setUser(u);LS.set("kmp_user",u);
-          // Ekibi Supabase'den yükle (owner VEYA member)
+          setUser(u);LS.set("kmc_user",u);
+          // Ekibi Supabase'den yükle
           (async()=>{try{
-            const uid=session.user.id;
-            // Önce kendi oluşturduğu team'e bak (owner)
-            let teamData=null;let memberRole="pro";
-            const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).order("created_at",{ascending:false}).limit(1).single();
-            if(ownedTeam){teamData=ownedTeam;memberRole="pro";}
-            else{
-              // Üye olduğu team'e bak (herhangi role)
-              const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",uid).order("joined_at",{ascending:false}).limit(1);
-              const membership=members_raw?.[0]||null;
-              if(membership?.team_id){
-                const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
-                if(td){teamData=td;memberRole=membership.role||"pro";}
-              }
-            }
-            if(teamData){
-              const loadedTeam={...teamData,role:memberRole,inviteCode:teamData.invite_code};
-              setTeam(loadedTeam);LS.set("kmp_team",loadedTeam);
-              const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
-              if(members){
-                const uids=members.map(m=>m.user_id);
-                const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
-                const getName=(uid2)=>{const p=(profs||[]).find(p=>p.id===uid2);return p?.full_name||p?.email?.split("@")[0]||uid2;};
-                setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
+            const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",session.user.id).eq("role","chef").order("joined_at",{ascending:false}).limit(1);
+            const membership=members_raw?.[0]||null;
+            if(membership?.team_id){
+              const{data:teamData}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
+              if(teamData){
+                const loadedTeam={...teamData,role:membership.role,inviteCode:teamData.invite_code};
+                setTeam(loadedTeam);LS.set("kmc_team",loadedTeam);
+                const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
+                if(members){
+                  const uids=members.map(m=>m.user_id);
+                  const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
+                  const getName=(uid)=>{const p=(profs||[]).find(p=>p.id===uid);return p?.full_name||p?.email?.split("@")[0]||uid;};
+                  setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
+                }
               }
             }
           }catch(e){console.warn("Ekip yüklenemedi:",e.message);}})();
@@ -10107,7 +9250,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
-    const channel=sb.channel(`kmp-sync-${team.id}`)
+    const channel=sb.channel(`kmc-sync-${team.id}`)
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"team_stock",filter:`team_id=eq.${team.id}`},
         (payload)=>{
           if(payload.new?.updated_by===user?.userId)return;
@@ -10205,12 +9348,12 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   useEffect(()=>{
     const checkReset=()=>{
       const now=new Date();
-      const lastReset=LS.get("kmp_lastreset",null);
+      const lastReset=LS.get("kmc_lastreset",null);
       const today=`${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
       if(now.getHours()>=resetHour&&lastReset!==today){
         // Tüm parti no'ları sıfırla
         setLots({});
-        LS.set("kmp_lastreset",today);
+        LS.set("kmc_lastreset",today);
       }
     };
     checkReset();
@@ -10304,8 +9447,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
     {id:"kanban",l:"Kanban",i:"📋",icon:"kanban"},
     {id:"chat",l:lang==="tr"?"Sohbet":"Chats",i:"💬",icon:"chat"},
     ...(team?[
-      {id:"hub",l:lang==="tr"?"Departmanlar":"Departments",i:"🏢",icon:"hub"},
-      {id:"events",l:lang==="tr"?"Etkinlikler":"Events",i:"🎉",icon:"events"},
+
       {id:"shift",l:lang==="tr"?"Vardiya":"Shifts",i:"🕐",icon:"shift"},
       {id:"botrules",l:lang==="tr"?"Otomasyon":"Automation",i:"⚙️",icon:"automation"},
     ]:[])
@@ -10332,13 +9474,8 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       <div className="app" style={{display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <Logo size={32} c={t.accent}/>
-          <div>
-            <div style={{fontSize:18,fontFamily:"'Fraunces',serif",color:t.text,fontWeight:700,lineHeight:1}}>Kitchen</div>
-            <div style={{display:"flex",alignItems:"center",gap:5}}>
-              <div style={{fontSize:9,color:t.accent,letterSpacing:"0.15em",fontWeight:600}}>MANAGER</div>
-              <div style={{fontSize:8,color:"#fff",background:`linear-gradient(135deg,${t.accent} 0%,#8b6332 100%)`,padding:"1px 5px",borderRadius:3,letterSpacing:"0.1em",fontWeight:800}}>PRO</div>
-            </div>
-          </div>
+          <div><div style={{fontSize:18,fontFamily:"'Fraunces',serif",color:t.text,fontWeight:700,lineHeight:1}}>Kitchen</div>
+          <div style={{fontSize:9,color:t.accent,letterSpacing:"0.15em",fontWeight:600}}>MANAGER</div></div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {tab==="recipes"&&<button onClick={()=>setSAdd(true)} style={{...bSt("p",t),padding:"7px 14px",fontSize:13}}>{t.L.stockAddBtn}</button>}
@@ -10423,12 +9560,11 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       {tab==="reports"&&<ProductionTab productions={productions} setProductions={setProductions} storageAreas={storageAreas} reportCats={reportCats} setReportCats={setReportCats} profile={profile} traceability={traceability} setTab={setTab} storageChecks={storageChecks} setStorageChecks={setStorageChecks} recipes={recipes} getLabelSeq={getLabelSeq} initialShowReports={true} t={t}/>}
       {tab==="menus"&&<MenuTab menus={menus} setMenus={setMenus} recipes={recipes} menuTemplates={menuTemplates} setMenuTemplates={setMenuTemplates} t={t}/>}
       {tab==="todo"&&<TodoTab todos={todos} setTodos={setTodos} t={t}/>}
-      {tab==="hub"&&<HubTab team={team} user={user} t={t}/>}
-      {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile} isPro={true}/>}
-      {tab==="events"&&<EventsTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t}/>}
+
+      {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile} isManager={true}/>}
       {tab==="shift"&&<ShiftTab team={team} teamMembers={teamMembers} phantomMembers={phantomMembers} setPhantomMembers={setPhantomMembers} user={user} t={t}/>}
       {tab==="botrules"&&<BotRulesTab team={team} teamMembers={teamMembers} user={user} stock={stock} setBotMessages={setBotMessages} t={t}/>}
-      {tab==="chat"&&<WAChatTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t} tier="pro"/>}
+      {tab==="chat"&&<WAChatTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t} tier="manager"/>}
       {tab==="settings"&&<SettingsTab apiKey={apiKey} setApiKey={setApiKey} dark={dark} setDark={setDark} lang={lang} setLang={setLang} recipes={recipes} stock={stock} invoices={invoices} setRecipes={setRecipes} setStock={setStock} setInvoices={setInvoices} expenses={expenses} setExpenses={setExpenses} storageAreas={storageAreas} setStorageAreas={setStorageAreas} profile={profile} setProfile={setProfile} traceability={traceability} setTraceability={setTraceability} trackedIngs={trackedIngs} setTrackedIngs={setTrackedIngs} resetHour={resetHour} setResetHour={setResetHour} organizations={organizations} setOrganizations={setOrganizations} notifSettings={notifSettings} setNotifSettings={setNotifSettings} printers={printers} setPrinters={setPrinters} setBotMessages={setBotMessages} calorieDB={calorieDB} setCalorieDB={setCalorieDB} user={user} setUser={setUser} authRequired={authRequired} setAuthRequired={setAuthRequired} setShowAuth={setShowAuth} handleLogout={handleLogout} team={team} setTeam={setTeam} teamMembers={teamMembers} setTeamMembers={setTeamMembers} wallpaper={wallpaper} setWallpaper={setWallpaper} customWP={customWP} setCustomWP={setCustomWP} t={t}/>}
     </div>
 
@@ -10559,7 +9695,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
           sb.auth.getSession().then(({data:{session}})=>{
             const uid=session?.user?.id;
             const uname=session?.user?.user_metadata?.name||session?.user?.email?.split("@")[0]||"?";
-            const profile2=JSON.parse(localStorage.getItem("kmp_profile")||"{}");
+            const profile2=JSON.parse(localStorage.getItem("kmc_profile")||"{}");
             sb.from("team_messages").insert({
               team_id:team.id,user_id:uid,user_name:uname,
               user_role:profile2.role||"",
@@ -10601,7 +9737,7 @@ class ErrorBoundary extends React.Component{
           React.createElement("pre",{style:{fontSize:11,background:"#fff",padding:10,marginTop:8,borderRadius:6,overflow:"auto",maxHeight:200}},String(this.state.error?.message||this.state.error||"Bilinmeyen hata")+"\n\n"+(this.state.info?.componentStack||""))
         ),
         React.createElement("button",{
-          onClick:()=>{LS.set("kmp_user",null);location.reload()},
+          onClick:()=>{LS.set("kmc_user",null);location.reload()},
           style:{marginTop:14,padding:"10px 16px",background:"#c00",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600}
         },"Yenile (oturumu temizle)")
       );
