@@ -2700,7 +2700,6 @@ Tarih formatı mutlaka YYYY-MM-DD olsun.`,
             };
             reader.readAsDataURL(file);
           }}/>
-        </label>
         <button onClick={()=>setBarcodeStep("done")} style={{...bSt("s",t),flex:1,fontSize:12}}>
           {t.lang==="tr"?"Atla":"Skip"}
         </button>
@@ -4823,7 +4822,6 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             };
             reader.readAsDataURL(file);e.target.value="";
           }}/>
-        </label>
         {wallpaper==="custom"&&customWP&&<div style={{marginTop:8,position:"relative"}}>
           <img src={customWP} style={{width:"100%",height:80,objectFit:"cover",borderRadius:8}} alt="wallpaper"/>
           <button onClick={()=>{setWallpaper("default");setCustomWP("");localStorage.removeItem("kmp_wallpaper");localStorage.removeItem("kmp_customwp");}} style={{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.6)",border:"none",borderRadius:"50%",width:20,height:20,color:"#fff",cursor:"pointer",fontSize:11}}>✕</button>
