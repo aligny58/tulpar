@@ -6771,40 +6771,67 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
       setParseProgress(lang==="tr"?"PDF okunuyor...":"Reading PDF...");
       const{text,isImageBased,pageCount}=await extractPDFText(file);
 
-      const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data and assign tasks to relevant kitchen/service departments.
+      const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data with multi-day support and sub-events (e.g. AM Coffee Break, Lunch, PM Coffee Break).
 
 Output VALID JSON ONLY (no markdown, no explanation), matching this schema:
 {
-  "name": "Event name (e.g. Wedding Tasting, Conference Lunch)",
-  "contractNo": "Contract/booking number if shown",
-  "date": "YYYY-MM-DD or null",
-  "startTime": "HH:MM or null",
-  "endTime": "HH:MM or null",
-  "pax": number or null,
-  "location": "Room/venue name",
-  "departments": {
-    "kitchen": ["Hot kitchen items: main courses, hot starters, hot canapes"],
-    "cold": ["Cold kitchen items: cold starters, cold canapes, salads"],
-    "pastry": ["Desserts, pastries, baklava, cake"],
-    "bakery": ["Bread items, viennoiserie, simit, brioche"],
-    "butcher": ["Meat preparation requirements: beef tenderloin, lamb, etc."],
-    "service": ["Banquet service notes: setup, table arrangements"],
-    "bar": ["Beverage items: drinks, cocktails, wine"],
-    "setup": ["Furniture/equipment setup: podium, AV, signage"],
-    "accounting": ["Pricing, billing notes"],
-    "general": ["Any other notes that don't fit above"]
-  },
-  "summary": "1-2 sentence summary in ${lang==="tr"?"Turkish":"English"}"
+  "name": "Event/booking name (e.g. Live Consulting Meeting, Wedding Tasting)",
+  "contractNo": "Contract/booking number if shown (e.g. 714268)",
+  "accountName": "Account/company name (e.g. Asemble Organizasyon)",
+  "confManager": "Conf/Cat Manager name if shown",
+  "contactName": "Primary contact person name (e.g. Emel Duman)",
+  "contactPhone": "Contact phone number if shown",
+  "startDate": "YYYY-MM-DD — earliest date in BEO",
+  "endDate": "YYYY-MM-DD — latest date in BEO (same as startDate if single-day)",
+  "currency": "EUR/USD/TRY/GBP",
+  "totalAmount": number or null,
+  "pricePerPerson": number or null,
+  "vatRate": number (default 20),
+  "subEvents": [
+    {
+      "date": "YYYY-MM-DD",
+      "timeStart": "HH:MM",
+      "timeEnd": "HH:MM",
+      "name": "Sub-event name (Meeting, AM Coffee Break, Lunch, PM Coffee Break, Tea & Coffee)",
+      "room": "Room/venue (Kaftan, Tugra Lobby, Tugra Restaurant)",
+      "setUp": "Set-up type (Lounge, Theater, Coffee Break, Existing Setup)",
+      "pax": number,
+      "items": [
+        {
+          "name": "Menu item exact name (e.g. 'Mekik çeşitleri', 'Grilled lamb loin')",
+          "departments": ["pastry","bakery"]
+        }
+      ],
+      "notesTr": "Turkish notes/instructions from ATT TO X sections (if any)",
+      "notesEn": "English notes/instructions from ATT TO X sections (if any)"
+    }
+  ],
+  "summary": "2-3 sentence summary in ${lang==="tr"?"Turkish":"English"}"
 }
 
+Department codes (each item can have MULTIPLE departments):
+- "kitchen" = Hot kitchen: main courses, hot starters, hot canapes, hot soups
+- "cold" = Cold kitchen: cold starters, salads, cold canapes
+- "pastry" = Desserts, cakes, baklava, panna cotta, profiterole, tarts, tiramisu
+- "bakery" = Bread, viennoiserie, simit, brioche, focaccia, poğaça, çörek, muffin
+- "butcher" = Meat prep: lamb cuts, beef tenderloin, marinades
+- "service" = Banquet service: table arrangements, plating, lounge setup
+- "bar" = Beverages: cocktails, wine, soft drinks (note: Tea & Coffee is service, not bar)
+- "setup" = Furniture/equipment: podium, AV, signage, skirt, chairs
+- "accounting" = Pricing, billing notes, VAT
+- "general" = Other notes
+
 Rules:
-- Only include departments that have actual items; omit empty ones.
-- Each item should be a clear, actionable kitchen instruction (not full sentences from the BEO).
-- For meat items, ALSO add to "butcher" if preparation is needed (cuts, marinades).
-- Bakery vs Pastry: Bread/viennoiserie = bakery; Desserts/cake/baklava = pastry.
-- If date is "30 May 2026" format, convert to "2026-05-30".
-- Extract exact pax number from "100 pax", "Exp/Gtd: 12 / 12", etc.
-- Use original language item names (don't translate menu items).`;
+- ALWAYS extract every sub-event separately (Meeting, AM Break, Lunch, PM Break, Tea Service).
+- Each menu item is one entry with departments array (can be multi: "Tahini buns" = ["pastry","bakery"]).
+- Notes (ATT TO ...) belong to the sub-event they're under. Split TR and EN if both languages present.
+- Setup instructions (podium, chair, skirt) → "setup" department + put in notes.
+- If a sub-event has no menu items (e.g. pure meeting), items can be empty array.
+- For meat dishes, also add "butcher" if prep cuts are needed.
+- Bakery vs Pastry: Bread/savoury baked = bakery; Sweet desserts = pastry. Hybrid items (tahini buns) = both.
+- Convert dates: "27. February 2026" → "2026-02-27".
+- Extract exact pax from "Exp/Gtd: 12 / 12" or "for 40 pax".
+- Keep menu items in ORIGINAL language exactly as in BEO.`;
 
       let userMessages;
       if(isImageBased){
@@ -6882,18 +6909,57 @@ Rules:
     setError("");
     try{
       const{parsed,rawText,isImageBased}=await parseWithAI(file);
-      // Doğrudan formu aç
+      
+      // PDF'i Supabase Storage'a yükle
+      let pdfPath=null;
+      try{
+        const sb=initSupabase();
+        if(sb){
+          const ts=Date.now();
+          const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+          pdfPath=`${team.id}/${ts}_${safeName}`;
+          const{error:upErr}=await sb.storage.from("event-pdfs").upload(pdfPath,file,{contentType:"application/pdf",upsert:false});
+          if(upErr){
+            console.warn("PDF Storage upload hatası:",upErr.message);
+            pdfPath=null;
+          }
+        }
+      }catch(e){console.warn("PDF upload exception:",e.message);}
+
+      // Departments aggregate: tüm subEvent'lerden tek bir map (eski uyumluluk için)
+      const aggDepts={};
+      (parsed.subEvents||[]).forEach(se=>{
+        (se.items||[]).forEach(it=>{
+          (it.departments||[]).forEach(d=>{
+            if(!aggDepts[d])aggDepts[d]=[];
+            if(!aggDepts[d].includes(it.name))aggDepts[d].push(it.name);
+          });
+        });
+      });
+
       setSelectedEvent({
         id:null,
         team_id:team.id,
         name:parsed.name||file.name.replace(/\.pdf$/i,""),
         contract_no:parsed.contractNo||"",
-        event_date:parsed.date||"",
-        start_time:parsed.startTime||"",
-        end_time:parsed.endTime||"",
-        pax:parsed.pax||0,
-        location:parsed.location||"",
-        departments:parsed.departments||{},
+        account_name:parsed.accountName||"",
+        conf_manager:parsed.confManager||"",
+        contact_name:parsed.contactName||"",
+        contact_phone:parsed.contactPhone||"",
+        event_date:parsed.startDate||parsed.date||"",
+        end_date:parsed.endDate||parsed.startDate||parsed.date||"",
+        start_time:(parsed.subEvents?.[0]?.timeStart)||parsed.startTime||"",
+        end_time:(parsed.subEvents?.[parsed.subEvents.length-1]?.timeEnd)||parsed.endTime||"",
+        pax:parsed.subEvents?.[0]?.pax||parsed.pax||0,
+        location:parsed.subEvents?.[0]?.room||parsed.location||"",
+        departments:Object.keys(aggDepts).length?aggDepts:(parsed.departments||{}),
+        sub_events:parsed.subEvents||[],
+        currency:parsed.currency||"EUR",
+        total_amount:parsed.totalAmount||null,
+        price_per_person:parsed.pricePerPerson||null,
+        vat_rate:parsed.vatRate||20,
+        original_pdf_path:pdfPath,
+        original_pdf_size:file.size,
         ai_summary:parsed.summary||"",
         raw_text:rawText,
         pdf_name:file.name,
@@ -6916,12 +6982,24 @@ Rules:
       team_id:team.id,
       name:selectedEvent.name.trim(),
       contract_no:selectedEvent.contract_no||null,
+      account_name:selectedEvent.account_name||null,
+      conf_manager:selectedEvent.conf_manager||null,
+      contact_name:selectedEvent.contact_name||null,
+      contact_phone:selectedEvent.contact_phone||null,
       event_date:selectedEvent.event_date||null,
+      end_date:selectedEvent.end_date||null,
       start_time:selectedEvent.start_time||null,
       end_time:selectedEvent.end_time||null,
       pax:selectedEvent.pax||null,
       location:selectedEvent.location||null,
       departments:selectedEvent.departments||{},
+      sub_events:selectedEvent.sub_events||[],
+      currency:selectedEvent.currency||"EUR",
+      total_amount:selectedEvent.total_amount||null,
+      price_per_person:selectedEvent.price_per_person||null,
+      vat_rate:selectedEvent.vat_rate||20,
+      original_pdf_path:selectedEvent.original_pdf_path||null,
+      original_pdf_size:selectedEvent.original_pdf_size||null,
       ai_summary:selectedEvent.ai_summary||null,
       raw_text:selectedEvent.raw_text||null,
       pdf_name:selectedEvent.pdf_name||null,
