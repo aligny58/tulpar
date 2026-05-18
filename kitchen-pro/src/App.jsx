@@ -32,99 +32,6 @@ const ToastContainer=()=>{
       <span style={{flex:1,lineHeight:1.4,wordBreak:"break-word"}}>{t.message}</span>
     </div>;})}
 
-    {/* Manuel Etkinlik Modal */}
-    {showManual&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowManual(false);}}>
-      <div style={{background:t.bg,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",padding:"16px 14px calc(20px + env(safe-area-inset-bottom))"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontSize:16,fontWeight:700,color:t.text,fontFamily:"'Fraunces',serif"}}>{manualPreview?(lang==="tr"?"Önizleme — Düzenle":"Preview — Edit"):(lang==="tr"?"Manuel Etkinlik":"Manual Event")}</div>
-          <button onClick={()=>{setShowManual(false);setManualPreview(null);}} style={{background:"none",border:"none",fontSize:22,color:t.tm,cursor:"pointer",padding:"0 6px"}}>✕</button>
-        </div>
-
-        {!manualPreview?<>
-          {/* Form */}
-          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
-            <input style={iSt(t)} placeholder={lang==="tr"?"Etkinlik adı *":"Event name *"} value={manualForm.name} onChange={e=>setManualForm(f=>({...f,name:e.target.value}))}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-              <input style={iSt(t)} type="date" value={manualForm.event_date} onChange={e=>setManualForm(f=>({...f,event_date:e.target.value}))}/>
-              <input style={iSt(t)} type="time" value={manualForm.start_time} onChange={e=>setManualForm(f=>({...f,start_time:e.target.value}))}/>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:6}}>
-              <input style={iSt(t)} type="number" placeholder={lang==="tr"?"Kişi (pax)":"Pax"} value={manualForm.pax} onChange={e=>setManualForm(f=>({...f,pax:e.target.value}))}/>
-              <input style={iSt(t)} placeholder={lang==="tr"?"Lokasyon":"Location"} value={manualForm.location} onChange={e=>setManualForm(f=>({...f,location:e.target.value}))}/>
-            </div>
-            <textarea style={{...iSt(t),minHeight:60,resize:"vertical"}} placeholder={lang==="tr"?"Notlar (opsiyonel)":"Notes (optional)"} value={manualForm.notes} onChange={e=>setManualForm(f=>({...f,notes:e.target.value}))}/>
-            <div>
-              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>🍽 {lang==="tr"?"MENÜ KALEMLERI (her satıra bir kalem)":"MENU ITEMS (one per line)"}</div>
-              <textarea style={{...iSt(t),minHeight:120,resize:"vertical",fontFamily:"monospace",fontSize:13}} placeholder={lang==="tr"?"Domates çorbası\nLevrek ızgara\nCrème brûlée\nKokteyl seçimi":"Tomato soup\nGrilled sea bass\nCrème brûlée\nCocktail selection"} value={manualForm.items} onChange={e=>setManualForm(f=>({...f,items:e.target.value}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>📷 {lang==="tr"?"FOTOĞRAFLAR (opsiyonel, max 5)":"PHOTOS (optional, max 5)"}</div>
-              {manualForm.photos.length>0&&<div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
-                {manualForm.photos.map((p,i)=><div key={i} style={{position:"relative",width:60,height:60}}>
-                  <img src={p} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8,border:`1px solid ${t.border}`}}/>
-                  <button onClick={()=>setManualForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:10,background:t.danger,color:"#fff",border:"none",fontSize:11,cursor:"pointer"}}>✕</button>
-                </div>)}
-              </div>}
-              {manualForm.photos.length<5&&<label style={{...bSt("g",t),fontSize:12,padding:"8px 12px",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
-                + {lang==="tr"?"Foto Ekle":"Add Photo"}
-                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)handleManualPhoto(f);e.target.value="";}}/>
-              </label>}
-            </div>
-          </div>
-
-          <button onClick={aiDistributeManual} disabled={manualBusy} style={{...bSt("p",t),width:"100%",padding:"12px",fontSize:14,fontWeight:700,opacity:manualBusy?0.6:1}}>
-            {manualBusy?"🤖 "+(lang==="tr"?"AI Dağıtıyor...":"AI Distributing..."):"🤖 "+(lang==="tr"?"AI ile Departmanlara Ata":"AI Distribute to Departments")}
-          </button>
-          <div style={{fontSize:11,color:t.tm,textAlign:"center",marginTop:6,lineHeight:1.4}}>{lang==="tr"?"AI menü kalemlerini analiz edip uygun departmanlara atayacak. Sonra düzenleyebilirsin.":"AI will analyze items and assign departments. You can edit after."}</div>
-        </>:<>
-          {/* Önizleme + düzenle */}
-          <div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.acB,borderColor:t.accent}}>
-            <div style={{fontSize:14,fontWeight:700,color:t.text}}>{manualPreview.name}</div>
-            <div style={{fontSize:11,color:t.tm,marginTop:2}}>
-              {manualPreview.event_date&&<>📅 {manualPreview.event_date} </>}
-              {manualPreview.start_time&&<>🕐 {manualPreview.start_time} </>}
-              {manualPreview.pax&&<>👥 {manualPreview.pax} pax </>}
-              {manualPreview.location&&<>📍 {manualPreview.location}</>}
-            </div>
-          </div>
-
-          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🏢 {lang==="tr"?"DEPARTMAN ATAMASI (yanlışsa düzenle)":"DEPARTMENT ASSIGNMENT (edit if wrong)"}</div>
-          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
-            {Object.entries(manualPreview.departments).map(([deptId,items])=>{
-              const dept=DEPARTMENTS.find(d=>d.id===deptId);
-              return (items||[]).map((item,idx)=><div key={`${deptId}-${idx}`} style={{display:"flex",gap:6,alignItems:"center",background:t.inBg,padding:"6px 10px",borderRadius:8}}>
-                <span style={{flex:1,fontSize:12,color:t.text}}>{item}</span>
-                <select value={deptId} onChange={e=>{
-                  const newDept=e.target.value;
-                  if(newDept===deptId)return;
-                  setManualPreview(p=>{
-                    const newDepts={...p.departments};
-                    newDepts[deptId]=(newDepts[deptId]||[]).filter((_,i)=>i!==idx);
-                    if(!newDepts[deptId].length)delete newDepts[deptId];
-                    newDepts[newDept]=[...(newDepts[newDept]||[]),item];
-                    return{...p,departments:newDepts};
-                  });
-                }} style={{...iSt(t),fontSize:11,padding:"4px 8px",width:130}}>
-                  {DEPARTMENTS.map(d=><option key={d.id} value={d.id}>{d.icon} {lang==="tr"?d.tr:d.en}</option>)}
-                </select>
-                <button onClick={()=>setManualPreview(p=>{
-                  const newDepts={...p.departments};
-                  newDepts[deptId]=(newDepts[deptId]||[]).filter((_,i)=>i!==idx);
-                  if(!newDepts[deptId].length)delete newDepts[deptId];
-                  return{...p,departments:newDepts};
-                })} style={{background:"none",border:"none",color:t.danger,cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
-              </div>);
-            })}
-          </div>
-
-          <div style={{display:"flex",gap:6}}>
-            <button onClick={()=>setManualPreview(null)} style={{...bSt("g",t),flex:1,fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
-            <button onClick={saveManualEvent} style={{...bSt("p",t),flex:2,fontSize:13,fontWeight:700}}>✓ {lang==="tr"?"Kaydet":"Save"}</button>
-          </div>
-        </>}
-      </div>
-    </div>}
-
   </div>;
 };
 
@@ -7322,6 +7229,99 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
         </div>
       </div>;
     })}
+    {/* Manuel Etkinlik Modal */}
+    {showManual&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowManual(false);}}>
+      <div style={{background:t.bg,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",padding:"16px 14px calc(20px + env(safe-area-inset-bottom))"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:16,fontWeight:700,color:t.text,fontFamily:"'Fraunces',serif"}}>{manualPreview?(lang==="tr"?"Önizleme — Düzenle":"Preview — Edit"):(lang==="tr"?"Manuel Etkinlik":"Manual Event")}</div>
+          <button onClick={()=>{setShowManual(false);setManualPreview(null);}} style={{background:"none",border:"none",fontSize:22,color:t.tm,cursor:"pointer",padding:"0 6px"}}>✕</button>
+        </div>
+
+        {!manualPreview?<>
+          {/* Form */}
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+            <input style={iSt(t)} placeholder={lang==="tr"?"Etkinlik adı *":"Event name *"} value={manualForm.name} onChange={e=>setManualForm(f=>({...f,name:e.target.value}))}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              <input style={iSt(t)} type="date" value={manualForm.event_date} onChange={e=>setManualForm(f=>({...f,event_date:e.target.value}))}/>
+              <input style={iSt(t)} type="time" value={manualForm.start_time} onChange={e=>setManualForm(f=>({...f,start_time:e.target.value}))}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:6}}>
+              <input style={iSt(t)} type="number" placeholder={lang==="tr"?"Kişi (pax)":"Pax"} value={manualForm.pax} onChange={e=>setManualForm(f=>({...f,pax:e.target.value}))}/>
+              <input style={iSt(t)} placeholder={lang==="tr"?"Lokasyon":"Location"} value={manualForm.location} onChange={e=>setManualForm(f=>({...f,location:e.target.value}))}/>
+            </div>
+            <textarea style={{...iSt(t),minHeight:60,resize:"vertical"}} placeholder={lang==="tr"?"Notlar (opsiyonel)":"Notes (optional)"} value={manualForm.notes} onChange={e=>setManualForm(f=>({...f,notes:e.target.value}))}/>
+            <div>
+              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>🍽 {lang==="tr"?"MENÜ KALEMLERI (her satıra bir kalem)":"MENU ITEMS (one per line)"}</div>
+              <textarea style={{...iSt(t),minHeight:120,resize:"vertical",fontFamily:"monospace",fontSize:13}} placeholder={lang==="tr"?"Domates çorbası\nLevrek ızgara\nCrème brûlée\nKokteyl seçimi":"Tomato soup\nGrilled sea bass\nCrème brûlée\nCocktail selection"} value={manualForm.items} onChange={e=>setManualForm(f=>({...f,items:e.target.value}))}/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>📷 {lang==="tr"?"FOTOĞRAFLAR (opsiyonel, max 5)":"PHOTOS (optional, max 5)"}</div>
+              {manualForm.photos.length>0&&<div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
+                {manualForm.photos.map((p,i)=><div key={i} style={{position:"relative",width:60,height:60}}>
+                  <img src={p} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8,border:`1px solid ${t.border}`}}/>
+                  <button onClick={()=>setManualForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:10,background:t.danger,color:"#fff",border:"none",fontSize:11,cursor:"pointer"}}>✕</button>
+                </div>)}
+              </div>}
+              {manualForm.photos.length<5&&<label style={{...bSt("g",t),fontSize:12,padding:"8px 12px",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
+                + {lang==="tr"?"Foto Ekle":"Add Photo"}
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)handleManualPhoto(f);e.target.value="";}}/>
+              </label>}
+            </div>
+          </div>
+
+          <button onClick={aiDistributeManual} disabled={manualBusy} style={{...bSt("p",t),width:"100%",padding:"12px",fontSize:14,fontWeight:700,opacity:manualBusy?0.6:1}}>
+            {manualBusy?"🤖 "+(lang==="tr"?"AI Dağıtıyor...":"AI Distributing..."):"🤖 "+(lang==="tr"?"AI ile Departmanlara Ata":"AI Distribute to Departments")}
+          </button>
+          <div style={{fontSize:11,color:t.tm,textAlign:"center",marginTop:6,lineHeight:1.4}}>{lang==="tr"?"AI menü kalemlerini analiz edip uygun departmanlara atayacak. Sonra düzenleyebilirsin.":"AI will analyze items and assign departments. You can edit after."}</div>
+        </>:<>
+          {/* Önizleme + düzenle */}
+          <div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.acB,borderColor:t.accent}}>
+            <div style={{fontSize:14,fontWeight:700,color:t.text}}>{manualPreview.name}</div>
+            <div style={{fontSize:11,color:t.tm,marginTop:2}}>
+              {manualPreview.event_date&&<>📅 {manualPreview.event_date} </>}
+              {manualPreview.start_time&&<>🕐 {manualPreview.start_time} </>}
+              {manualPreview.pax&&<>👥 {manualPreview.pax} pax </>}
+              {manualPreview.location&&<>📍 {manualPreview.location}</>}
+            </div>
+          </div>
+
+          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🏢 {lang==="tr"?"DEPARTMAN ATAMASI (yanlışsa düzenle)":"DEPARTMENT ASSIGNMENT (edit if wrong)"}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+            {Object.entries(manualPreview.departments).map(([deptId,items])=>{
+              const dept=DEPARTMENTS.find(d=>d.id===deptId);
+              return (items||[]).map((item,idx)=><div key={`${deptId}-${idx}`} style={{display:"flex",gap:6,alignItems:"center",background:t.inBg,padding:"6px 10px",borderRadius:8}}>
+                <span style={{flex:1,fontSize:12,color:t.text}}>{item}</span>
+                <select value={deptId} onChange={e=>{
+                  const newDept=e.target.value;
+                  if(newDept===deptId)return;
+                  setManualPreview(p=>{
+                    const newDepts={...p.departments};
+                    newDepts[deptId]=(newDepts[deptId]||[]).filter((_,i)=>i!==idx);
+                    if(!newDepts[deptId].length)delete newDepts[deptId];
+                    newDepts[newDept]=[...(newDepts[newDept]||[]),item];
+                    return{...p,departments:newDepts};
+                  });
+                }} style={{...iSt(t),fontSize:11,padding:"4px 8px",width:130}}>
+                  {DEPARTMENTS.map(d=><option key={d.id} value={d.id}>{d.icon} {lang==="tr"?d.tr:d.en}</option>)}
+                </select>
+                <button onClick={()=>setManualPreview(p=>{
+                  const newDepts={...p.departments};
+                  newDepts[deptId]=(newDepts[deptId]||[]).filter((_,i)=>i!==idx);
+                  if(!newDepts[deptId].length)delete newDepts[deptId];
+                  return{...p,departments:newDepts};
+                })} style={{background:"none",border:"none",color:t.danger,cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
+              </div>);
+            })}
+          </div>
+
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setManualPreview(null)} style={{...bSt("g",t),flex:1,fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
+            <button onClick={saveManualEvent} style={{...bSt("p",t),flex:2,fontSize:13,fontWeight:700}}>✓ {lang==="tr"?"Kaydet":"Save"}</button>
+          </div>
+        </>}
+      </div>
+    </div>}
+
   </div>;
 };
 
