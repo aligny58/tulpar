@@ -6832,7 +6832,32 @@ Rules:
         headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
         body:JSON.stringify({model,max_tokens:3000,system:sysPrompt,messages:userMessages})
       });
-      if(!resp.ok){throw new Error("AI hatası: HTTP "+resp.status);}
+      if(!resp.ok){
+        const errText=await resp.text().catch(()=>"");
+        let errMsg="HTTP "+resp.status;
+        try{const j=JSON.parse(errText);if(j.error?.message)errMsg+=" — "+j.error.message;else if(j.error)errMsg+=" — "+JSON.stringify(j.error);}catch{errMsg+=" — "+errText.slice(0,200);}
+        // 503/529 → bir kez retry
+        if(resp.status===503||resp.status===529){
+          setParseProgress(lang==="tr"?"AI yoğun, tekrar deniyor...":"AI busy, retrying...");
+          await new Promise(r=>setTimeout(r,2500));
+          const resp2=await fetch("https://kitchen-manager-ai.aligny0.workers.dev/",{
+            method:"POST",
+            headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
+            body:JSON.stringify({model,max_tokens:3000,system:sysPrompt,messages:userMessages})
+          });
+          if(!resp2.ok){
+            const t2=await resp2.text().catch(()=>"");
+            throw new Error("AI hatası ("+resp2.status+"): "+(t2.slice(0,200)||errMsg));
+          }
+          const data2=await resp2.json();
+          const aiText2=data2?.content?.[0]?.text||"";
+          let jsonStr2=aiText2.trim().replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
+          const parsed2=JSON.parse(jsonStr2);
+          setParseProgress(lang==="tr"?"Tamamlandı":"Done");
+          return{parsed:parsed2,rawText:text.slice(0,5000),isImageBased};
+        }
+        throw new Error("AI hatası: "+errMsg);
+      }
       const data=await resp.json();
       const aiText=data?.content?.[0]?.text||"";
 
