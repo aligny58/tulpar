@@ -6729,7 +6729,7 @@ const generateInviteCode=()=>Math.random().toString(36).substring(2,8).toUpperCa
 const createTeam=async(teamName,userId,userName,parentTeamId=null)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
   const code=generateInviteCode();
-  const insertData={name:teamName,invite_code:code.toUpperCase(),owner_id:userId};
+  const insertData={name:teamName,invite_code:code.toUpperCase(),owner_id:userId,app_type:"pro"};
   if(parentTeamId)insertData.parent_team_id=parentTeamId;
   const{data:team,error:te}=await sb.from("teams").insert(insertData).select().single();
   if(te)throw te;
@@ -7337,10 +7337,29 @@ const getHolidaysForCountry=(country="TR",year)=>{
     const list=hd.getHolidays(year)||[];
     const result={};
     list.forEach(h=>{
-      // Sadece resmi (public) tatilleri al
       if(h.type==="public"){
-        const d=new Date(h.date).toISOString().slice(0,10);
-        result[d]=h.name||"Holiday";
+        // date-holidays "YYYY-MM-DD HH:MM:SS" formatında veriyor, ilk 10 karakteri al (saat dilimi dönüşümü olmasın)
+        const dStr=String(h.date).slice(0,10);
+        result[dStr]=h.name||"Holiday";
+        // Ramazan Bayramı sadece 1. günü veriyor, +2 gün ekleyelim (toplam 3 gün)
+        const nm=(h.name||"").toLowerCase();
+        if(nm.includes("ramazan")||nm.includes("eid al-fitr")||nm.includes("ramadan")){
+          for(let i=1;i<=2;i++){
+            const d=new Date(dStr+"T12:00:00");
+            d.setDate(d.getDate()+i);
+            const next=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+            result[next]=(h.name||"Eid")+` (${i+1}. gün)`;
+          }
+        }
+        // Kurban Bayramı sadece 1. günü veriyor, +3 gün ekleyelim (toplam 4 gün)
+        if(nm.includes("kurban")||nm.includes("eid al-adha")||nm.includes("eid al adha")){
+          for(let i=1;i<=3;i++){
+            const d=new Date(dStr+"T12:00:00");
+            d.setDate(d.getDate()+i);
+            const next=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+            result[next]=(h.name||"Eid")+` (${i+1}. gün)`;
+          }
+        }
       }
     });
     _hdCache[key]=result;
@@ -7567,27 +7586,31 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
   // Hücre kaydet
   const saveCell=async({memberId,memberType,date,start,end,type,position,name})=>{
     const sb=initSupabase();if(!sb)return;
-    // Önce sil
+    // Önce mevcut kaydı sil
     let delQ=sb.from("shifts").delete().eq("team_id",team.id).eq("date",date);
     if(memberType==="real")delQ=delQ.eq("created_by",memberId);
     else delQ=delQ.eq("phantom_member_id",memberId);
     await delQ;
-    // Sonra ekle (eğer OFF değilse)
-    if(type!=="off"){
-      const payload={
-        team_id:team.id,
-        name:position||"Vardiya",
-        member_name:name,
-        start_time:type==="leave"?"00:00:00":(start.length===5?start+":00":start),
-        end_time:type==="leave"?"00:00:00":(end.length===5?end+":00":end),
-        date,
-        tasks:[],
-        type:type||"shift",
-        ...(memberType==="real"?{created_by:memberId}:{phantom_member_id:memberId})
-      };
-      const{error}=await sb.from("shifts").insert(payload);
-      if(error){window.toast.error(error.message);return false;}
+    // type "delete" ise sadece sil, kayıt ekleme (hücre tamamen boş kalır)
+    if(type==="delete"){
+      const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
+      if(data)setShifts(data);
+      return true;
     }
+    // OFF dahil tüm diğer tipler kayıt olur
+    const payload={
+      team_id:team.id,
+      name:position||"Vardiya",
+      member_name:name,
+      start_time:(type==="leave"||type==="off"||type==="sick"||type==="parental"||type==="training"||type==="unpaid")?"00:00:00":(start.length===5?start+":00":start),
+      end_time:(type==="leave"||type==="off"||type==="sick"||type==="parental"||type==="training"||type==="unpaid")?"00:00:00":(end.length===5?end+":00":end),
+      date,
+      tasks:[],
+      type:type||"shift",
+      ...(memberType==="real"?{created_by:memberId}:{phantom_member_id:memberId})
+    };
+    const{error}=await sb.from("shifts").insert(payload);
+    if(error){window.toast.error(error.message);return false;}
     // Refresh
     const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
     if(data)setShifts(data);
@@ -8001,17 +8024,19 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
         <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:4}}>{cellEdit.memberName}</div>
         <div style={{fontSize:11,color:t.tm,marginBottom:14}}>{new Date(cellEdit.date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long"})}</div>
         
-        {/* Hızlı şablonlar */}
-        {presets.length>0&&<div style={{marginBottom:10}}>
-          <div style={{fontSize:10,fontWeight:600,color:t.tm,marginBottom:6,letterSpacing:"0.05em"}}>⚡ {lang==="tr"?"HIZLI SEÇİM":"QUICK SELECT"}</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {presets.map((p,i)=><button key={i} onClick={async()=>{
-              const ok=await saveCell({...cellEdit,start:p.start,end:p.end,type:"shift",name:cellEdit.memberName});
-              if(ok){window.toast.success(`✓ ${p.name}`);setCellEdit(null);}
-            }} style={{...bSt("s",t),fontSize:11,padding:"6px 10px",flex:"1 1 auto"}}>{p.name}<br/><span style={{fontSize:9,color:t.tm}}>{p.start}-{p.end}</span></button>)}
-          </div>
-        </div>}
-        {/* Vardiya saati */}
+        {/* ÜST SIRA: OFF + YILLIK İZİN (en sık kullanılanlar) */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+          <button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"off",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ OFF":"✓ OFF");setCellEdit(null);}
+          }} style={{...bSt("s",t),background:"#f3f4f6",color:"#374151",fontSize:13,padding:"12px 8px",fontWeight:700}}>⊘ OFF</button>
+          <button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"leave",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ Yıllık izin":"✓ Annual leave");setCellEdit(null);}
+          }} style={{...bSt("s",t),background:"#dcfce7",color:"#15803d",fontSize:13,padding:"12px 8px",fontWeight:700}}>🌴 {lang==="tr"?"YILLIK İZİN":"LEAVE"}</button>
+        </div>
+
+        {/* Vardiya saati (manuel) */}
         <div style={{padding:12,background:t.inBg||"#f9fafb",borderRadius:8,marginBottom:10}}>
           <div style={{fontSize:11,fontWeight:600,color:t.tm,marginBottom:6}}>{lang==="tr"?"VARDİYA SAATİ":"SHIFT TIME"}</div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -8025,40 +8050,38 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
           }} style={{...bSt("p",t),width:"100%",marginTop:8,fontSize:12}}>{lang==="tr"?"✓ Vardiyayı Kaydet":"✓ Save Shift"}</button>
         </div>
 
-        {/* Tip butonları */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-          <button onClick={async()=>{
-            const ok=await saveCell({...cellEdit,type:"leave",name:cellEdit.memberName});
-            if(ok){window.toast.success(lang==="tr"?"✓ Yıllık izin":"✓ Annual leave");setCellEdit(null);}
-          }} style={{...bSt("s",t),background:"#dcfce7",color:"#15803d",fontSize:11,padding:"8px 4px"}}>🌴 {lang==="tr"?"Yıllık İzin":"Leave"}</button>
-          <button onClick={async()=>{
-            const ok=await saveCell({...cellEdit,type:"sick",name:cellEdit.memberName});
-            if(ok){window.toast.success(lang==="tr"?"✓ Hastalık raporu":"✓ Sick leave");setCellEdit(null);}
-          }} style={{...bSt("s",t),background:"#ffedd5",color:"#c2410c",fontSize:11,padding:"8px 4px"}}>🤒 {lang==="tr"?"Hastalık":"Sick"}</button>
-        </div>
+        {/* + Diğer izin tipleri */}
         {cellEdit.showMore?<>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+            <button onClick={async()=>{
+              const ok=await saveCell({...cellEdit,type:"sick",name:cellEdit.memberName});
+              if(ok){window.toast.success(lang==="tr"?"✓ Hastalık raporu":"✓ Sick");setCellEdit(null);}
+            }} style={{...bSt("s",t),background:"#ffedd5",color:"#c2410c",fontSize:11,padding:"8px 4px"}}>🤒 {lang==="tr"?"Hastalık":"Sick"}</button>
             <button onClick={async()=>{
               const ok=await saveCell({...cellEdit,type:"parental",name:cellEdit.memberName});
               if(ok){window.toast.success(lang==="tr"?"✓ Doğum/Babalık":"✓ Parental");setCellEdit(null);}
             }} style={{...bSt("s",t),background:"#fce7f3",color:"#9d174d",fontSize:11,padding:"8px 4px"}}>👶 {lang==="tr"?"Doğum/Babalık":"Parental"}</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
             <button onClick={async()=>{
               const ok=await saveCell({...cellEdit,type:"training",name:cellEdit.memberName});
               if(ok){window.toast.success(lang==="tr"?"✓ Eğitim":"✓ Training");setCellEdit(null);}
             }} style={{...bSt("s",t),background:"#dbeafe",color:"#1e40af",fontSize:11,padding:"8px 4px"}}>📚 {lang==="tr"?"Eğitim":"Training"}</button>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
             <button onClick={async()=>{
               const ok=await saveCell({...cellEdit,type:"unpaid",name:cellEdit.memberName});
               if(ok){window.toast.success(lang==="tr"?"✓ Ücretsiz izin":"✓ Unpaid");setCellEdit(null);}
-            }} style={{...bSt("s",t),background:"#f3f4f6",color:"#374151",fontSize:11,padding:"8px 4px"}}>💸 {lang==="tr"?"Ücretsiz":"Unpaid"}</button>
-            <button onClick={async()=>{
-              const ok=await saveCell({...cellEdit,type:"off",name:cellEdit.memberName});
-              if(ok){window.toast.success(lang==="tr"?"✓ OFF":"✓ OFF");setCellEdit(null);}
-            }} style={{...bSt("s",t),fontSize:11,padding:"8px 4px"}}>⊘ OFF / {lang==="tr"?"Sil":"Delete"}</button>
+            }} style={{...bSt("s",t),background:"#e5e7eb",color:"#374151",fontSize:11,padding:"8px 4px"}}>💸 {lang==="tr"?"Ücretsiz":"Unpaid"}</button>
           </div>
         </>:<button onClick={()=>setCellEdit({...cellEdit,showMore:true})} style={{...bSt("s",t),width:"100%",fontSize:11,padding:"6px",marginBottom:8,color:t.tm}}>+ {lang==="tr"?"Diğer izin tipleri":"More leave types"}</button>}
-        <button onClick={()=>setCellEdit(null)} style={{...bSt("s",t),width:"100%",fontSize:12}}>{lang==="tr"?"İptal":"Cancel"}</button>
+        
+        {/* En altta: Sil (sadece mevcut vardiya varsa) ve İptal */}
+        <div style={{display:"flex",gap:8}}>
+          {cellEdit.existing&&<button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"delete",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ Silindi":"✓ Deleted");setCellEdit(null);}
+          }} style={{...bSt("s",t),flex:1,fontSize:12,color:t.danger}}>🗑️ {lang==="tr"?"Sil":"Delete"}</button>}
+          <button onClick={()=>setCellEdit(null)} style={{...bSt("s",t),flex:1,fontSize:12}}>{lang==="tr"?"İptal":"Cancel"}</button>
+        </div>
       </div>
     </div>}
 
@@ -9841,13 +9864,13 @@ export default function App(){
             (async()=>{try{
               const uid=data.session.user.id;
               let teamData=null;let memberRole="pro";
-              const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).order("created_at",{ascending:false}).limit(1).single();
+              const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).eq("app_type","pro").order("created_at",{ascending:false}).limit(1).single();
               if(ownedTeam){teamData=ownedTeam;memberRole="pro";}
               else{
                 const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",uid).order("joined_at",{ascending:false}).limit(1);
                 const membership=members_raw?.[0]||null;
                 if(membership?.team_id){
-                  const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
+                  const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).eq("app_type","pro").single();
                   if(td){teamData=td;memberRole=membership.role||"pro";}
                 }
               }
@@ -9891,14 +9914,14 @@ export default function App(){
             const uid=session.user.id;
             // Önce kendi oluşturduğu team'e bak (owner)
             let teamData=null;let memberRole="pro";
-            const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).order("created_at",{ascending:false}).limit(1).single();
+            const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).eq("app_type","pro").order("created_at",{ascending:false}).limit(1).single();
             if(ownedTeam){teamData=ownedTeam;memberRole="pro";}
             else{
               // Üye olduğu team'e bak (herhangi role)
               const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",uid).order("joined_at",{ascending:false}).limit(1);
               const membership=members_raw?.[0]||null;
               if(membership?.team_id){
-                const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
+                const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).eq("app_type","pro").single();
                 if(td){teamData=td;memberRole=membership.role||"pro";}
               }
             }
