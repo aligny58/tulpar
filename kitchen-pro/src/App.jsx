@@ -6756,7 +6756,7 @@ const getChildTeams=async(parentId)=>{
 
 const joinTeam=async(inviteCode,userId,userName)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
-  const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).single();
+  const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).eq("app_type","pro").single();
   if(te||!team)throw new Error("Geçersiz davet kodu");
   const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
   if(existing)return team;
