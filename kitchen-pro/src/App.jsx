@@ -6829,7 +6829,7 @@ Rules:
       const model=isImageBased?"claude-sonnet-4-5":"claude-haiku-4-5";
       const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev",{
         method:"POST",
-        headers:{"Content-Type":"application/json","X-Worker-Auth":"km_2026_x9k4n7j2p8r5t1w6"},
+        headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
         body:JSON.stringify({model,max_tokens:3000,system:sysPrompt,messages:userMessages})
       });
       if(!resp.ok){throw new Error("AI hatası: HTTP "+resp.status);}
@@ -6961,7 +6961,7 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       const proxyUrl="https://kitchen-manager-ai.aligny0.workers.dev";
       const res=await fetch(proxyUrl,{
         method:"POST",
-        headers:{"Content-Type":"application/json","X-KM-Token":"km_2026_x9k4n7j2p8r5t1w6"},
+        headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
         body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1024,messages:[{role:"user",content:prompt}]})
       });
       if(!res.ok){const txt=await res.text();throw new Error(`API ${res.status}: ${txt.slice(0,100)}`);}
