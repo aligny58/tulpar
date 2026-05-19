@@ -6878,7 +6878,9 @@ Rules:
           }
           const data2=await resp2.json();
           const aiText2=data2?.content?.[0]?.text||"";
-          let jsonStr2=aiText2.trim().replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
+          let jsonStr2=aiText2.trim().replace(/^```(?:json|JSON)?\s*\n?/,"").replace(/\n?```\s*$/,"").trim();
+          const fb=jsonStr2.search(/[\{\[]/);const lb=Math.max(jsonStr2.lastIndexOf("}"),jsonStr2.lastIndexOf("]"));
+          if(fb>=0&&lb>fb)jsonStr2=jsonStr2.substring(fb,lb+1);
           const parsed2=JSON.parse(jsonStr2);
           setParseProgress(lang==="tr"?"Tamamlandı":"Done");
           return{parsed:parsed2,rawText:text.slice(0,5000),isImageBased};
@@ -6888,12 +6890,26 @@ Rules:
       const data=await resp.json();
       const aiText=data?.content?.[0]?.text||"";
 
-      // JSON parse — markdown fence varsa temizle
+      // JSON parse — markdown fence varsa temizle (daha sağlam)
       let jsonStr=aiText.trim();
-      jsonStr=jsonStr.replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
+      // 1) ```json ... ``` veya ``` ... ``` fence'ini her yerden kaldır
+      jsonStr=jsonStr.replace(/^```(?:json|JSON)?\s*\n?/,"").replace(/\n?```\s*$/,"").trim();
+      // 2) İlk { veya [ ile son } veya ] arasını al (içinde başka şey varsa kırp)
+      const firstBrace=jsonStr.search(/[\{\[]/);
+      const lastBrace=Math.max(jsonStr.lastIndexOf("}"),jsonStr.lastIndexOf("]"));
+      if(firstBrace>=0&&lastBrace>firstBrace){jsonStr=jsonStr.substring(firstBrace,lastBrace+1);}
       let parsed;
       try{parsed=JSON.parse(jsonStr);}
-      catch(e){throw new Error("AI JSON döndürmedi:\n"+aiText.slice(0,200));}
+      catch(e){
+        // Son çare: control char'ları temizleyip dene
+        try{
+          const cleaned=jsonStr.replace(/[\u0000-\u001F]+/g,(m)=>m.replace(/\n/g," ").replace(/\t/g," ").replace(/[^\s]/g,""));
+          parsed=JSON.parse(cleaned);
+        }catch(e2){
+          console.warn("AI JSON parse hatası:",e.message,"\nİlk 500 char:",jsonStr.slice(0,500));
+          throw new Error("AI JSON parse edilemedi: "+e.message);
+        }
+      }
 
       setParseProgress(lang==="tr"?"Tamamlandı":"Done");
       return{parsed,rawText:text.slice(0,5000),isImageBased};
