@@ -6831,7 +6831,10 @@ Rules:
 - Bakery vs Pastry: Bread/savoury baked = bakery; Sweet desserts = pastry. Hybrid items (tahini buns) = both.
 - Convert dates: "27. February 2026" → "2026-02-27".
 - Extract exact pax from "Exp/Gtd: 12 / 12" or "for 40 pax".
-- Keep menu items in ORIGINAL language exactly as in BEO.`;
+- Keep menu items in ORIGINAL language exactly as in BEO.
+- CRITICAL OUTPUT FORMAT: Return ONLY pure JSON. No markdown fences, no comments, no trailing commas, no explanations before or after. Just valid parseable JSON, starting with { and ending with }.
+- Keep notesTr/notesEn SHORT — single line summaries, not paragraph dumps. Maximum 200 chars each.
+- Keep menu item names SHORT — just the dish name, not full description.`;
 
       let userMessages;
       if(isImageBased){
@@ -6857,7 +6860,7 @@ Rules:
       const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev",{
         method:"POST",
         headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
-        body:JSON.stringify({model,max_tokens:3000,system:sysPrompt,messages:userMessages})
+        body:JSON.stringify({model,max_tokens:8000,system:sysPrompt,messages:userMessages})
       });
       if(!resp.ok){
         const errText=await resp.text().catch(()=>"");
@@ -6870,7 +6873,7 @@ Rules:
           const resp2=await fetch("https://kitchen-manager-ai.aligny0.workers.dev/",{
             method:"POST",
             headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
-            body:JSON.stringify({model,max_tokens:3000,system:sysPrompt,messages:userMessages})
+            body:JSON.stringify({model,max_tokens:8000,system:sysPrompt,messages:userMessages})
           });
           if(!resp2.ok){
             const t2=await resp2.text().catch(()=>"");
@@ -6901,13 +6904,32 @@ Rules:
       let parsed;
       try{parsed=JSON.parse(jsonStr);}
       catch(e){
-        // Son çare: control char'ları temizleyip dene
+        // Son çare 1: control char'ları temizleyip dene
         try{
           const cleaned=jsonStr.replace(/[\u0000-\u001F]+/g,(m)=>m.replace(/\n/g," ").replace(/\t/g," ").replace(/[^\s]/g,""));
           parsed=JSON.parse(cleaned);
         }catch(e2){
-          console.warn("AI JSON parse hatası:",e.message,"\nİlk 500 char:",jsonStr.slice(0,500));
-          throw new Error("AI JSON parse edilemedi: "+e.message);
+          // Son çare 2: JSON kesilmiş olabilir, son sağlam objeyi bul
+          try{
+            // Trailing comma temizle
+            let fixed=jsonStr.replace(/,(\s*[\}\]])/g,"$1");
+            // Eksik kapatma parantezleri ekle (kabaca)
+            const opens=(fixed.match(/\{/g)||[]).length;
+            const closes=(fixed.match(/\}/g)||[]).length;
+            const arrOpens=(fixed.match(/\[/g)||[]).length;
+            const arrCloses=(fixed.match(/\]/g)||[]).length;
+            // Son tırnağı kapat (eğer string ortasında kesildiyse)
+            const quotes=(fixed.match(/(?<!\\)"/g)||[]).length;
+            if(quotes%2!==0)fixed+='"';
+            // Eksik ] ve } ekle
+            for(let i=0;i<arrOpens-arrCloses;i++)fixed+="]";
+            for(let i=0;i<opens-closes;i++)fixed+="}";
+            parsed=JSON.parse(fixed);
+            console.warn("[AI] JSON kesilmişti, kurtarıldı");
+          }catch(e3){
+            console.warn("AI JSON parse hatası:",e.message,"\nİlk 500 char:",jsonStr.slice(0,500),"\nSon 200 char:",jsonStr.slice(-200));
+            throw new Error("AI JSON parse edilemedi: "+e.message);
+          }
         }
       }
 
