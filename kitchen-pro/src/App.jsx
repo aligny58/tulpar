@@ -6806,7 +6806,7 @@ Output VALID JSON ONLY (no markdown, no explanation), matching this schema:
       "notesEn": "English notes/instructions from ATT TO X sections (if any)"
     }
   ],
-  "summary": "2-3 sentence summary in ${lang==="tr"?"Turkish":"English"}"
+  "summary": "STRICT REQUIREMENT — write this in ${lang==="tr"?"TURKISH (Türkçe)":"ENGLISH"}, 2-3 sentences max"
 }
 
 Department codes (each item can have MULTIPLE departments):
@@ -6831,15 +6831,42 @@ Rules:
 - Bakery vs Pastry: Bread/savoury baked = bakery; Sweet desserts = pastry. Hybrid items (tahini buns) = both.
 - Convert dates: "27. February 2026" → "2026-02-27".
 - Extract exact pax from "Exp/Gtd: 12 / 12" or "for 40 pax".
-- Keep menu items in ORIGINAL language exactly as in BEO.
-- CRITICAL OUTPUT FORMAT: Return ONLY pure JSON. No markdown fences, no comments, no trailing commas, no explanations before or after. Just valid parseable JSON, starting with { and ending with }.
-- BE EXTREMELY CONCISE to fit in response limits:
+
+CRITICAL — BILINGUAL MENU HANDLING:
+- BEO often shows the same dish in English AND Turkish on consecutive lines or separated by "/" or "**".
+- ALWAYS merge them into ONE menu item using format: "EnglishName / TurkishName"
+- Example: "Vanilla panna cotta, blueberry jubilée" + "Vanilyalı panna cotta, marine yaban mersini" → ONE item: "Vanilla panna cotta / Vanilyalı panna cotta"
+- Example: "Grilled lamb loin" + "Izgara kuzu sırtı" → ONE item: "Grilled lamb loin / Izgara kuzu sırtı"
+- NEVER create duplicate items for the same dish in different languages.
+
+DEPARTMENT ASSIGNMENT EXAMPLES (use exactly these mappings):
+- "Tea & Coffee", "Soft drinks" → ["service"] (service, NOT bar — bar is for alcoholic drinks/cocktails only)
+- "Cocktails", "Wine", "Beer" → ["bar"]
+- "Lamb loin", "Beef tenderloin", "Roasted beef" → ["kitchen","butcher"] (kitchen for cooking, butcher for prep)
+- "Panna cotta", "Tiramisu", "Profiterole", "Crème brûlée", "Tartolet" → ["pastry"]
+- "Mekik çeşitleri", "Muffin", "Tahini buns", "Brioche", "Poğaça", "Simit", "Focaccia", "Danimarka çöreği" → ["bakery"] (yeast/dough breads = bakery)
+- "Choux topları" with savoury filling (cheese) → ["pastry"] (pastry technique)
+- "Kayısılı tiramisu", "Apricot tiramisu" → ["pastry"]
+- "Goat cheese arancini" → ["kitchen"]
+- "Salad", "Bruschetta", "Cold starter", "Mediterranean salad" → ["cold"]
+- "Sandviç", "Sandwich" with cold filling → ["cold"]
+- "Sebzeli lazanya", "Hot pasta", "Soup" → ["kitchen"]
+- "Mini kuşkonmazlı kiş" (warm savoury tart) → ["pastry"] (pastry technique)
+- "Kol böreği", "Samosa" → ["bakery"]
+
+LANGUAGE OUTPUT:
+- summary MUST be in ${lang==="tr"?"Turkish":"English"} — NOT bilingual, just one language.
+- notesTr → Turkish version of notes (ATT TO ... parts in Turkish)
+- notesEn → English version of notes (ATT TO ... parts in English)
+
+CRITICAL OUTPUT FORMAT: Return ONLY pure JSON. No markdown fences, no comments, no trailing commas, no explanations before or after. Just valid parseable JSON, starting with { and ending with }.
+BE EXTREMELY CONCISE to fit in response limits:
   * notesTr/notesEn: maximum 80 chars each, single line summaries only
-  * Menu item names: just the dish name (max 40 chars), no descriptions
+  * Menu item names: max 60 chars (allow space for "EN / TR" format)
   * Skip duplicate items across sub-events
   * Skip ATT TO ACCOUNTING details (covered in pricing fields)
   * summary: max 150 chars total
-- Output minified JSON if possible (no extra whitespace between properties).`;
+Output minified JSON if possible (no extra whitespace between properties).`;
 
       let userMessages;
       if(isImageBased){
