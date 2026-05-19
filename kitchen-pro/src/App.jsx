@@ -6833,8 +6833,13 @@ Rules:
 - Extract exact pax from "Exp/Gtd: 12 / 12" or "for 40 pax".
 - Keep menu items in ORIGINAL language exactly as in BEO.
 - CRITICAL OUTPUT FORMAT: Return ONLY pure JSON. No markdown fences, no comments, no trailing commas, no explanations before or after. Just valid parseable JSON, starting with { and ending with }.
-- Keep notesTr/notesEn SHORT — single line summaries, not paragraph dumps. Maximum 200 chars each.
-- Keep menu item names SHORT — just the dish name, not full description.`;
+- BE EXTREMELY CONCISE to fit in response limits:
+  * notesTr/notesEn: maximum 80 chars each, single line summaries only
+  * Menu item names: just the dish name (max 40 chars), no descriptions
+  * Skip duplicate items across sub-events
+  * Skip ATT TO ACCOUNTING details (covered in pricing fields)
+  * summary: max 150 chars total
+- Output minified JSON if possible (no extra whitespace between properties).`;
 
       let userMessages;
       if(isImageBased){
@@ -6860,7 +6865,7 @@ Rules:
       const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev",{
         method:"POST",
         headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
-        body:JSON.stringify({model,max_tokens:8000,system:sysPrompt,messages:userMessages})
+        body:JSON.stringify({model,max_tokens:16000,system:sysPrompt,messages:userMessages})
       });
       if(!resp.ok){
         const errText=await resp.text().catch(()=>"");
@@ -6873,7 +6878,7 @@ Rules:
           const resp2=await fetch("https://kitchen-manager-ai.aligny0.workers.dev/",{
             method:"POST",
             headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
-            body:JSON.stringify({model,max_tokens:8000,system:sysPrompt,messages:userMessages})
+            body:JSON.stringify({model,max_tokens:16000,system:sysPrompt,messages:userMessages})
           });
           if(!resp2.ok){
             const t2=await resp2.text().catch(()=>"");
