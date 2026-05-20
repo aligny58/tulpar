@@ -9803,15 +9803,15 @@ const DockTabBar=({tabs,tab,setTab,t,ICONS,lowCount})=>{
             padding:isActive?"7px 14px":"7px 10px",
             margin:"0 1px",
             borderRadius:14,
-            color:isActive?t.accent:t.tm,
+            color:isActive?t.accent:t.ts,
             flexShrink:0,
             transform:isActive?"scale(1.08)":"scale(1)",
-            opacity:isActive?1:0.55,
+            opacity:1,
           }}>
           <span style={{width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            {ICONS&&ICONS[tb.icon]?<span dangerouslySetInnerHTML={{__html:ICONS[tb.icon](isActive?(t.accent||"#C8965A"):"currentColor")}}/>:<span style={{fontSize:20}}>{tb.i}</span>}
+            {ICONS&&ICONS[tb.icon]?<span dangerouslySetInnerHTML={{__html:ICONS[tb.icon](isActive?(t.accent||"#C8965A"):(t.ts||"#6b6357"))}}/>:<span style={{fontSize:20}}>{tb.i}</span>}
           </span>
-          <span style={{fontSize:isActive?10:9,fontWeight:isActive?700:500,whiteSpace:"nowrap",maxWidth:64,overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2}}>{tb.l}</span>
+          <span style={{fontSize:isActive?10:9,fontWeight:isActive?700:600,whiteSpace:"nowrap",maxWidth:64,overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2}}>{tb.l}</span>
           {tb.id==="stock"&&lowCount>0&&<div style={{position:"absolute",top:4,right:6,width:7,height:7,borderRadius:4,background:t.danger,boxShadow:"0 0 0 2px "+t.topBar}}/>}
         </button>;
       })}
