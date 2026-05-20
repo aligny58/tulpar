@@ -6771,6 +6771,31 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
       setParseProgress(lang==="tr"?"PDF okunuyor...":"Reading PDF...");
       const{text,isImageBased,pageCount}=await extractPDFText(file);
 
+      // ── Takım event menülerini Supabase'den çek ──
+      let teamMenuBlock="";
+      if(team?.id){
+        try{
+          const sb=initSupabase();
+          const[secRes,itemRes]=await Promise.all([
+            sb.from("event_menu_sections").select("id,department,name").eq("team_id",team.id),
+            sb.from("event_menu_items").select("section_id,name").eq("team_id",team.id).eq("status","active")
+          ]);
+          if(secRes.data&&itemRes.data&&secRes.data.length>0){
+            const lines=secRes.data.map(sec=>{
+              const its=itemRes.data.filter(i=>i.section_id===sec.id).map(i=>i.name);
+              return its.length>0?`- ${sec.department} › ${sec.name}: ${its.join(", ")}`:null;
+            }).filter(Boolean);
+            if(lines.length>0){
+              teamMenuBlock="
+
+TEAM EVENT MENU LIST — check this FIRST before applying department rules. If a BEO item name closely matches any item below, assign that department directly without further reasoning:
+"+lines.join("
+");
+            }
+          }
+        }catch(e){console.warn("Event menu fetch failed:",e);}
+      }
+
       const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data with multi-day support and sub-events (e.g. AM Coffee Break, Lunch, PM Coffee Break).
 
 Output VALID JSON ONLY (no markdown, no explanation), matching this schema:
@@ -6864,7 +6889,7 @@ BE EXTREMELY CONCISE to fit in response limits:
   * Skip duplicate items across sub-events
   * Skip ATT TO ACCOUNTING details (covered in pricing fields)
   * summary: max 150 chars total
-Output minified JSON if possible (no extra whitespace between properties).`;
+Output minified JSON if possible (no extra whitespace between properties).${teamMenuBlock}`;
 
       let userMessages;
       if(isImageBased){
