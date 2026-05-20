@@ -88,7 +88,6 @@ const SECTORS=[
   {id:"hotel",emoji:"🏨",tr:"Otel",en:"Hotel",ru:"Отель",es:"Hotel",de:"Hotel",fr:"Hôtel",zh:"酒店",ar:"فندق"},
   {id:"restaurant",emoji:"🍽",tr:"Restoran",en:"Restaurant",ru:"Ресторан",es:"Restaurante",de:"Restaurant",fr:"Restaurant",zh:"餐厅",ar:"مطعم"},
   {id:"cafe",emoji:"☕",tr:"Kafe",en:"Café",ru:"Кафе",es:"Café",de:"Café",fr:"Café",zh:"咖啡馆",ar:"مقهى"},
-  {id:"bakery",emoji:"🥐",tr:"Pastane / Fırın",en:"Bakery / Pastry",ru:"Пекарня",es:"Panadería",de:"Bäckerei",fr:"Boulangerie",zh:"面包店",ar:"مخبز"},
   {id:"catering",emoji:"🍱",tr:"Catering",en:"Catering",ru:"Кейтеринг",es:"Catering",de:"Catering",fr:"Traiteur",zh:"餐饮服务",ar:"تموين"},
   {id:"cloudkitchen",emoji:"☁️",tr:"Bulut Mutfak",en:"Cloud Kitchen",ru:"Облачная кухня",es:"Cocina en la Nube",de:"Cloud-Küche",fr:"Cuisine Cloud",zh:"云厨房",ar:"مطبخ سحابي"},
   {id:"foodtruck",emoji:"🚚",tr:"Food Truck",en:"Food Truck",ru:"Фудтрак",es:"Food Truck",de:"Food Truck",fr:"Food Truck",zh:"餐车",ar:"شاحنة طعام"},
@@ -5083,6 +5082,8 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             📤 {lang==="tr"?"Davet Linkini Paylaş":"Share Invite Link"}
           </button>
         </div>}
+        {/* Departmanlı Davet Sistemi (Yeni) */}
+        {team.role==="chef"&&<DepartmentInvitesCard team={team} user={user} t={t}/>}
         {/* Ülke / Bölge ayarı */}
         {team.role==="chef"&&<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🌍 {lang==="tr"?"ÜLKE / BÖLGE":"COUNTRY / REGION"}</div>
@@ -6711,7 +6712,6 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
     {id:"kitchen",icon:"🍳",tr:"Sıcak Mutfak",en:"Hot Kitchen",color:"#dc2626"},
     {id:"cold",icon:"🥗",tr:"Soğuk Mutfak",en:"Cold Kitchen",color:"#0891b2"},
     {id:"pastry",icon:"🥐",tr:"Pastane",en:"Pastry",color:"#c8965a"},
-    {id:"bakery",icon:"🍞",tr:"Fırın",en:"Bakery",color:"#92400e"},
     {id:"butcher",icon:"🥩",tr:"Kasap",en:"Butchery",color:"#7f1d1d"},
     {id:"service",icon:"🍽",tr:"Servis",en:"Banquet Service",color:"#7c3aed"},
     {id:"bar",icon:"🍷",tr:"Bar",en:"Bar",color:"#059669"},
@@ -6799,7 +6799,7 @@ Output VALID JSON ONLY (no markdown, no explanation), matching this schema:
       "items": [
         {
           "name": "Menu item exact name (e.g. 'Mekik çeşitleri', 'Grilled lamb loin')",
-          "departments": ["pastry","bakery"]
+          "departments": ["pastry"]
         }
       ],
       "notesTr": "Turkish notes/instructions from ATT TO X sections (if any)",
@@ -6812,8 +6812,7 @@ Output VALID JSON ONLY (no markdown, no explanation), matching this schema:
 Department codes (each item can have MULTIPLE departments):
 - "kitchen" = Hot kitchen: main courses, hot starters, hot canapes, hot soups
 - "cold" = Cold kitchen: cold starters, salads, cold canapes
-- "pastry" = Desserts, cakes, baklava, panna cotta, profiterole, tarts, tiramisu
-- "bakery" = Bread, viennoiserie, simit, brioche, focaccia, poğaça, çörek, muffin
+- "pastry" = Pastane (Türkiye usulü): tatlılar (panna cotta, tiramisu, profiterole, tarts), hamur işleri (mekik, muffin, brioche, poğaça, simit, focaccia), ekmek ve viennoiserie. EKMEK DAHİL HER ŞEY.
 - "butcher" = Meat prep: lamb cuts, beef tenderloin, marinades
 - "service" = Banquet service: table arrangements, plating, lounge setup
 - "bar" = Beverages: cocktails, wine, soft drinks (note: Tea & Coffee is service, not bar)
@@ -6823,12 +6822,11 @@ Department codes (each item can have MULTIPLE departments):
 
 Rules:
 - ALWAYS extract every sub-event separately (Meeting, AM Break, Lunch, PM Break, Tea Service).
-- Each menu item is one entry with departments array (can be multi: "Tahini buns" = ["pastry","bakery"]).
+- Each menu item is one entry with departments array (can be multi: "Tahini buns" = ["pastry"]).
 - Notes (ATT TO ...) belong to the sub-event they're under. Split TR and EN if both languages present.
 - Setup instructions (podium, chair, skirt) → "setup" department + put in notes.
 - If a sub-event has no menu items (e.g. pure meeting), items can be empty array.
 - For meat dishes, also add "butcher" if prep cuts are needed.
-- Bakery vs Pastry: Bread/savoury baked = bakery; Sweet desserts = pastry. Hybrid items (tahini buns) = both.
 - Convert dates: "27. February 2026" → "2026-02-27".
 - Extract exact pax from "Exp/Gtd: 12 / 12" or "for 40 pax".
 
@@ -6844,7 +6842,7 @@ DEPARTMENT ASSIGNMENT EXAMPLES (use exactly these mappings):
 - "Cocktails", "Wine", "Beer" → ["bar"]
 - "Lamb loin", "Beef tenderloin", "Roasted beef" → ["kitchen","butcher"] (kitchen for cooking, butcher for prep)
 - "Panna cotta", "Tiramisu", "Profiterole", "Crème brûlée", "Tartolet" → ["pastry"]
-- "Mekik çeşitleri", "Muffin", "Tahini buns", "Brioche", "Poğaça", "Simit", "Focaccia", "Danimarka çöreği" → ["bakery"] (yeast/dough breads = bakery)
+- "Mekik çeşitleri", "Muffin", "Tahini buns", "Brioche", "Poğaça", "Simit", "Focaccia", "Danimarka çöreği", "Ekmek" → ["pastry"]
 - "Choux topları" with savoury filling (cheese) → ["pastry"] (pastry technique)
 - "Kayısılı tiramisu", "Apricot tiramisu" → ["pastry"]
 - "Goat cheese arancini" → ["kitchen"]
@@ -6852,7 +6850,7 @@ DEPARTMENT ASSIGNMENT EXAMPLES (use exactly these mappings):
 - "Sandviç", "Sandwich" with cold filling → ["cold"]
 - "Sebzeli lazanya", "Hot pasta", "Soup" → ["kitchen"]
 - "Mini kuşkonmazlı kiş" (warm savoury tart) → ["pastry"] (pastry technique)
-- "Kol böreği", "Samosa" → ["bakery"]
+- "Kol böreği", "Samosa" → ["pastry"]
 
 LANGUAGE OUTPUT:
 - summary MUST be in ${lang==="tr"?"Turkish":"English"} — NOT bilingual, just one language.
@@ -7110,7 +7108,6 @@ Output minified JSON if possible (no extra whitespace between properties).`;
 - kitchen (Hot Kitchen): hot mains, hot starters, soups, hot canapes, grilled, fried items
 - cold (Cold Kitchen): cold starters, salads, cold canapes, mezes, hummus
 - pastry: desserts, baklava, cakes, ice cream, sweets
-- bakery: bread, simit, brioche, viennoiserie
 - butcher: meat preparation requirements, lamb, beef tenderloin
 - service (Banquet Service): table setup, service notes, decorations
 - bar: drinks, cocktails, wine, beverages, coffee, tea
@@ -8274,6 +8271,107 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
 
 // ═══ KANBAN TAB ═══
 // ═══ HIZLI VARDİYA ŞABLONLARI ═══
+const DepartmentInvitesCard=({team,user,t})=>{
+  const lang=t.lang;
+  const[invites,setInvites]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[showNew,setShowNew]=useState(false);
+  const[dept,setDept]=useState("pastry");
+  const[role,setRole]=useState("dept_chef");
+  const[busy,setBusy]=useState(false);
+  
+  const DEPTS=[
+    {id:"pastry",name:lang==="tr"?"Pastane":"Pastry",icon:"🍰"},
+    {id:"kitchen",name:lang==="tr"?"Sıcak Mutfak":"Hot Kitchen",icon:"🔥"},
+    {id:"cold",name:lang==="tr"?"Soğuk Mutfak":"Cold Kitchen",icon:"🥗"},
+    {id:"butcher",name:lang==="tr"?"Kasap":"Butcher",icon:"🥩"},
+    {id:"service",name:lang==="tr"?"Servis":"Service",icon:"🍽️"},
+    {id:"bar",name:"Bar",icon:"🍷"}
+  ];
+  
+  const loadInvites=async()=>{
+    setLoading(true);
+    const sb=initSupabase();if(!sb){setLoading(false);return;}
+    const{data}=await sb.from("team_invites").select("*").eq("team_id",team.id).eq("used",false).order("created_at",{ascending:false});
+    setInvites(data||[]);
+    setLoading(false);
+  };
+  
+  useEffect(()=>{loadInvites();},[team?.id]);
+  
+  const createInvite=async()=>{
+    if(busy)return;
+    setBusy(true);
+    const sb=initSupabase();if(!sb){setBusy(false);return;}
+    const code=Math.random().toString(36).substring(2,8).toUpperCase()+Math.random().toString(36).substring(2,6).toUpperCase();
+    const expires=new Date();expires.setDate(expires.getDate()+7); // 7 gün geçerli
+    const{error}=await sb.from("team_invites").insert({
+      team_id:team.id,
+      code,
+      department:dept,
+      role,
+      created_by:user?.userId||null,
+      expires_at:expires.toISOString()
+    });
+    if(error){window.toast?.error(error.message);setBusy(false);return;}
+    window.toast?.success(lang==="tr"?"✓ Davet oluşturuldu":"✓ Invite created");
+    setShowNew(false);
+    setBusy(false);
+    loadInvites();
+  };
+  
+  const shareInvite=async(inv)=>{
+    const deptObj=DEPTS.find(d=>d.id===inv.department);
+    const targetApp=inv.role==="dept_chef"?(lang==="tr"?"Manager":"Manager"):(lang==="tr"?"Çalışan":"Worker");
+    const text=`${lang==="tr"?"Kitchen Manager'a katıl":"Join Kitchen Manager"}\n${lang==="tr"?"Ekip":"Team"}: ${team.name}\n${deptObj?.icon||""} ${lang==="tr"?"Departman":"Department"}: ${deptObj?.name||inv.department}\n${lang==="tr"?"Rol":"Role"}: ${targetApp}\n${lang==="tr"?"Kod":"Code"}: ${inv.code}\n${lang==="tr"?"7 gün geçerli":"Valid for 7 days"}`;
+    if(navigator.share){try{await navigator.share({title:"Kitchen Manager",text});}catch{}}
+    else{try{await navigator.clipboard.writeText(text);window.toast?.success(lang==="tr"?"✓ Kopyalandı":"✓ Copied");}catch{}}
+  };
+  
+  const deleteInvite=async(id)=>{
+    if(!window.confirm(lang==="tr"?"Daveti sil?":"Delete invite?"))return;
+    const sb=initSupabase();if(!sb)return;
+    await sb.from("team_invites").delete().eq("id",id);
+    loadInvites();
+  };
+  
+  return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+      <div style={{fontSize:11,color:t.tm,fontWeight:700,letterSpacing:"0.05em"}}>👥 {lang==="tr"?"DEPARTMAN DAVETLERİ":"DEPARTMENT INVITES"}</div>
+      <button onClick={()=>setShowNew(!showNew)} style={{...bSt("s",t),fontSize:11,padding:"6px 10px"}}>{showNew?"−":"+"} {lang==="tr"?"Yeni":"New"}</button>
+    </div>
+    
+    {showNew&&<div style={{padding:10,background:t.inBg||"#f9fafb",borderRadius:8,marginBottom:10}}>
+      <div style={{fontSize:10,color:t.tm,marginBottom:4,fontWeight:600}}>{lang==="tr"?"DEPARTMAN":"DEPARTMENT"}</div>
+      <select value={dept} onChange={e=>setDept(e.target.value)} style={{...iSt(t),marginBottom:8}}>
+        {DEPTS.map(d=><option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
+      </select>
+      <div style={{fontSize:10,color:t.tm,marginBottom:4,fontWeight:600}}>{lang==="tr"?"ROL":"ROLE"}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+        <button onClick={()=>setRole("dept_chef")} style={{...bSt(role==="dept_chef"?"p":"s",t),fontSize:11,padding:8}}>👨‍🍳 {lang==="tr"?"Departman Şefi":"Dept Chef"}<br/><span style={{fontSize:9,opacity:0.7}}>Manager</span></button>
+        <button onClick={()=>setRole("worker")} style={{...bSt(role==="worker"?"p":"s",t),fontSize:11,padding:8}}>👤 {lang==="tr"?"Çalışan":"Worker"}<br/><span style={{fontSize:9,opacity:0.7}}>Worker</span></button>
+      </div>
+      <button onClick={createInvite} disabled={busy} style={{...bSt("p",t),width:"100%",fontSize:12}}>{busy?"...":"✓ "+(lang==="tr"?"Davet Oluştur":"Create Invite")}</button>
+    </div>}
+    
+    {loading?<div style={{fontSize:11,color:t.tm,textAlign:"center",padding:8}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>:
+     invites.length===0?<div style={{fontSize:11,color:t.tm,textAlign:"center",padding:8}}>{lang==="tr"?"Henüz aktif davet yok":"No active invites yet"}</div>:
+     <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {invites.map(inv=>{
+        const deptObj=DEPTS.find(d=>d.id===inv.department);
+        return <div key={inv.id} style={{padding:8,background:t.inBg||"#f9fafb",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:12,fontWeight:700,color:t.accent,letterSpacing:"0.1em"}}>{inv.code}</div>
+            <div style={{fontSize:10,color:t.tm}}>{deptObj?.icon} {deptObj?.name} · {inv.role==="dept_chef"?(lang==="tr"?"Şef":"Chef"):(lang==="tr"?"Çalışan":"Worker")}</div>
+          </div>
+          <button onClick={()=>shareInvite(inv)} style={{...bSt("s",t),fontSize:10,padding:"4px 8px"}}>📤</button>
+          <button onClick={()=>deleteInvite(inv.id)} style={{...bSt("s",t),fontSize:10,padding:"4px 8px",color:t.danger}}>🗑️</button>
+        </div>;
+      })}
+     </div>}
+  </div>;
+};
+
 const ShiftPresetsCard=({team,setTeam,t,lang})=>{
   const defaults=[
     {name:lang==="tr"?"Sabah":"Morning",start:"07:00",end:"15:00"},
