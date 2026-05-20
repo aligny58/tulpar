@@ -4421,22 +4421,20 @@ const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>
   </div>;
 
   // ── Event Menüleri Paneli ──
-  const emPanel=showEM&&<div style={{position:"fixed",inset:0,zIndex:400,display:"flex",flexDirection:"column"}}>
-    {/* overlay */}
-    <div onClick={()=>setShowEM(false)} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.45)",backdropFilter:"blur(2px)"}}/>
-    <div style={{position:"absolute",bottom:0,left:0,right:0,maxHeight:"92vh",background:t.bg,borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 -8px 40px rgba(0,0,0,0.18)"}}>
-      {/* Panel header */}
-      <div style={{padding:"16px 18px 12px",borderBottom:`1px solid ${t.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-        <div>
-          <div style={{fontSize:17,fontWeight:700,color:t.text,fontFamily:"'Fraunces',serif"}}>📂 {lang==="tr"?"Event Menüleri":"Event Menus"}</div>
-          <div style={{fontSize:12,color:t.tm,marginTop:2}}>{lang==="tr"?"BEO AI için departman yemek listeleri":"Department dish lists for BEO AI"}</div>
-        </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {emInfoSeen&&<button onClick={()=>{localStorage.removeItem("kmc_eventmenu_info");setEmInfoSeen(false);}} style={{background:"none",border:`1px solid ${t.border}`,borderRadius:8,padding:"5px 10px",fontSize:12,color:t.tm,cursor:"pointer"}}>ℹ️</button>}
-          <button onClick={()=>setShowEM(false)} style={{...bSt("s",t),padding:"8px 14px",fontSize:13}}>✕</button>
-        </div>
+  // ── Event Menüleri tam sayfa görünümü (editMenu gibi) ──
+  if(showEM) return <div>{cropModalJSX}
+    {/* Header */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div>
+        <h3 style={{fontSize:22,color:t.text,margin:0}}>📂 {lang==="tr"?"Event Menüleri":"Event Menus"}</h3>
+        <div style={{fontSize:12,color:t.tm,marginTop:3}}>{lang==="tr"?"BEO AI için departman yemek listeleri":"Department dish lists for BEO AI"}</div>
       </div>
-      <div style={{overflowY:"auto",flex:1,paddingBottom:24}}>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        {emInfoSeen&&<button onClick={()=>{localStorage.removeItem("kmc_eventmenu_info");setEmInfoSeen(false);}} style={{background:"none",border:`1px solid ${t.border}`,borderRadius:8,padding:"6px 10px",fontSize:13,color:t.tm,cursor:"pointer"}}>ℹ️</button>}
+        <button onClick={()=>setShowEM(false)} style={{...bSt("s",t),fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
+      </div>
+    </div>
+    <div>
         {/* Info ekranı */}
         {!emInfoSeen?<div style={{padding:24,maxWidth:480,margin:"0 auto"}}>
           <div style={{...cSt(t),padding:24}}>
@@ -4533,7 +4531,6 @@ const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>
             </button>}
           </div>
         </div>}
-      </div>
     </div>
     {/* Silme onay */}
     {emConfirmDel&&<div onClick={()=>setEmConfirmDel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -4550,7 +4547,7 @@ const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>
   </div>;
 
   // Liste
-  return <div>{cropModalJSX}{emPanel}
+  return <div>{cropModalJSX}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
       <h3 style={{fontSize:22,color:t.text}}>{t.L.menus} <span style={{fontSize:14,color:t.tm,fontWeight:400}}>({menus.length})</span></h3>
       <div style={{display:"flex",gap:8}}>
