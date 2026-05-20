@@ -5083,7 +5083,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
           </button>
         </div>}
         {/* Departmanlı Davet Sistemi (Yeni) */}
-        {team.role==="chef"&&<DepartmentInvitesCard team={team} user={user} t={t}/>}
+        {team.role==="chef"&&<JoinRequestsCard team={team} user={user} t={t}/>}
         {/* Ülke / Bölge ayarı */}
         {team.role==="chef"&&<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🌍 {lang==="tr"?"ÜLKE / BÖLGE":"COUNTRY / REGION"}</div>
@@ -8271,104 +8271,86 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
 
 // ═══ KANBAN TAB ═══
 // ═══ HIZLI VARDİYA ŞABLONLARI ═══
-const DepartmentInvitesCard=({team,user,t})=>{
+const JoinRequestsCard=({team,user,t})=>{
   const lang=t.lang;
-  const[invites,setInvites]=useState([]);
+  const[requests,setRequests]=useState([]);
   const[loading,setLoading]=useState(true);
-  const[showNew,setShowNew]=useState(false);
-  const[dept,setDept]=useState("pastry");
-  const[role,setRole]=useState("dept_chef");
-  const[busy,setBusy]=useState(false);
   
-  const DEPTS=[
-    {id:"pastry",name:lang==="tr"?"Pastane":"Pastry",icon:"🍰"},
-    {id:"kitchen",name:lang==="tr"?"Sıcak Mutfak":"Hot Kitchen",icon:"🔥"},
-    {id:"cold",name:lang==="tr"?"Soğuk Mutfak":"Cold Kitchen",icon:"🥗"},
-    {id:"butcher",name:lang==="tr"?"Kasap":"Butcher",icon:"🥩"},
-    {id:"service",name:lang==="tr"?"Servis":"Service",icon:"🍽️"},
-    {id:"bar",name:"Bar",icon:"🍷"}
-  ];
+  const DEPTS={
+    pastry:{name:lang==="tr"?"Pastane":"Pastry",icon:"🍰"},
+    kitchen:{name:lang==="tr"?"Sıcak Mutfak":"Hot Kitchen",icon:"🔥"},
+    cold:{name:lang==="tr"?"Soğuk Mutfak":"Cold Kitchen",icon:"🥗"},
+    butcher:{name:lang==="tr"?"Kasap":"Butcher",icon:"🥩"},
+    service:{name:lang==="tr"?"Servis":"Service",icon:"🍽️"},
+    bar:{name:"Bar",icon:"🍷"}
+  };
   
-  const loadInvites=async()=>{
+  const load=async()=>{
     setLoading(true);
     const sb=initSupabase();if(!sb){setLoading(false);return;}
-    const{data}=await sb.from("team_invites").select("*").eq("team_id",team.id).eq("used",false).order("created_at",{ascending:false});
-    setInvites(data||[]);
+    const{data}=await sb.from("team_join_requests").select("*").eq("team_id",team.id).eq("status","pending").order("created_at",{ascending:false});
+    setRequests(data||[]);
     setLoading(false);
   };
   
-  useEffect(()=>{loadInvites();},[team?.id]);
+  useEffect(()=>{load();},[team?.id]);
   
-  const createInvite=async()=>{
-    if(busy)return;
-    setBusy(true);
-    const sb=initSupabase();if(!sb){setBusy(false);return;}
-    const code=Math.random().toString(36).substring(2,8).toUpperCase()+Math.random().toString(36).substring(2,6).toUpperCase();
-    const expires=new Date();expires.setDate(expires.getDate()+7); // 7 gün geçerli
-    const{error}=await sb.from("team_invites").insert({
-      team_id:team.id,
-      code,
-      department:dept,
-      role,
-      created_by:user?.userId||null,
-      expires_at:expires.toISOString()
-    });
-    if(error){window.toast?.error(error.message);setBusy(false);return;}
-    window.toast?.success(lang==="tr"?"✓ Davet oluşturuldu":"✓ Invite created");
-    setShowNew(false);
-    setBusy(false);
-    loadInvites();
-  };
-  
-  const shareInvite=async(inv)=>{
-    const deptObj=DEPTS.find(d=>d.id===inv.department);
-    const targetApp=inv.role==="dept_chef"?(lang==="tr"?"Manager":"Manager"):(lang==="tr"?"Çalışan":"Worker");
-    const text=`${lang==="tr"?"Kitchen Manager'a katıl":"Join Kitchen Manager"}\n${lang==="tr"?"Ekip":"Team"}: ${team.name}\n${deptObj?.icon||""} ${lang==="tr"?"Departman":"Department"}: ${deptObj?.name||inv.department}\n${lang==="tr"?"Rol":"Role"}: ${targetApp}\n${lang==="tr"?"Kod":"Code"}: ${inv.code}\n${lang==="tr"?"7 gün geçerli":"Valid for 7 days"}`;
-    if(navigator.share){try{await navigator.share({title:"Kitchen Manager",text});}catch{}}
-    else{try{await navigator.clipboard.writeText(text);window.toast?.success(lang==="tr"?"✓ Kopyalandı":"✓ Copied");}catch{}}
-  };
-  
-  const deleteInvite=async(id)=>{
-    if(!window.confirm(lang==="tr"?"Daveti sil?":"Delete invite?"))return;
+  const approve=async(req)=>{
     const sb=initSupabase();if(!sb)return;
-    await sb.from("team_invites").delete().eq("id",id);
-    loadInvites();
+    // 1. team_members'a ekle
+    const{error:me}=await sb.from("team_members").insert({
+      team_id:team.id,
+      user_id:req.user_id,
+      role:req.requested_role||"worker",
+      department:req.requested_department,
+      position:req.user_name
+    });
+    if(me){window.toast?.error(me.message);return;}
+    // 2. İsteği approved yap
+    await sb.from("team_join_requests").update({
+      status:"approved",
+      decided_by:user?.userId,
+      decided_at:new Date().toISOString()
+    }).eq("id",req.id);
+    window.toast?.success(lang==="tr"?`✓ ${req.user_name} onaylandı`:`✓ ${req.user_name} approved`);
+    load();
   };
   
-  return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-      <div style={{fontSize:11,color:t.tm,fontWeight:700,letterSpacing:"0.05em"}}>👥 {lang==="tr"?"DEPARTMAN DAVETLERİ":"DEPARTMENT INVITES"}</div>
-      <button onClick={()=>setShowNew(!showNew)} style={{...bSt("s",t),fontSize:11,padding:"6px 10px"}}>{showNew?"−":"+"} {lang==="tr"?"Yeni":"New"}</button>
+  const reject=async(req)=>{
+    if(!window.confirm(lang==="tr"?`${req.user_name} isteğini reddet?`:`Reject ${req.user_name}?`))return;
+    const sb=initSupabase();if(!sb)return;
+    await sb.from("team_join_requests").update({
+      status:"rejected",
+      decided_by:user?.userId,
+      decided_at:new Date().toISOString()
+    }).eq("id",req.id);
+    window.toast?.success(lang==="tr"?"İstek reddedildi":"Request rejected");
+    load();
+  };
+  
+  if(loading)return null;
+  if(requests.length===0)return null;
+  
+  return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12,border:`2px solid ${t.accent}`}}>
+    <div style={{fontSize:11,color:t.accent,fontWeight:700,marginBottom:10,letterSpacing:"0.05em",display:"flex",alignItems:"center",gap:6}}>
+      <span style={{background:t.accent,color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:10}}>{requests.length}</span>
+      ⏳ {lang==="tr"?"BEKLEYEN İSTEKLER":"PENDING REQUESTS"}
     </div>
-    
-    {showNew&&<div style={{padding:10,background:t.inBg||"#f9fafb",borderRadius:8,marginBottom:10}}>
-      <div style={{fontSize:10,color:t.tm,marginBottom:4,fontWeight:600}}>{lang==="tr"?"DEPARTMAN":"DEPARTMENT"}</div>
-      <select value={dept} onChange={e=>setDept(e.target.value)} style={{...iSt(t),marginBottom:8}}>
-        {DEPTS.map(d=><option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
-      </select>
-      <div style={{fontSize:10,color:t.tm,marginBottom:4,fontWeight:600}}>{lang==="tr"?"ROL":"ROLE"}</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-        <button onClick={()=>setRole("dept_chef")} style={{...bSt(role==="dept_chef"?"p":"s",t),fontSize:11,padding:8}}>👨‍🍳 {lang==="tr"?"Departman Şefi":"Dept Chef"}<br/><span style={{fontSize:9,opacity:0.7}}>Manager</span></button>
-        <button onClick={()=>setRole("worker")} style={{...bSt(role==="worker"?"p":"s",t),fontSize:11,padding:8}}>👤 {lang==="tr"?"Çalışan":"Worker"}<br/><span style={{fontSize:9,opacity:0.7}}>Worker</span></button>
-      </div>
-      <button onClick={createInvite} disabled={busy} style={{...bSt("p",t),width:"100%",fontSize:12}}>{busy?"...":"✓ "+(lang==="tr"?"Davet Oluştur":"Create Invite")}</button>
-    </div>}
-    
-    {loading?<div style={{fontSize:11,color:t.tm,textAlign:"center",padding:8}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>:
-     invites.length===0?<div style={{fontSize:11,color:t.tm,textAlign:"center",padding:8}}>{lang==="tr"?"Henüz aktif davet yok":"No active invites yet"}</div>:
-     <div style={{display:"flex",flexDirection:"column",gap:6}}>
-      {invites.map(inv=>{
-        const deptObj=DEPTS.find(d=>d.id===inv.department);
-        return <div key={inv.id} style={{padding:8,background:t.inBg||"#f9fafb",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:12,fontWeight:700,color:t.accent,letterSpacing:"0.1em"}}>{inv.code}</div>
-            <div style={{fontSize:10,color:t.tm}}>{deptObj?.icon} {deptObj?.name} · {inv.role==="dept_chef"?(lang==="tr"?"Şef":"Chef"):(lang==="tr"?"Çalışan":"Worker")}</div>
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {requests.map(req=>{
+        const dept=DEPTS[req.requested_department];
+        return <div key={req.id} style={{padding:10,background:t.inBg||"#f9fafb",borderRadius:8}}>
+          <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:2}}>{req.user_name}</div>
+          <div style={{fontSize:11,color:t.tm,marginBottom:8}}>
+            {dept?.icon||"📋"} {dept?.name||req.requested_department||"-"} · {req.requested_role==="chef"?(lang==="tr"?"Departman Şefi":"Dept Chef"):(lang==="tr"?"Çalışan":"Worker")}
           </div>
-          <button onClick={()=>shareInvite(inv)} style={{...bSt("s",t),fontSize:10,padding:"4px 8px"}}>📤</button>
-          <button onClick={()=>deleteInvite(inv.id)} style={{...bSt("s",t),fontSize:10,padding:"4px 8px",color:t.danger}}>🗑️</button>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>approve(req)} style={{...bSt("p",t),flex:1,fontSize:11,padding:"6px 10px"}}>✓ {lang==="tr"?"Onayla":"Approve"}</button>
+            <button onClick={()=>reject(req)} style={{...bSt("s",t),flex:1,fontSize:11,padding:"6px 10px",color:t.danger}}>✕ {lang==="tr"?"Reddet":"Reject"}</button>
+          </div>
         </div>;
       })}
-     </div>}
+    </div>
   </div>;
 };
 
