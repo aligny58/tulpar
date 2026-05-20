@@ -87,7 +87,6 @@ const SECTORS=[
   {id:"hotel",emoji:"🏨",tr:"Otel",en:"Hotel",ru:"Отель",es:"Hotel",de:"Hotel",fr:"Hôtel",zh:"酒店",ar:"فندق"},
   {id:"restaurant",emoji:"🍽",tr:"Restoran",en:"Restaurant",ru:"Ресторан",es:"Restaurante",de:"Restaurant",fr:"Restaurant",zh:"餐厅",ar:"مطعم"},
   {id:"cafe",emoji:"☕",tr:"Kafe",en:"Café",ru:"Кафе",es:"Café",de:"Café",fr:"Café",zh:"咖啡馆",ar:"مقهى"},
-  {id:"bakery",emoji:"🥐",tr:"Pastane / Fırın",en:"Bakery / Pastry",ru:"Пекарня",es:"Panadería",de:"Bäckerei",fr:"Boulangerie",zh:"面包店",ar:"مخبز"},
   {id:"catering",emoji:"🍱",tr:"Catering",en:"Catering",ru:"Кейтеринг",es:"Catering",de:"Catering",fr:"Traiteur",zh:"餐饮服务",ar:"تموين"},
   {id:"cloudkitchen",emoji:"☁️",tr:"Bulut Mutfak",en:"Cloud Kitchen",ru:"Облачная кухня",es:"Cocina en la Nube",de:"Cloud-Küche",fr:"Cuisine Cloud",zh:"云厨房",ar:"مطبخ سحابي"},
   {id:"foodtruck",emoji:"🚚",tr:"Food Truck",en:"Food Truck",ru:"Фудтрак",es:"Food Truck",de:"Food Truck",fr:"Food Truck",zh:"餐车",ar:"شاحنة طعام"},
@@ -6682,12 +6681,37 @@ const getChildTeams=async(parentId)=>{
 
 const joinTeam=async(inviteCode,userId,userName)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
-  const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).eq("app_type","manager").single();
+  // YENİ: Önce team_invites tablosunda ara (departman + rol ile)
+  const{data:invite}=await sb.from("team_invites").select("*").eq("code",inviteCode.toUpperCase()).eq("used",false).single();
+  if(invite){
+    // Yeni davet sistemi - token bazlı
+    const{data:team,error:te}=await sb.from("teams").select("*").eq("id",invite.team_id).single();
+    if(te||!team)throw new Error("Davet edildiğiniz ekip bulunamadı");
+    // Süre dolmuş mu?
+    if(invite.expires_at&&new Date(invite.expires_at)<new Date()){
+      throw new Error("Davet kodu süresi dolmuş");
+    }
+    // Sadece dept_chef veya worker olarak katılabilir
+    if(invite.role!=="dept_chef"){
+      throw new Error("Bu davet kodu Manager için değil (Worker uygulamasını kullanın)");
+    }
+    const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
+    if(existing)return team;
+    const{error:me}=await sb.from("team_members").insert({
+      team_id:team.id,user_id:userId,role:invite.role,department:invite.department,position:userName
+    });
+    if(me)throw me;
+    // Davet kodu kullanıldı işaretle
+    await sb.from("team_invites").update({used:true,used_by:userId,used_at:new Date().toISOString()}).eq("id",invite.id);
+    return team;
+  }
+  // ESKİ: invite_code ile fallback (geriye dönük uyumluluk)
+  const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).single();
   if(te||!team)throw new Error("Geçersiz davet kodu");
   const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
   if(existing)return team;
   const{error:me}=await sb.from("team_members").insert({
-    team_id:team.id,user_id:userId,role:"worker",position:userName
+    team_id:team.id,user_id:userId,role:"dept_chef",position:userName
   });
   if(me)throw me;
   return team;
