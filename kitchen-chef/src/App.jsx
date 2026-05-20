@@ -5071,6 +5071,8 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             📤 {lang==="tr"?"Davet Linkini Paylaş":"Share Invite Link"}
           </button>
         </div>}
+        {/* Bekleyen İstekler — sadece şef görür */}
+        {team.role==="chef"&&<JoinRequestsCard team={team} user={user} t={t}/>}
         {/* Ülke / Bölge ayarı */}
         {team.role==="chef"&&<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🌍 {lang==="tr"?"ÜLKE / BÖLGE":"COUNTRY / REGION"}</div>
@@ -6679,42 +6681,41 @@ const getChildTeams=async(parentId)=>{
   return data||[];
 };
 
-const joinTeam=async(inviteCode,userId,userName)=>{
+const joinTeam=async(inviteCode,userId,userName,requestedDepartment)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
-  // YENİ: Önce team_invites tablosunda ara (departman + rol ile)
-  const{data:invite}=await sb.from("team_invites").select("*").eq("code",inviteCode.toUpperCase()).eq("used",false).single();
-  if(invite){
-    // Yeni davet sistemi - token bazlı
-    const{data:team,error:te}=await sb.from("teams").select("*").eq("id",invite.team_id).single();
-    if(te||!team)throw new Error("Davet edildiğiniz ekip bulunamadı");
-    // Süre dolmuş mu?
-    if(invite.expires_at&&new Date(invite.expires_at)<new Date()){
-      throw new Error("Davet kodu süresi dolmuş");
-    }
-    // Sadece dept_chef veya worker olarak katılabilir
-    if(invite.role!=="dept_chef"){
-      throw new Error("Bu davet kodu Manager için değil (Worker uygulamasını kullanın)");
-    }
-    const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
-    if(existing)return team;
-    const{error:me}=await sb.from("team_members").insert({
-      team_id:team.id,user_id:userId,role:invite.role,department:invite.department,position:userName
-    });
-    if(me)throw me;
-    // Davet kodu kullanıldı işaretle
-    await sb.from("team_invites").update({used:true,used_by:userId,used_at:new Date().toISOString()}).eq("id",invite.id);
-    return team;
-  }
-  // ESKİ: invite_code ile fallback (geriye dönük uyumluluk)
+  // Davet kodu ile ekibi bul
   const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).single();
-  if(te||!team)throw new Error("Geçersiz davet kodu");
+  if(te||!team)throw new Error(lang==="tr"?"Geçersiz davet kodu":"Invalid invite code");
+  
+  // Zaten ekipte mi?
   const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
   if(existing)return team;
-  const{error:me}=await sb.from("team_members").insert({
-    team_id:team.id,user_id:userId,role:"dept_chef",position:userName
+  
+  // Bekleyen istek var mı?
+  const{data:pendingReq}=await sb.from("team_join_requests").select("id,status").eq("team_id",team.id).eq("user_id",userId).eq("status","pending").single();
+  if(pendingReq){
+    const err=new Error("PENDING_APPROVAL");
+    err.code="PENDING";
+    err.team=team;
+    throw err;
+  }
+  
+  // Yeni istek gönder
+  const{error:re}=await sb.from("team_join_requests").insert({
+    team_id:team.id,
+    user_id:userId,
+    user_name:userName,
+    requested_department:requestedDepartment||null,
+    requested_role:"chef",  // Manager kullanıyor → departman şefi
+    status:"pending"
   });
-  if(me)throw me;
-  return team;
+  if(re)throw re;
+  
+  // İstek gönderildi, ekibe henüz dahil değil
+  const err=new Error("REQUEST_SENT");
+  err.code="SENT";
+  err.team=team;
+  throw err;
 };
 
 const syncFromTeam=async(teamId,table)=>{
@@ -7474,6 +7475,87 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
 
 
 // ═══ HIZLI VARDİYA ŞABLONLARI ═══
+const JoinRequestsCard=({team,user,t})=>{
+  const lang=t.lang;
+  const[requests,setRequests]=useState([]);
+  const[loading,setLoading]=useState(true);
+  
+  const DEPTS={
+    pastry:{name:lang==="tr"?"Pastane":"Pastry",icon:"🍰"},
+    kitchen:{name:lang==="tr"?"Sıcak Mutfak":"Hot Kitchen",icon:"🔥"},
+    cold:{name:lang==="tr"?"Soğuk Mutfak":"Cold Kitchen",icon:"🥗"},
+    butcher:{name:lang==="tr"?"Kasap":"Butcher",icon:"🥩"},
+    service:{name:lang==="tr"?"Servis":"Service",icon:"🍽️"},
+    bar:{name:"Bar",icon:"🍷"}
+  };
+  
+  const load=async()=>{
+    setLoading(true);
+    const sb=initSupabase();if(!sb){setLoading(false);return;}
+    const{data}=await sb.from("team_join_requests").select("*").eq("team_id",team.id).eq("status","pending").order("created_at",{ascending:false});
+    setRequests(data||[]);
+    setLoading(false);
+  };
+  
+  useEffect(()=>{load();},[team?.id]);
+  
+  const approve=async(req)=>{
+    const sb=initSupabase();if(!sb)return;
+    const{error:me}=await sb.from("team_members").insert({
+      team_id:team.id,
+      user_id:req.user_id,
+      role:req.requested_role||"worker",
+      department:req.requested_department,
+      position:req.user_name
+    });
+    if(me){window.toast?.error(me.message);return;}
+    await sb.from("team_join_requests").update({
+      status:"approved",
+      decided_by:user?.userId,
+      decided_at:new Date().toISOString()
+    }).eq("id",req.id);
+    window.toast?.success(lang==="tr"?`✓ ${req.user_name} onaylandı`:`✓ ${req.user_name} approved`);
+    load();
+  };
+  
+  const reject=async(req)=>{
+    if(!window.confirm(lang==="tr"?`${req.user_name} isteğini reddet?`:`Reject ${req.user_name}?`))return;
+    const sb=initSupabase();if(!sb)return;
+    await sb.from("team_join_requests").update({
+      status:"rejected",
+      decided_by:user?.userId,
+      decided_at:new Date().toISOString()
+    }).eq("id",req.id);
+    window.toast?.success(lang==="tr"?"İstek reddedildi":"Request rejected");
+    load();
+  };
+  
+  if(loading)return null;
+  if(requests.length===0)return null;
+  
+  return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12,border:`2px solid ${t.accent}`}}>
+    <div style={{fontSize:11,color:t.accent,fontWeight:700,marginBottom:10,letterSpacing:"0.05em",display:"flex",alignItems:"center",gap:6}}>
+      <span style={{background:t.accent,color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:10}}>{requests.length}</span>
+      ⏳ {lang==="tr"?"BEKLEYEN İSTEKLER":"PENDING REQUESTS"}
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {requests.map(req=>{
+        const dept=DEPTS[req.requested_department];
+        return <div key={req.id} style={{padding:10,background:t.inBg||"#f9fafb",borderRadius:8}}>
+          <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:2}}>{req.user_name}</div>
+          <div style={{fontSize:11,color:t.tm,marginBottom:8}}>
+            {dept?.icon||"📋"} {dept?.name||req.requested_department||"-"} · {req.requested_role==="chef"?(lang==="tr"?"Departman Şefi":"Dept Chef"):(lang==="tr"?"Çalışan":"Worker")}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>approve(req)} style={{...bSt("p",t),flex:1,fontSize:11,padding:"6px 10px"}}>✓ {lang==="tr"?"Onayla":"Approve"}</button>
+            <button onClick={()=>reject(req)} style={{...bSt("s",t),flex:1,fontSize:11,padding:"6px 10px",color:t.danger}}>✕ {lang==="tr"?"Reddet":"Reject"}</button>
+          </div>
+        </div>;
+      })}
+    </div>
+  </div>;
+};
+
 const ShiftPresetsCard=({team,setTeam,t,lang})=>{
   const defaults=[
     {name:lang==="tr"?"Sabah":"Morning",start:"07:00",end:"15:00"},
