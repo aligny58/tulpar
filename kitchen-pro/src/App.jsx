@@ -7297,7 +7297,7 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
         <div style={{fontSize:12,color:t.tm}}>{selectedEvent._isNew?(lang==="tr"?"Yeni Etkinlik":"New Event"):(lang==="tr"?"Etkinlik Düzenle":"Edit Event")}</div>
       </div>
 
-      {selectedEvent.original_pdf_path&&<button onClick={()=>{const sb=initSupabase();if(!sb)return;const{data:{publicUrl}}=sb.storage.from("tulpar-storage").getPublicUrl(selectedEvent.original_pdf_path);window.open(publicUrl,"_blank");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:12}}>
+      {selectedEvent.original_pdf_path&&<button onClick={()=>{const sb=initSupabase();if(!sb)return;const{data:{publicUrl}}=sb.storage.from("event-pdfs").getPublicUrl(selectedEvent.original_pdf_path);window.open(publicUrl,"_blank");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:12}}>
         📄 {lang==="tr"?"Orijinal PDF'i Aç":"Open Original PDF"}
       </button>}
 
