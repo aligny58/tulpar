@@ -3980,6 +3980,199 @@ const ImageCropModal=({image,targetRatio,onClose,onCrop,t})=>{
   </div>;
 };
 
+// ═══════════════════════════════════════════════════
+// EVENTS TAB — Manager read-only etkinlik görünümü
+// ═══════════════════════════════════════════════════
+const EV_DEPARTMENTS=[
+  {id:"kitchen",icon:"🍳",tr:"Sıcak Mutfak",en:"Hot Kitchen",color:"#dc2626"},
+  {id:"cold",icon:"🥗",tr:"Soğuk Mutfak",en:"Cold Kitchen",color:"#0891b2"},
+  {id:"pastry",icon:"🥐",tr:"Pastane",en:"Pastry",color:"#c8965a"},
+  {id:"butcher",icon:"🥩",tr:"Kasap",en:"Butchery",color:"#7f1d1d"},
+  {id:"service",icon:"🍽",tr:"Servis",en:"Banquet Service",color:"#7c3aed"},
+  {id:"bar",icon:"🍷",tr:"Bar",en:"Bar",color:"#059669"},
+  {id:"setup",icon:"🪑",tr:"Kurulum",en:"Setup",color:"#525252"},
+  {id:"accounting",icon:"💰",tr:"Muhasebe",en:"Accounting",color:"#1e40af"},
+  {id:"general",icon:"📋",tr:"Genel",en:"General",color:"#6b7280"},
+];
+
+const EventsTab=({team,user,t})=>{
+  const lang=t?.lang||"tr";
+  const[events,setEvents]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[selDept,setSelDept]=useState("all");
+  const[selEvent,setSelEvent]=useState(null);
+
+  useEffect(()=>{
+    if(!team?.id){setLoading(false);return;}
+    const sb=initSupabase();if(!sb){setLoading(false);return;}
+    sb.from("events").select("*").eq("team_id",team.id).order("event_date",{ascending:true}).limit(100)
+      .then(({data,error})=>{
+        if(!error&&data)setEvents(data);
+        setLoading(false);
+      });
+  },[team?.id]);
+
+  // Kullanıcının departmanı
+  const myDept=user?.department||null;
+
+  // Departman filtresi - aktif olan
+  const filteredEvents=selDept==="all"?events:events.filter(ev=>{
+    const depts=ev.departments||{};
+    return depts[selDept]&&depts[selDept].length>0;
+  });
+
+  // Departmanı olan eventleri say
+  const deptCount=(deptId)=>events.filter(ev=>(ev.departments?.[deptId]||[]).length>0).length;
+
+  // PDF url
+  const getPdfUrl=(path)=>{
+    if(!path)return null;
+    const sb=initSupabase();if(!sb)return null;
+    const{data:{publicUrl}}=sb.storage.from("tulpar-storage").getPublicUrl(path);
+    return publicUrl;
+  };
+
+  // Detay görünümü
+  if(selEvent) return <div style={{paddingBottom:60}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+      <h3 style={{fontSize:22,color:t.text,margin:0,fontFamily:"'Fraunces',serif"}}>{selEvent.name}</h3>
+      <button onClick={()=>setSelEvent(null)} style={{...bSt("s",t),fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
+    </div>
+
+    {/* Özet kart */}
+    <div style={{...cSt(t),padding:"12px 16px",marginBottom:12}}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:10,fontSize:13,color:t.ts}}>
+        {selEvent.event_date&&<span>📅 {new Date(selEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}</span>}
+        {selEvent.end_date&&selEvent.end_date!==selEvent.event_date&&<span>→ {new Date(selEvent.end_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long"})}</span>}
+        {selEvent.start_time&&<span>🕐 {selEvent.start_time}{selEvent.end_time&&" – "+selEvent.end_time}</span>}
+        {selEvent.pax&&<span>👥 {selEvent.pax} pax</span>}
+        {selEvent.location&&<span>📍 {selEvent.location}</span>}
+        {selEvent.contract_no&&<span>📄 {selEvent.contract_no}</span>}
+      </div>
+      {selEvent.ai_summary&&<div style={{fontSize:13,color:t.ts,marginTop:10,paddingTop:10,borderTop:`1px solid ${t.border}`,lineHeight:1.6}}>{selEvent.ai_summary}</div>}
+    </div>
+
+    {/* PDF butonu */}
+    {selEvent.original_pdf_path&&<button onClick={()=>{const url=getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:12}}>
+      📄 {lang==="tr"?"Orijinal PDF'i Aç":"Open Original PDF"}
+    </button>}
+
+    {/* AI özet */}
+    {selEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 14px",marginBottom:12,background:t.acB,border:`1px solid ${t.acBo}`}}>
+      <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.1em",marginBottom:4}}>🤖 AI ÖZET</div>
+      <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selEvent.ai_summary}</div>
+    </div>}
+
+    {/* Sub-events */}
+    {(selEvent.sub_events||[]).length>0&&<>
+      <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:8,textTransform:"uppercase"}}>
+        {lang==="tr"?"Etkinlik Programı":"Event Schedule"}
+      </div>
+      {(selEvent.sub_events||[]).map((se,i)=><div key={i} style={{...cSt(t),padding:"10px 14px",marginBottom:8}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+          <div style={{fontSize:13,fontWeight:700,color:t.text}}>{se.name||se.timeStart}</div>
+          <div style={{fontSize:11,color:t.tm}}>{se.timeStart&&se.timeStart}{se.timeEnd&&" – "+se.timeEnd} {se.pax&&`· ${se.pax} pax`}</div>
+        </div>
+        {se.room&&<div style={{fontSize:11,color:t.tm,marginBottom:6}}>📍 {se.room}</div>}
+        {(se.items||[]).length>0&&<div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {(se.items||[]).map((item,j)=>{
+            const depts=(item.departments||[]);
+            return<div key={j} style={{background:t.inBg,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <span style={{fontSize:12,color:t.text,flex:1}}>{item.name}</span>
+              <div style={{display:"flex",gap:3,flexShrink:0}}>
+                {depts.map(d=>{
+                  const dep=EV_DEPARTMENTS.find(x=>x.id===d);
+                  return dep?<span key={d} style={{fontSize:10,background:dep.color+"20",color:dep.color,borderRadius:5,padding:"1px 6px",border:`1px solid ${dep.color}40`,fontWeight:600}}>{dep.icon}</span>:null;
+                })}
+              </div>
+            </div>;
+          })}
+        </div>}
+      </div>)}
+    </>}
+
+    {/* Departman görevleri */}
+    {selEvent.departments&&Object.keys(selEvent.departments).some(k=>(selEvent.departments[k]||[]).length>0)&&<>
+      <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:8,marginTop:16,textTransform:"uppercase"}}>
+        {lang==="tr"?"Departman Görevleri":"Department Tasks"}
+      </div>
+      {EV_DEPARTMENTS.filter(d=>(selEvent.departments?.[d.id]||[]).length>0).map(d=>{
+        const items=selEvent.departments[d.id]||[];
+        const isMyDept=myDept&&(d.id===myDept||d.tr.toLowerCase().includes(myDept.toLowerCase()));
+        return<div key={d.id} style={{...cSt(t),padding:"10px 14px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMyDept?`${d.color}08`:t.card}}>
+          <div style={{fontSize:12,fontWeight:700,color:t.text,marginBottom:6}}>
+            {d.icon} {lang==="tr"?d.tr:d.en}
+            {isMyDept&&<span style={{fontSize:10,background:t.acB,color:t.accent,borderRadius:5,padding:"1px 6px",marginLeft:8,border:`1px solid ${t.acBo}`}}>{lang==="tr"?"Senin departmanın":"Your dept"}</span>}
+          </div>
+          {items.map((item,i)=><div key={i} style={{fontSize:13,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
+        </div>;
+      })}
+    </>}
+  </div>;
+
+  // Liste görünümü
+  return <div style={{paddingBottom:60}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+      <h3 style={{fontSize:22,color:t.text,margin:0,fontFamily:"'Fraunces',serif"}}>🎉 {lang==="tr"?"Etkinlikler":"Events"}</h3>
+      <span style={{fontSize:12,color:t.tm}}>{filteredEvents.length} {lang==="tr"?"etkinlik":"events"}</span>
+    </div>
+
+    {/* Departman filtresi */}
+    <div style={{display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",paddingBottom:4,marginBottom:14}}>
+      <button onClick={()=>setSelDept("all")} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,fontSize:13,fontWeight:500,border:"1px solid",background:selDept==="all"?t.pA:"transparent",color:selDept==="all"?t.pAT:t.ts,borderColor:selDept==="all"?t.pA:t.inBo,cursor:"pointer",flexShrink:0}}>
+        {lang==="tr"?"Tümü":"All"} ({events.length})
+      </button>
+      {EV_DEPARTMENTS.filter(d=>deptCount(d.id)>0).map(d=><button key={d.id} onClick={()=>setSelDept(d.id)} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,fontSize:13,fontWeight:500,border:"1px solid",background:selDept===d.id?t.pA:"transparent",color:selDept===d.id?t.pAT:t.ts,borderColor:selDept===d.id?t.pA:t.inBo,cursor:"pointer",flexShrink:0}}>
+        {d.icon} {lang==="tr"?d.tr:d.en} ({deptCount(d.id)})
+      </button>)}
+    </div>
+
+    {loading&&<div style={{padding:40,textAlign:"center",color:t.tm}}>
+      <div style={{fontSize:22,marginBottom:6,opacity:0.5}}>⏳</div>
+      <div style={{fontSize:13}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>
+    </div>}
+
+    {!loading&&!team?.id&&<div style={{...cSt(t),padding:"40px 20px",textAlign:"center"}}>
+      <div style={{fontSize:40,marginBottom:8,opacity:0.4}}>🎉</div>
+      <div style={{fontSize:14,color:t.tm}}>{lang==="tr"?"Ekip bağlantısı gerekli":"Team connection required"}</div>
+    </div>}
+
+    {!loading&&team?.id&&filteredEvents.length===0&&<div style={{padding:40,textAlign:"center"}}>
+      <div style={{fontSize:40,marginBottom:8,opacity:0.3}}>📭</div>
+      <div style={{fontSize:13,color:t.tm}}>{lang==="tr"?"Henüz etkinlik yok. Pro uygulamasından BEO yükleyin.":"No events yet. Upload BEO from the Pro app."}</div>
+    </div>}
+
+    {filteredEvents.map(ev=>{
+      const dateStr=ev.event_date?new Date(ev.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short",year:"numeric"}):"";
+      const isPast=ev.event_date&&new Date(ev.event_date)<new Date(new Date().toDateString());
+      const myDeptItems=(myDept&&ev.departments?.[myDept])||[];
+      const totalItems=Object.values(ev.departments||{}).reduce((s,a)=>s+(a?.length||0),0);
+      return<div key={ev.id} style={{...cSt(t),padding:"12px 16px",marginBottom:8,opacity:isPast?0.55:1,cursor:"pointer"}} onClick={()=>setSelEvent(ev)}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.name}</div>
+            <div style={{fontSize:11,color:t.tm,display:"flex",gap:8,flexWrap:"wrap"}}>
+              {dateStr&&<span>📅 {dateStr}</span>}
+              {ev.pax&&<span>👥 {ev.pax} pax</span>}
+              {ev.location&&<span style={{overflow:"hidden",textOverflow:"ellipsis",maxWidth:140}}>📍 {ev.location}</span>}
+            </div>
+            {myDeptItems.length>0&&<div style={{fontSize:11,color:t.accent,marginTop:4,fontWeight:600}}>
+              ✓ {myDeptItems.length} {lang==="tr"?"görevin var":"tasks for you"}
+            </div>}
+            {myDeptItems.length===0&&totalItems>0&&<div style={{fontSize:11,color:t.tm,marginTop:4}}>
+              {totalItems} {lang==="tr"?"toplam görev":"total tasks"}
+            </div>}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
+            {isPast&&<span style={{fontSize:9,color:t.tm,background:t.inBg,borderRadius:5,padding:"2px 6px"}}>{lang==="tr"?"Geçti":"Past"}</span>}
+            {ev.original_pdf_path&&<span style={{fontSize:9,color:t.accent,background:t.acB,borderRadius:5,padding:"2px 6px",border:`1px solid ${t.acBo}`}}>PDF</span>}
+          </div>
+        </div>
+      </div>;
+    })}
+  </div>;
+};
+
 const DEPT_LIST=[
   {id:"pastry",tr:"Pastry",en:"Pastry",icon:"🍰"},
   {id:"hot",tr:"Sıcak Mutfak",en:"Hot Kitchen",icon:"🔥"},
@@ -9800,6 +9993,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   const traceTabs=traceability?[{id:"reports",l:t.L.tabReports,i:"📊",icon:"reports"}]:[];
   const endTabs=[
     {id:"menus",l:t.L.tabMenus,i:"📋",icon:"menus"},
+    {id:"events",l:lang==="tr"?"Etkinlikler":"Events",i:"🎉",icon:"events"},
     {id:"kanban",l:"Kanban",i:"📋",icon:"kanban"},
     {id:"chat",l:lang==="tr"?"Sohbet":"Chats",i:"💬",icon:"chat"},
     ...(team?[
@@ -9915,6 +10109,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       {tab==="production"&&<ProductionTab productions={productions} setProductions={setProductions} storageAreas={storageAreas} reportCats={reportCats} setReportCats={setReportCats} profile={profile} traceability={traceability} setTab={setTab} storageChecks={storageChecks} setStorageChecks={setStorageChecks} recipes={recipes} getLabelSeq={getLabelSeq} t={t}/>}
       {tab==="reports"&&<ProductionTab productions={productions} setProductions={setProductions} storageAreas={storageAreas} reportCats={reportCats} setReportCats={setReportCats} profile={profile} traceability={traceability} setTab={setTab} storageChecks={storageChecks} setStorageChecks={setStorageChecks} recipes={recipes} getLabelSeq={getLabelSeq} initialShowReports={true} t={t}/>}
       {tab==="menus"&&<MenuTab menus={menus} setMenus={setMenus} recipes={recipes} menuTemplates={menuTemplates} setMenuTemplates={setMenuTemplates} t={t} team={team}/>}
+      {tab==="events"&&<EventsTab team={team} user={user} t={t}/>}
       {tab==="todo"&&<TodoTab todos={todos} setTodos={setTodos} t={t}/>}
 
       {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile} isManager={true}/>}
