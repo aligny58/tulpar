@@ -3980,6 +3980,361 @@ const ImageCropModal=({image,targetRatio,onClose,onCrop,t})=>{
   </div>;
 };
 
+// ═══════════════════════════════════════════════════
+// EVENT MENUS TAB — BEO AI için departman menü listesi
+// ═══════════════════════════════════════════════════
+const DEPT_LIST=[
+  {id:"pastry",label:"Pastry",icon:"🍰"},
+  {id:"hot",label:"Hot Kitchen",icon:"🔥"},
+  {id:"cold",label:"Cold Kitchen",icon:"🥗"},
+  {id:"breakfast",label:"Breakfast",icon:"🍳"},
+  {id:"bar",label:"Bar",icon:"🍹"},
+  {id:"service",label:"Service",icon:"🍽"},
+  {id:"butcher",label:"Butcher",icon:"🥩"},
+];
+
+const EventMenusTab=({team,t})=>{
+  const tm={bg:t?.bg||"#faf8f3",card:t?.card||"#fff",text:t?.text||"#1a1612",accent:t?.accent||"#c8965a",border:t?.border||"#ebe5d8",muted:t?.tm||"#a09684"};
+  const[infoSeen,setInfoSeen]=useState(()=>localStorage.getItem("kmc_eventmenu_info")==="1");
+  const[sections,setSections]=useState([]);
+  const[items,setItems]=useState([]);
+  const[loading,setLoading]=useState(false);
+  const[selDept,setSelDept]=useState("pastry");
+  const[showArchive,setShowArchive]=useState(false);
+  // Bölüm ekleme
+  const[newSecName,setNewSecName]=useState("");
+  const[addingSection,setAddingSection]=useState(false);
+  // Kalem ekleme
+  const[addingItemSec,setAddingItemSec]=useState(null);
+  const[newItemName,setNewItemName]=useState("");
+  const[newItemYear,setNewItemYear]=useState(String(new Date().getFullYear()));
+  // Silme onay
+  const[confirmDel,setConfirmDel]=useState(null); // {type:'section'|'item', id}
+
+  const sb=()=>initSupabase();
+
+  // ═══ LOAD ═══
+  useEffect(()=>{
+    if(!team?.id)return;
+    loadAll();
+  },[team?.id]);
+
+  const loadAll=async()=>{
+    if(!team?.id)return;
+    setLoading(true);
+    try{
+      const s=sb();
+      const[secRes,itemRes]=await Promise.all([
+        s.from("event_menu_sections").select("*").eq("team_id",team.id).order("sort_order",{ascending:true}),
+        s.from("event_menu_items").select("*").eq("team_id",team.id).order("created_at",{ascending:true})
+      ]);
+      if(secRes.data)setSections(secRes.data);
+      if(itemRes.data)setItems(itemRes.data);
+    }catch(e){console.error(e);}
+    setLoading(false);
+  };
+
+  // ═══ SECTION EKLE ═══
+  const addSection=async()=>{
+    const name=newSecName.trim();
+    if(!name||!team?.id)return;
+    const rec={team_id:team.id,department:selDept,name,sort_order:sections.filter(s=>s.department===selDept).length};
+    const{data,error}=await sb().from("event_menu_sections").insert(rec).select().single();
+    if(!error&&data){setSections(p=>[...p,data]);setNewSecName("");setAddingSection(false);}
+  };
+
+  // ═══ SECTION SİL ═══
+  const deleteSection=async(id)=>{
+    await sb().from("event_menu_sections").delete().eq("id",id);
+    setSections(p=>p.filter(s=>s.id!==id));
+    setItems(p=>p.filter(i=>i.section_id!==id));
+    setConfirmDel(null);
+  };
+
+  // ═══ KALEM EKLE ═══
+  const addItem=async(sectionId)=>{
+    const name=newItemName.trim();
+    if(!name||!team?.id)return;
+    const rec={team_id:team.id,section_id:sectionId,name,year_tag:newItemYear||null,status:"active"};
+    const{data,error}=await sb().from("event_menu_items").insert(rec).select().single();
+    if(!error&&data){setItems(p=>[...p,data]);setNewItemName("");setNewItemYear(String(new Date().getFullYear()));setAddingItemSec(null);}
+  };
+
+  // ═══ ARŞİVLE ═══
+  const archiveItem=async(id)=>{
+    const now=new Date().toISOString();
+    await sb().from("event_menu_items").update({status:"archived",archived_at:now}).eq("id",id);
+    setItems(p=>p.map(i=>i.id===id?{...i,status:"archived",archived_at:now}:i));
+  };
+
+  const restoreItem=async(id)=>{
+    await sb().from("event_menu_items").update({status:"active",archived_at:null}).eq("id",id);
+    setItems(p=>p.map(i=>i.id===id?{...i,status:"active",archived_at:null}:i));
+  };
+
+  const deleteItem=async(id)=>{
+    await sb().from("event_menu_items").delete().eq("id",id);
+    setItems(p=>p.filter(i=>i.id!==id));
+    setConfirmDel(null);
+  };
+
+  const lang=t?.lang||"tr";
+  const deptSections=sections.filter(s=>s.department===selDept);
+  const activeItems=(secId)=>items.filter(i=>i.section_id===secId&&i.status==="active");
+  const archivedItems=(secId)=>items.filter(i=>i.section_id===secId&&i.status==="archived");
+
+  // ═══ INFO EKRANI ═══
+  if(!infoSeen) return(
+    <div style={{padding:24,maxWidth:480,margin:"0 auto"}}>
+      <div style={{background:tm.card,borderRadius:18,padding:28,boxShadow:"0 4px 24px rgba(0,0,0,0.08)",border:`1px solid ${tm.border}`}}>
+        <div style={{fontSize:48,textAlign:"center",marginBottom:16}}>📂</div>
+        <div style={{fontSize:20,fontWeight:700,color:tm.text,textAlign:"center",marginBottom:12,fontFamily:"'Fraunces',serif"}}>
+          {lang==="tr"?"Event Menüleri Nedir?":"What are Event Menus?"}
+        </div>
+        <div style={{fontSize:14,color:tm.muted,lineHeight:1.7,marginBottom:20}}>
+          {lang==="tr"
+            ?"Bu bölümde her departmanın etkinliklerde sunduğu yemek listesini yönetirsin. BEO (Banquet Event Order) PDF'leri okunurken AI, yemekleri otomatik olarak doğru departmana atamak için bu listeyi kullanır."
+            :"In this section you manage each department's event dish list. When BEO (Banquet Event Order) PDFs are parsed, the AI uses this list to automatically assign dishes to the correct department."}
+        </div>
+        <div style={{background:`${tm.accent}18`,borderRadius:12,padding:16,marginBottom:20}}>
+          <div style={{fontSize:13,fontWeight:600,color:tm.accent,marginBottom:8}}>
+            {lang==="tr"?"Örnek yapı:":"Example structure:"}
+          </div>
+          <div style={{fontSize:13,color:tm.text,lineHeight:1.8}}>
+            🍰 Pastry<br/>
+            {"  "}└ Baklava bölümü<br/>
+            {"      "}└ Fıstıklı Baklava <span style={{color:tm.muted}}>· 2025</span><br/>
+            {"      "}└ Cevizli Baklava <span style={{color:tm.muted}}>· 2025</span><br/>
+            {"  "}└ Çikolata bölümü<br/>
+            {"      "}└ Sütlü Çikolata Tart
+          </div>
+        </div>
+        <div style={{fontSize:13,color:tm.muted,marginBottom:24,lineHeight:1.6}}>
+          {lang==="tr"
+            ?"Sezon sonu menü değiştiğinde eski kalemleri arşivleyebilirsin — silinmezler, arşivde kalırlar."
+            :"When the menu changes at the end of a season, you can archive old items — they won't be deleted, they stay in the archive."}
+        </div>
+        <button onClick={()=>{localStorage.setItem("kmc_eventmenu_info","1");setInfoSeen(true);}} style={{width:"100%",padding:"14px",background:tm.accent,color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer"}}>
+          {lang==="tr"?"Anladım, Başlayalım →":"Got it, Let's Start →"}
+        </button>
+      </div>
+    </div>
+  );
+
+  if(!team?.id) return(
+    <div style={{padding:40,textAlign:"center",color:tm.muted}}>
+      <div style={{fontSize:40,marginBottom:12}}>👥</div>
+      <div style={{fontSize:15}}>{lang==="tr"?"Ekip bağlantısı gerekli":"Team connection required"}</div>
+    </div>
+  );
+
+  return(
+    <div style={{paddingBottom:80}}>
+      {/* Başlık */}
+      <div style={{padding:"16px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:700,color:tm.text,fontFamily:"'Fraunces',serif"}}>
+            {lang==="tr"?"Event Menüleri":"Event Menus"}
+          </div>
+          <div style={{fontSize:12,color:tm.muted,marginTop:2}}>
+            {lang==="tr"?"BEO AI için departman yemek listeleri":"Department dish lists for BEO AI"}
+          </div>
+        </div>
+        <button onClick={()=>{localStorage.removeItem("kmc_eventmenu_info");setInfoSeen(false);}}
+          style={{background:"none",border:`1px solid ${tm.border}`,borderRadius:8,padding:"6px 10px",fontSize:12,color:tm.muted,cursor:"pointer"}}>ℹ️</button>
+      </div>
+
+      {/* Departman seç */}
+      <div style={{padding:"12px 16px",display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none"}}>
+        {DEPT_LIST.map(d=>{
+          const cnt=sections.filter(s=>s.department===d.id).reduce((a,s)=>a+activeItems(s.id).length,0);
+          return(
+            <button key={d.id} onClick={()=>setSelDept(d.id)} style={{
+              display:"flex",flexDirection:"column",alignItems:"center",gap:3,
+              padding:"10px 14px",borderRadius:12,border:`2px solid ${selDept===d.id?tm.accent:tm.border}`,
+              background:selDept===d.id?`${tm.accent}18`:tm.card,
+              color:selDept===d.id?tm.accent:tm.muted,cursor:"pointer",flexShrink:0,minWidth:70
+            }}>
+              <span style={{fontSize:22}}>{d.icon}</span>
+              <span style={{fontSize:11,fontWeight:selDept===d.id?700:400,whiteSpace:"nowrap"}}>{d.label}</span>
+              {cnt>0&&<span style={{fontSize:10,background:`${tm.accent}30`,color:tm.accent,borderRadius:8,padding:"1px 6px"}}>{cnt}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Arşiv toggle */}
+      <div style={{padding:"0 16px 8px",display:"flex",justifyContent:"flex-end"}}>
+        <button onClick={()=>setShowArchive(p=>!p)} style={{
+          background:"none",border:`1px solid ${tm.border}`,borderRadius:8,
+          padding:"5px 12px",fontSize:12,color:showArchive?tm.accent:tm.muted,cursor:"pointer",
+          fontWeight:showArchive?700:400
+        }}>
+          {showArchive?(lang==="tr"?"📂 Arşiv Açık":"📂 Archive Open"):(lang==="tr"?"📂 Arşivi Göster":"📂 Show Archive")}
+        </button>
+      </div>
+
+      {loading&&<div style={{textAlign:"center",padding:40,color:tm.muted}}>
+        <div style={{fontSize:28,marginBottom:8}}>⏳</div>
+        <div style={{fontSize:13}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>
+      </div>}
+
+      {/* Bölümler */}
+      <div style={{padding:"0 16px",display:"flex",flexDirection:"column",gap:12}}>
+        {deptSections.map(sec=>{
+          const aItems=activeItems(sec.id);
+          const archItems=archivedItems(sec.id);
+          return(
+            <div key={sec.id} style={{background:tm.card,borderRadius:14,border:`1px solid ${tm.border}`,overflow:"hidden"}}>
+              {/* Bölüm başlık */}
+              <div style={{padding:"12px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${tm.border}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:16}}>📁</span>
+                  <span style={{fontSize:15,fontWeight:700,color:tm.text}}>{sec.name}</span>
+                  <span style={{fontSize:12,color:tm.muted}}>({aItems.length})</span>
+                </div>
+                <button onClick={()=>setConfirmDel({type:"section",id:sec.id})}
+                  style={{background:"none",border:"none",color:"#e57373",fontSize:16,cursor:"pointer",padding:"2px 6px"}}>×</button>
+              </div>
+
+              {/* Aktif kalemler */}
+              <div style={{padding:"8px 14px",display:"flex",flexDirection:"column",gap:6}}>
+                {aItems.map(item=>(
+                  <div key={item.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:`${tm.accent}08`,borderRadius:9,gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <span style={{fontSize:13,color:tm.text,fontWeight:500}}>{item.name}</span>
+                      {item.year_tag&&<span style={{fontSize:11,color:tm.muted,marginLeft:8,background:`${tm.border}`,borderRadius:5,padding:"1px 6px"}}>{item.year_tag}</span>}
+                    </div>
+                    <div style={{display:"flex",gap:4,flexShrink:0}}>
+                      <button onClick={()=>archiveItem(item.id)} title={lang==="tr"?"Arşivle":"Archive"}
+                        style={{background:"none",border:`1px solid ${tm.border}`,borderRadius:6,padding:"3px 8px",fontSize:12,color:tm.muted,cursor:"pointer"}}>
+                        📦
+                      </button>
+                      <button onClick={()=>setConfirmDel({type:"item",id:item.id})}
+                        style={{background:"none",border:"none",color:"#e57373",fontSize:15,cursor:"pointer",padding:"3px 6px"}}>×</button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Arşivlenenler */}
+                {showArchive&&archItems.length>0&&(
+                  <div style={{marginTop:4,borderTop:`1px dashed ${tm.border}`,paddingTop:6}}>
+                    <div style={{fontSize:11,color:tm.muted,marginBottom:4}}>{lang==="tr"?"📦 Arşiv":"📦 Archive"}</div>
+                    {archItems.map(item=>(
+                      <div key={item.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",opacity:0.6,gap:8}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <span style={{fontSize:12,color:tm.text,textDecoration:"line-through"}}>{item.name}</span>
+                          {item.year_tag&&<span style={{fontSize:11,color:tm.muted,marginLeft:6}}>{item.year_tag}</span>}
+                        </div>
+                        <div style={{display:"flex",gap:4,flexShrink:0}}>
+                          <button onClick={()=>restoreItem(item.id)}
+                            style={{background:"none",border:`1px solid ${tm.border}`,borderRadius:6,padding:"2px 7px",fontSize:11,color:tm.accent,cursor:"pointer"}}>
+                            {lang==="tr"?"Geri Al":"Restore"}
+                          </button>
+                          <button onClick={()=>setConfirmDel({type:"item",id:item.id})}
+                            style={{background:"none",border:"none",color:"#e57373",fontSize:14,cursor:"pointer",padding:"2px 5px"}}>×</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Kalem ekle */}
+                {addingItemSec===sec.id?(
+                  <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:8,padding:"8px 10px",background:tm.bg,borderRadius:9,border:`1px dashed ${tm.accent}`}}>
+                    <input value={newItemName} onChange={e=>setNewItemName(e.target.value)}
+                      placeholder={lang==="tr"?"Yemek adı...":"Dish name..."}
+                      onKeyDown={e=>e.key==="Enter"&&addItem(sec.id)}
+                      autoFocus
+                      style={{padding:"8px 10px",borderRadius:8,border:`1px solid ${tm.border}`,fontSize:13,background:tm.card,color:tm.text,outline:"none"}}/>
+                    <div style={{display:"flex",gap:8}}>
+                      <input value={newItemYear} onChange={e=>setNewItemYear(e.target.value)}
+                        placeholder={lang==="tr"?"Yıl (opsiyonel)":"Year (optional)"}
+                        style={{flex:1,padding:"7px 10px",borderRadius:8,border:`1px solid ${tm.border}`,fontSize:12,background:tm.card,color:tm.text,outline:"none"}}/>
+                      <button onClick={()=>addItem(sec.id)}
+                        style={{padding:"7px 16px",background:tm.accent,color:"#fff",border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                        {lang==="tr"?"Ekle":"Add"}
+                      </button>
+                      <button onClick={()=>{setAddingItemSec(null);setNewItemName("");}}
+                        style={{padding:"7px 12px",background:"none",border:`1px solid ${tm.border}`,borderRadius:8,fontSize:13,color:tm.muted,cursor:"pointer"}}>✕</button>
+                    </div>
+                  </div>
+                ):(
+                  <button onClick={()=>{setAddingItemSec(sec.id);setNewItemName("");setNewItemYear(String(new Date().getFullYear()));}}
+                    style={{marginTop:2,padding:"7px",background:"none",border:`1px dashed ${tm.border}`,borderRadius:8,fontSize:12,color:tm.muted,cursor:"pointer",textAlign:"left"}}>
+                    + {lang==="tr"?"Yemek ekle":"Add dish"}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Bölüm ekle */}
+        {addingSection?(
+          <div style={{background:tm.card,borderRadius:14,border:`1px dashed ${tm.accent}`,padding:"14px"}}>
+            <div style={{fontSize:13,color:tm.muted,marginBottom:8}}>
+              {lang==="tr"?`${DEPT_LIST.find(d=>d.id===selDept)?.label} bölümü:`:`${DEPT_LIST.find(d=>d.id===selDept)?.label} section:`}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <input value={newSecName} onChange={e=>setNewSecName(e.target.value)}
+                placeholder={lang==="tr"?"Bölüm adı (örn: Baklava)...":"Section name (e.g. Baklava)..."}
+                onKeyDown={e=>e.key==="Enter"&&addSection()}
+                autoFocus
+                style={{flex:1,padding:"9px 12px",borderRadius:10,border:`1px solid ${tm.border}`,fontSize:14,background:tm.bg,color:tm.text,outline:"none"}}/>
+              <button onClick={addSection}
+                style={{padding:"9px 18px",background:tm.accent,color:"#fff",border:"none",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                {lang==="tr"?"Ekle":"Add"}
+              </button>
+              <button onClick={()=>{setAddingSection(false);setNewSecName("");}}
+                style={{padding:"9px 13px",background:"none",border:`1px solid ${tm.border}`,borderRadius:10,fontSize:14,color:tm.muted,cursor:"pointer"}}>✕</button>
+            </div>
+          </div>
+        ):(
+          <button onClick={()=>setAddingSection(true)} style={{
+            padding:"14px",background:"none",border:`2px dashed ${tm.border}`,borderRadius:14,
+            fontSize:14,color:tm.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8
+          }}>
+            <span>📁</span>
+            <span>{lang==="tr"?`+ ${DEPT_LIST.find(d=>d.id===selDept)?.label} bölümü ekle`:`+ Add ${DEPT_LIST.find(d=>d.id===selDept)?.label} section`}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Silme onay modal */}
+      {confirmDel&&(
+        <div onClick={()=>setConfirmDel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:tm.card,borderRadius:16,padding:24,maxWidth:320,width:"100%"}}>
+            <div style={{fontSize:28,textAlign:"center",marginBottom:12}}>
+              {confirmDel.type==="section"?"📁🗑":"🗑"}
+            </div>
+            <div style={{fontSize:15,fontWeight:700,color:tm.text,textAlign:"center",marginBottom:8}}>
+              {confirmDel.type==="section"
+                ?(lang==="tr"?"Bölümü sil?":"Delete section?")
+                :(lang==="tr"?"Kalemi sil?":"Delete item?")}
+            </div>
+            <div style={{fontSize:13,color:tm.muted,textAlign:"center",marginBottom:20}}>
+              {confirmDel.type==="section"
+                ?(lang==="tr"?"Bölüm ve içindeki tüm kalemler silinecek.":"Section and all its items will be deleted.")
+                :(lang==="tr"?"Bu işlem geri alınamaz.":"This action cannot be undone.")}
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setConfirmDel(null)}
+                style={{flex:1,padding:"11px",background:"none",border:`1px solid ${tm.border}`,borderRadius:10,fontSize:14,color:tm.muted,cursor:"pointer"}}>
+                {lang==="tr"?"Vazgeç":"Cancel"}
+              </button>
+              <button onClick={()=>confirmDel.type==="section"?deleteSection(confirmDel.id):deleteItem(confirmDel.id)}
+                style={{flex:1,padding:"11px",background:"#e57373",color:"#fff",border:"none",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                {lang==="tr"?"Sil":"Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t})=>{
   const[showCreate,setSC]=useState(false);
   const[editMenu,setEM]=useState(null);
@@ -9570,6 +9925,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   const traceTabs=traceability?[{id:"reports",l:t.L.tabReports,i:"📊",icon:"reports"}]:[];
   const endTabs=[
     {id:"menus",l:t.L.tabMenus,i:"📋",icon:"menus"},
+    {id:"eventmenus",l:lang==="tr"?"Event Menü":"Event Menu",i:"📂",icon:"eventmenus"},
     {id:"kanban",l:"Kanban",i:"📋",icon:"kanban"},
     {id:"chat",l:lang==="tr"?"Sohbet":"Chats",i:"💬",icon:"chat"},
     ...(team?[
@@ -9685,6 +10041,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       {tab==="production"&&<ProductionTab productions={productions} setProductions={setProductions} storageAreas={storageAreas} reportCats={reportCats} setReportCats={setReportCats} profile={profile} traceability={traceability} setTab={setTab} storageChecks={storageChecks} setStorageChecks={setStorageChecks} recipes={recipes} getLabelSeq={getLabelSeq} t={t}/>}
       {tab==="reports"&&<ProductionTab productions={productions} setProductions={setProductions} storageAreas={storageAreas} reportCats={reportCats} setReportCats={setReportCats} profile={profile} traceability={traceability} setTab={setTab} storageChecks={storageChecks} setStorageChecks={setStorageChecks} recipes={recipes} getLabelSeq={getLabelSeq} initialShowReports={true} t={t}/>}
       {tab==="menus"&&<MenuTab menus={menus} setMenus={setMenus} recipes={recipes} menuTemplates={menuTemplates} setMenuTemplates={setMenuTemplates} t={t}/>}
+      {tab==="eventmenus"&&<EventMenusTab team={team} t={t}/>}
       {tab==="todo"&&<TodoTab todos={todos} setTodos={setTodos} t={t}/>}
 
       {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile} isManager={true}/>}
