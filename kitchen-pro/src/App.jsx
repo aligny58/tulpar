@@ -7297,6 +7297,10 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
         <div style={{fontSize:12,color:t.tm}}>{selectedEvent._isNew?(lang==="tr"?"Yeni Etkinlik":"New Event"):(lang==="tr"?"Etkinlik Düzenle":"Edit Event")}</div>
       </div>
 
+      {selectedEvent.original_pdf_path&&<button onClick={()=>{const sb=initSupabase();if(!sb)return;const{data:{publicUrl}}=sb.storage.from("tulpar-storage").getPublicUrl(selectedEvent.original_pdf_path);window.open(publicUrl,"_blank");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:12}}>
+        📄 {lang==="tr"?"Orijinal PDF'i Aç":"Open Original PDF"}
+      </button>}
+
       {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"15",border:`1px solid ${t.accent}40`}}>
         <div style={{fontSize:9,fontWeight:700,color:t.accent,letterSpacing:"0.1em",marginBottom:4}}>🤖 AI ÖZET</div>
         <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selectedEvent.ai_summary}</div>
