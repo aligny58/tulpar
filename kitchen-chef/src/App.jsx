@@ -4028,7 +4028,7 @@ const EventsTab=({team,user,t})=>{
   const getPdfUrl=(path)=>{
     if(!path)return null;
     const sb=initSupabase();if(!sb)return null;
-    const{data:{publicUrl}}=sb.storage.from("tulpar-storage").getPublicUrl(path);
+    const{data:{publicUrl}}=sb.storage.from("event-pdfs").getPublicUrl(path);
     return publicUrl;
   };
 
