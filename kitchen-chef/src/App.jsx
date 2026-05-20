@@ -4454,10 +4454,8 @@ const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>
         <div style={{display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",paddingBottom:2}}>
           {DEPT_LIST.map(d=>{
             const cnt=emSections.filter(s=>s.department===d.id).reduce((a,s)=>a+emActiveItems(s.id).length,0);
-            return<button key={d.id} onClick={()=>setEmSelDept(d.id)} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"10px 14px",borderRadius:10,border:`1px solid ${emSelDept===d.id?t.accent:t.inBo}`,background:emSelDept===d.id?t.acB:t.inBg,color:emSelDept===d.id?t.accent:t.ts,cursor:"pointer",flexShrink:0,minWidth:68,transition:"all .15s"}}>
-              <span style={{fontSize:22}}>{d.icon}</span>
-              <span style={{fontSize:11,fontWeight:emSelDept===d.id?700:500,whiteSpace:"nowrap"}}>{lang==="tr"?d.tr:d.en}</span>
-              {cnt>0&&<span style={{fontSize:10,background:t.acB,color:t.accent,borderRadius:6,padding:"1px 6px",border:`1px solid ${t.acBo}`}}>{cnt}</span>}
+            return<button key={d.id} onClick={()=>setEmSelDept(d.id)} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,fontSize:13,fontWeight:500,border:"1px solid",background:emSelDept===d.id?t.pA:"transparent",color:emSelDept===d.id?t.pAT:t.ts,borderColor:emSelDept===d.id?t.pA:t.inBo,cursor:"pointer",flexShrink:0}}>
+              {d.icon} {lang==="tr"?d.tr:d.en}{cnt>0?` (${cnt})`:""}
             </button>;
           })}
         </div>
@@ -4540,8 +4538,8 @@ const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>
           <button onClick={emAddSection} style={{...bSt("p",t),padding:"10px 18px",fontSize:13}}>{lang==="tr"?"Ekle":"Add"}</button>
           <button onClick={()=>{setEmAddingSec(false);setEmNewSecName("");}} style={{...bSt("s",t),padding:"10px 14px",fontSize:13}}>✕</button>
         </div>
-      </div>:<button onClick={()=>setEmAddingSec(true)} style={{...bSt("s",t),width:"100%",fontSize:14,marginBottom:10}}>
-        📁 + {lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} bölümü ekle`:`Add ${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} section`}
+      </div>:<button onClick={()=>setEmAddingSec(true)} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:10}}>
+        + {lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} bölümü ekle`:`Add ${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} section`}
       </button>}
     </>}
 
@@ -4563,8 +4561,8 @@ const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
       <h3 style={{fontSize:22,color:t.text}}>{t.L.menus} <span style={{fontSize:14,color:t.tm,fontWeight:400}}>({menus.length})</span></h3>
       <div style={{display:"flex",gap:8}}>
-        <button onClick={()=>{setShowEM(true);}} style={{...bSt("s",t),fontSize:13,display:"flex",alignItems:"center",gap:6}}>📂 {lang==="tr"?"Event Menü":"Event Menu"}</button>
-        <button onClick={()=>setSC(true)} style={{...bSt("p",t),fontSize:13}}>{t.L.newMenu}</button>
+        <button onClick={()=>{setShowEM(true);}} style={{...bSt("s",t),padding:"11px 16px",fontSize:13}}>📂 {lang==="tr"?"Event Menü":"Event Menu"}</button>
+        <button onClick={()=>setSC(true)} style={{...bSt("p",t),padding:"11px 16px",fontSize:13}}>{t.L.newMenu}</button>
       </div>
     </div>
     {/* Oluşturma modal */}
