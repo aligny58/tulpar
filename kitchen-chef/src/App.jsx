@@ -4420,132 +4420,144 @@ const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>
     }} style={{...bSt("s",t),width:"100%",marginTop:8,fontSize:13}}>+ {t.lang==="tr"?"Yeni Bölüm":t.lang==="en"?"New Section":"+"}</button>
   </div>;
 
-  // ── Event Menüleri Paneli ──
-  // ── Event Menüleri tam sayfa görünümü (editMenu gibi) ──
   if(showEM) return <div>{cropModalJSX}
-    {/* Header */}
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-      <div>
-        <h3 style={{fontSize:22,color:t.text,margin:0}}>📂 {lang==="tr"?"Event Menüleri":"Event Menus"}</h3>
-        <div style={{fontSize:12,color:t.tm,marginTop:3}}>{lang==="tr"?"BEO AI için departman yemek listeleri":"Department dish lists for BEO AI"}</div>
-      </div>
+    {/* ── Header ── */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <h3 style={{fontSize:22,color:t.text,margin:0}}>{lang==="tr"?"Event Menüleri":"Event Menus"}</h3>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        {emInfoSeen&&<button onClick={()=>{localStorage.removeItem("kmc_eventmenu_info");setEmInfoSeen(false);}} style={{background:"none",border:`1px solid ${t.border}`,borderRadius:8,padding:"6px 10px",fontSize:13,color:t.tm,cursor:"pointer"}}>ℹ️</button>}
+        <button onClick={()=>{localStorage.removeItem("kmc_eventmenu_info");setEmInfoSeen(false);}} style={{...bSt("s",t),padding:"8px 12px",fontSize:12}}>ℹ️</button>
         <button onClick={()=>setShowEM(false)} style={{...bSt("s",t),fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
       </div>
     </div>
-    <div>
-        {/* Info ekranı */}
-        {!emInfoSeen?<div style={{padding:24,maxWidth:480,margin:"0 auto"}}>
-          <div style={{...cSt(t),padding:24}}>
-            <div style={{fontSize:40,textAlign:"center",marginBottom:12}}>📂</div>
-            <div style={{fontSize:17,fontWeight:700,color:t.text,textAlign:"center",marginBottom:10,fontFamily:"'Fraunces',serif"}}>{lang==="tr"?"Event Menüleri Nedir?":"What are Event Menus?"}</div>
-            <div style={{fontSize:13,color:t.tm,lineHeight:1.7,marginBottom:16}}>{lang==="tr"?"BEO PDF'leri okunurken AI, yemekleri doğru departmana atamak için bu listeyi kullanır. Her departmanın etkinlik menüsünü buradan yönet.":"When BEO PDFs are parsed, the AI uses this list to assign dishes to the correct department. Manage each department's event menu here."}</div>
-            <div style={{background:t.acB,border:`1px solid ${t.acBo}`,borderRadius:12,padding:14,marginBottom:16,fontSize:13,color:t.text,lineHeight:1.8}}>
-              🍰 Pastry › Baklava bölümü › Fıstıklı Baklava <span style={{color:t.tm}}>· 2025</span><br/>
-              🔥 Sıcak Mutfak › Et Yemekleri › Kuzu Tandır
+
+    {/* ── Info ekranı ── */}
+    {!emInfoSeen&&<div style={{...cSt(t),padding:"20px 22px",marginBottom:16}}>
+      <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:8}}>{lang==="tr"?"Event Menüleri Nedir?":"What are Event Menus?"}</div>
+      <div style={{fontSize:13,color:t.ts,lineHeight:1.7,marginBottom:12}}>{lang==="tr"?"BEO PDF'leri okunurken AI, yemekleri doğru departmana atamak için bu listeyi kullanır. Her departmanın etkinlik menüsünü buradan yönet.":"When BEO PDFs are parsed, the AI uses this list to assign dishes to the correct department. Manage each department's event menu here."}</div>
+      <div style={{padding:"10px 14px",background:t.acB,border:`1px solid ${t.acBo}`,borderRadius:10,fontSize:13,color:t.text,lineHeight:1.8,marginBottom:12}}>
+        🍰 Pastry › Baklava › Fıstıklı Baklava <span style={{color:t.tm}}>· 2025</span><br/>
+        🔥 {lang==="tr"?"Sıcak Mutfak":"Hot Kitchen"} › {lang==="tr"?"Et Yemekleri":"Meat"} › {lang==="tr"?"Kuzu Tandır":"Lamb Tandır"}
+      </div>
+      <div style={{fontSize:12,color:t.tm,marginBottom:14,lineHeight:1.6}}>{lang==="tr"?"Sezon sonu menü değiştiğinde eski kalemleri arşivleyebilirsin — silinmezler, arşivde kalırlar.":"When the menu changes at season end, archive old items — they stay in the archive, not deleted."}</div>
+      <button onClick={()=>{localStorage.setItem("kmc_eventmenu_info","1");setEmInfoSeen(true);}} style={{...bSt("p",t),width:"100%",fontSize:14}}>{lang==="tr"?"Anladım →":"Got it →"}</button>
+    </div>}
+
+    {!team?.id&&<div style={{...cSt(t),padding:"40px 20px",textAlign:"center"}}>
+      <div style={{fontSize:40,marginBottom:8,opacity:0.5}}>👥</div>
+      <div style={{fontSize:14,color:t.tm}}>{lang==="tr"?"Ekip bağlantısı gerekli":"Team connection required"}</div>
+    </div>}
+
+    {team?.id&&emInfoSeen&&<>
+      {/* ── Departman seç ── */}
+      <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:10,textTransform:"uppercase"}}>{lang==="tr"?"Departman":"Department"}</div>
+        <div style={{display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",paddingBottom:2}}>
+          {DEPT_LIST.map(d=>{
+            const cnt=emSections.filter(s=>s.department===d.id).reduce((a,s)=>a+emActiveItems(s.id).length,0);
+            return<button key={d.id} onClick={()=>setEmSelDept(d.id)} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"10px 14px",borderRadius:10,border:`1px solid ${emSelDept===d.id?t.accent:t.inBo}`,background:emSelDept===d.id?t.acB:t.inBg,color:emSelDept===d.id?t.accent:t.ts,cursor:"pointer",flexShrink:0,minWidth:68,transition:"all .15s"}}>
+              <span style={{fontSize:22}}>{d.icon}</span>
+              <span style={{fontSize:11,fontWeight:emSelDept===d.id?700:500,whiteSpace:"nowrap"}}>{lang==="tr"?d.tr:d.en}</span>
+              {cnt>0&&<span style={{fontSize:10,background:t.acB,color:t.accent,borderRadius:6,padding:"1px 6px",border:`1px solid ${t.acBo}`}}>{cnt}</span>}
+            </button>;
+          })}
+        </div>
+      </div>
+
+      {/* ── Arşiv toggle + loading ── */}
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+        <button onClick={()=>setEmShowArchive(p=>!p)} style={{...bSt("s",t),padding:"6px 12px",fontSize:12,color:emShowArchive?t.accent:t.ts,fontWeight:emShowArchive?700:400}}>
+          📦 {emShowArchive?(lang==="tr"?"Arşiv Açık":"Archive Open"):(lang==="tr"?"Arşivi Göster":"Show Archive")}
+        </button>
+      </div>
+
+      {emLoading&&<div style={{...cSt(t),padding:"32px 20px",textAlign:"center",marginBottom:12}}>
+        <div style={{fontSize:22,marginBottom:6,opacity:0.5}}>⏳</div>
+        <div style={{fontSize:13,color:t.tm}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>
+      </div>}
+
+      {/* ── Bölümler ── */}
+      {emDeptSections.map(sec=>{
+        const aItems=emActiveItems(sec.id);
+        const archItems=emArchivedItems(sec.id);
+        return<div key={sec.id} style={{...cSt(t),marginBottom:10,overflow:"hidden"}}>
+          {/* Bölüm başlık */}
+          <div style={{padding:"11px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${t.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:14}}>📁</span>
+              <span style={{fontSize:15,fontWeight:700,color:t.text}}>{sec.name}</span>
+              <span style={{fontSize:12,color:t.tm,fontWeight:400}}>({aItems.length})</span>
             </div>
-            <div style={{fontSize:12,color:t.tm,marginBottom:20,lineHeight:1.6}}>{lang==="tr"?"Sezon sonu menü değiştiğinde eski kalemleri arşivleyebilirsin — silinmezler, arşivde kalırlar.":"When the menu changes at season end, archive old items — they stay in the archive."}</div>
-            <button onClick={()=>{localStorage.setItem("kmc_eventmenu_info","1");setEmInfoSeen(true);}} style={{...bSt("p",t),width:"100%",fontSize:14}}>{lang==="tr"?"Anladım, Başlayalım →":"Got it, Let's Start →"}</button>
+            <button onClick={()=>setEmConfirmDel({type:"section",id:sec.id})} style={{...bSt("d",t),padding:"4px 10px",fontSize:13}}>×</button>
           </div>
-        </div>:!team?.id?<div style={{padding:40,textAlign:"center",color:t.tm}}>
-          <div style={{fontSize:36,marginBottom:8}}>👥</div>
-          <div style={{fontSize:14}}>{lang==="tr"?"Ekip bağlantısı gerekli":"Team connection required"}</div>
-        </div>:<div style={{padding:"0 16px"}}>
-          {/* Departman scroll */}
-          <div style={{display:"flex",gap:8,overflowX:"auto",scrollbarWidth:"none",padding:"12px 0"}}>
-            {DEPT_LIST.map(d=>{
-              const cnt=emSections.filter(s=>s.department===d.id).reduce((a,s)=>a+emActiveItems(s.id).length,0);
-              return<button key={d.id} onClick={()=>setEmSelDept(d.id)} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"10px 14px",borderRadius:12,border:`2px solid ${emSelDept===d.id?t.accent:t.border}`,background:emSelDept===d.id?t.acB:t.card,color:emSelDept===d.id?t.accent:t.tm,cursor:"pointer",flexShrink:0,minWidth:70,transition:"all .15s"}}>
-                <span style={{fontSize:20}}>{d.icon}</span>
-                <span style={{fontSize:11,fontWeight:emSelDept===d.id?700:400,whiteSpace:"nowrap"}}>{lang==="tr"?d.tr:d.en}</span>
-                {cnt>0&&<span style={{fontSize:10,background:t.acB,color:t.accent,borderRadius:8,padding:"1px 6px"}}>{cnt}</span>}
-              </button>;
-            })}
-          </div>
-          {/* Arşiv toggle */}
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
-            <button onClick={()=>setEmShowArchive(p=>!p)} style={{background:"none",border:`1px solid ${t.border}`,borderRadius:8,padding:"5px 12px",fontSize:12,color:emShowArchive?t.accent:t.tm,cursor:"pointer",fontWeight:emShowArchive?700:400}}>
-              {emShowArchive?(lang==="tr"?"📦 Arşiv Açık":"📦 Archive Open"):(lang==="tr"?"📦 Arşivi Göster":"📦 Show Archive")}
-            </button>
-          </div>
-          {emLoading&&<div style={{textAlign:"center",padding:32,color:t.tm}}><div style={{fontSize:24,marginBottom:6}}>⏳</div><div style={{fontSize:13}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div></div>}
-          {/* Bölümler */}
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {emDeptSections.map(sec=>{
-              const aItems=emActiveItems(sec.id);
-              const archItems=emArchivedItems(sec.id);
-              return<div key={sec.id} style={{...cSt(t),overflow:"hidden"}}>
-                <div style={{padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${t.border}`}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span>📁</span>
-                    <span style={{fontSize:14,fontWeight:700,color:t.text}}>{sec.name}</span>
-                    <span style={{fontSize:12,color:t.tm}}>({aItems.length})</span>
-                  </div>
-                  <button onClick={()=>setEmConfirmDel({type:"section",id:sec.id})} style={{background:"none",border:"none",color:t.danger,fontSize:16,cursor:"pointer",padding:"2px 6px"}}>×</button>
-                </div>
-                <div style={{padding:"8px 14px",display:"flex",flexDirection:"column",gap:6}}>
-                  {aItems.map(item=><div key={item.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:t.acB,borderRadius:9,gap:8}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <span style={{fontSize:13,color:t.text,fontWeight:500}}>{item.name}</span>
-                      {item.year_tag&&<span style={{fontSize:11,color:t.tm,marginLeft:8,background:t.inBg,borderRadius:5,padding:"1px 6px"}}>{item.year_tag}</span>}
-                    </div>
-                    <div style={{display:"flex",gap:4,flexShrink:0}}>
-                      <button onClick={()=>emArchiveItem(item.id)} title={lang==="tr"?"Arşivle":"Archive"} style={{background:"none",border:`1px solid ${t.border}`,borderRadius:6,padding:"3px 8px",fontSize:12,color:t.tm,cursor:"pointer"}}>📦</button>
-                      <button onClick={()=>setEmConfirmDel({type:"item",id:item.id})} style={{background:"none",border:"none",color:t.danger,fontSize:15,cursor:"pointer",padding:"3px 6px"}}>×</button>
-                    </div>
-                  </div>)}
-                  {emShowArchive&&archItems.length>0&&<div style={{marginTop:4,borderTop:`1px dashed ${t.border}`,paddingTop:6}}>
-                    <div style={{fontSize:11,color:t.tm,marginBottom:4}}>📦 {lang==="tr"?"Arşiv":"Archive"}</div>
-                    {archItems.map(item=><div key={item.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",opacity:0.6,gap:8}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <span style={{fontSize:12,color:t.text,textDecoration:"line-through"}}>{item.name}</span>
-                        {item.year_tag&&<span style={{fontSize:11,color:t.tm,marginLeft:6}}>{item.year_tag}</span>}
-                      </div>
-                      <div style={{display:"flex",gap:4,flexShrink:0}}>
-                        <button onClick={()=>emRestoreItem(item.id)} style={{background:"none",border:`1px solid ${t.border}`,borderRadius:6,padding:"2px 7px",fontSize:11,color:t.accent,cursor:"pointer"}}>{lang==="tr"?"Geri Al":"Restore"}</button>
-                        <button onClick={()=>setEmConfirmDel({type:"item",id:item.id})} style={{background:"none",border:"none",color:t.danger,fontSize:14,cursor:"pointer",padding:"2px 5px"}}>×</button>
-                      </div>
-                    </div>)}
-                  </div>}
-                  {emAddingItemSec===sec.id?<div style={{marginTop:4,display:"flex",flexDirection:"column",gap:8,padding:"10px",background:t.inBg,borderRadius:10,border:`1px dashed ${t.accent}`}}>
-                    <input value={emNewItemName} onChange={e=>setEmNewItemName(e.target.value)} placeholder={lang==="tr"?"Yemek adı...":"Dish name..."} onKeyDown={e=>e.key==="Enter"&&emAddItem(sec.id)} autoFocus style={{...iSt(t),fontSize:13,padding:"8px 10px"}}/>
-                    <div style={{display:"flex",gap:8}}>
-                      <input value={emNewItemYear} onChange={e=>setEmNewItemYear(e.target.value)} placeholder={lang==="tr"?"Yıl":"Year"} style={{...iSt(t),width:80,fontSize:12,padding:"7px 10px"}}/>
-                      <button onClick={()=>emAddItem(sec.id)} style={{...bSt("p",t),padding:"7px 16px",fontSize:13}}>{lang==="tr"?"Ekle":"Add"}</button>
-                      <button onClick={()=>{setEmAddingItemSec(null);setEmNewItemName("");}} style={{...bSt("s",t),padding:"7px 12px",fontSize:13}}>✕</button>
-                    </div>
-                  </div>:<button onClick={()=>{setEmAddingItemSec(sec.id);setEmNewItemName("");setEmNewItemYear(String(new Date().getFullYear()));}} style={{marginTop:2,padding:"7px",background:"none",border:`1px dashed ${t.border}`,borderRadius:8,fontSize:12,color:t.tm,cursor:"pointer",textAlign:"left"}}>+ {lang==="tr"?"Yemek ekle":"Add dish"}</button>}
-                </div>
-              </div>;
-            })}
-            {emAddingSec?<div style={{...cSt(t),padding:14}}>
-              <div style={{fontSize:12,color:t.tm,marginBottom:8}}>{lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} bölümü:`:`${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} section:`}</div>
-              <div style={{display:"flex",gap:8}}>
-                <input value={emNewSecName} onChange={e=>setEmNewSecName(e.target.value)} placeholder={lang==="tr"?"Bölüm adı (örn: Baklava)...":"Section name (e.g. Baklava)..."} onKeyDown={e=>e.key==="Enter"&&emAddSection()} autoFocus style={{...iSt(t),flex:1,fontSize:13}}/>
-                <button onClick={emAddSection} style={{...bSt("p",t),padding:"9px 16px",fontSize:13}}>{lang==="tr"?"Ekle":"Add"}</button>
-                <button onClick={()=>{setEmAddingSec(false);setEmNewSecName("");}} style={{...bSt("s",t),padding:"9px 13px",fontSize:13}}>✕</button>
+          {/* Kalemler */}
+          <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
+            {aItems.map(item=><div key={item.id} style={{background:t.inBg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <div style={{flex:1,minWidth:0}}>
+                <span style={{fontSize:13,color:t.text,fontWeight:600}}>{item.name}</span>
+                {item.year_tag&&<span style={{fontSize:11,color:t.tm,marginLeft:8,background:t.card,borderRadius:5,padding:"1px 7px",border:`1px solid ${t.border}`}}>{item.year_tag}</span>}
               </div>
-            </div>:<button onClick={()=>setEmAddingSec(true)} style={{padding:14,background:"none",border:`2px dashed ${t.border}`,borderRadius:14,fontSize:14,color:t.tm,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%"}}>
-              <span>📁</span><span>+ {lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} bölümü ekle`:`Add ${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} section`}</span>
+              <div style={{display:"flex",gap:4,flexShrink:0}}>
+                <button onClick={()=>emArchiveItem(item.id)} title={lang==="tr"?"Arşivle":"Archive"} style={{...bSt("s",t),padding:"4px 9px",fontSize:12}}>📦</button>
+                <button onClick={()=>setEmConfirmDel({type:"item",id:item.id})} style={{...bSt("d",t),padding:"4px 9px",fontSize:12}}>×</button>
+              </div>
+            </div>)}
+
+            {/* Arşivlenenler */}
+            {emShowArchive&&archItems.length>0&&<>
+              <div style={{fontSize:11,fontWeight:700,color:t.tm,marginTop:4,paddingTop:8,borderTop:`1px dashed ${t.border}`,letterSpacing:"0.06em"}}>📦 {lang==="tr"?"ARŞİV":"ARCHIVE"}</div>
+              {archItems.map(item=><div key={item.id} style={{background:t.inBg,borderRadius:10,padding:"7px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,opacity:0.6}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <span style={{fontSize:12,color:t.text,textDecoration:"line-through"}}>{item.name}</span>
+                  {item.year_tag&&<span style={{fontSize:11,color:t.tm,marginLeft:6}}>{item.year_tag}</span>}
+                </div>
+                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  <button onClick={()=>emRestoreItem(item.id)} style={{...bSt("s",t),padding:"3px 9px",fontSize:11,color:t.accent}}>{lang==="tr"?"Geri Al":"Restore"}</button>
+                  <button onClick={()=>setEmConfirmDel({type:"item",id:item.id})} style={{...bSt("d",t),padding:"3px 8px",fontSize:11}}>×</button>
+                </div>
+              </div>)}
+            </>}
+
+            {/* Kalem ekle */}
+            {emAddingItemSec===sec.id?<div style={{background:t.inBg,borderRadius:10,padding:"10px 12px",border:`1px dashed ${t.accent}`,display:"flex",flexDirection:"column",gap:8,marginTop:2}}>
+              <input value={emNewItemName} onChange={e=>setEmNewItemName(e.target.value)} placeholder={lang==="tr"?"Yemek adı...":"Dish name..."} onKeyDown={e=>e.key==="Enter"&&emAddItem(sec.id)} autoFocus style={iSt(t)}/>
+              <div style={{display:"flex",gap:8}}>
+                <input value={emNewItemYear} onChange={e=>setEmNewItemYear(e.target.value)} placeholder={lang==="tr"?"Yıl (örn: 2026)":"Year (e.g. 2026)"} style={{...iSt(t),flex:1}}/>
+                <button onClick={()=>emAddItem(sec.id)} style={{...bSt("p",t),padding:"10px 18px",fontSize:13}}>{lang==="tr"?"Ekle":"Add"}</button>
+                <button onClick={()=>{setEmAddingItemSec(null);setEmNewItemName("");}} style={{...bSt("s",t),padding:"10px 14px",fontSize:13}}>✕</button>
+              </div>
+            </div>:<button onClick={()=>{setEmAddingItemSec(sec.id);setEmNewItemName("");setEmNewItemYear(String(new Date().getFullYear()));}} style={{...bSt("s",t),width:"100%",marginTop:2,fontSize:13}}>
+              + {lang==="tr"?"Yemek ekle":"Add dish"}
             </button>}
           </div>
-        </div>}
-    </div>
-    {/* Silme onay */}
-    {emConfirmDel&&<div onClick={()=>setEmConfirmDel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        </div>;
+      })}
+
+      {/* ── Bölüm ekle ── */}
+      {emAddingSec?<div style={{...cSt(t),padding:"14px 16px",marginBottom:10}}>
+        <label style={lSt(t)}>{lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} — Yeni Bölüm`:`${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} — New Section`}</label>
+        <div style={{display:"flex",gap:8}}>
+          <input value={emNewSecName} onChange={e=>setEmNewSecName(e.target.value)} placeholder={lang==="tr"?"Bölüm adı (örn: Baklava)...":"Section name (e.g. Baklava)..."} onKeyDown={e=>e.key==="Enter"&&emAddSection()} autoFocus style={{...iSt(t),flex:1}}/>
+          <button onClick={emAddSection} style={{...bSt("p",t),padding:"10px 18px",fontSize:13}}>{lang==="tr"?"Ekle":"Add"}</button>
+          <button onClick={()=>{setEmAddingSec(false);setEmNewSecName("");}} style={{...bSt("s",t),padding:"10px 14px",fontSize:13}}>✕</button>
+        </div>
+      </div>:<button onClick={()=>setEmAddingSec(true)} style={{...bSt("s",t),width:"100%",fontSize:14,marginBottom:10}}>
+        📁 + {lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} bölümü ekle`:`Add ${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} section`}
+      </button>}
+    </>}
+
+    {/* ── Silme onay modal ── */}
+    {emConfirmDel&&<div onClick={()=>setEmConfirmDel(null)} style={{position:"fixed",inset:0,background:t.overlay,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div onClick={e=>e.stopPropagation()} style={{...cSt(t),padding:24,maxWidth:300,width:"100%"}}>
-        <div style={{fontSize:24,textAlign:"center",marginBottom:10}}>{emConfirmDel.type==="section"?"📁🗑":"🗑"}</div>
+        <div style={{fontSize:22,textAlign:"center",marginBottom:10}}>{emConfirmDel.type==="section"?"📁":"🗑"}</div>
         <div style={{fontSize:15,fontWeight:700,color:t.text,textAlign:"center",marginBottom:6}}>{emConfirmDel.type==="section"?(lang==="tr"?"Bölümü sil?":"Delete section?"):(lang==="tr"?"Kalemi sil?":"Delete item?")}</div>
-        <div style={{fontSize:13,color:t.tm,textAlign:"center",marginBottom:18}}>{emConfirmDel.type==="section"?(lang==="tr"?"Bölüm ve tüm kalemler silinecek.":"Section and all items will be deleted."):(lang==="tr"?"Bu işlem geri alınamaz.":"Cannot be undone.")}</div>
+        <div style={{fontSize:13,color:t.tm,textAlign:"center",marginBottom:18,lineHeight:1.5}}>{emConfirmDel.type==="section"?(lang==="tr"?"Bölüm ve içindeki tüm kalemler silinecek.":"Section and all its items will be deleted."):(lang==="tr"?"Bu işlem geri alınamaz.":"This cannot be undone.")}</div>
         <div style={{display:"flex",gap:10}}>
           <button onClick={()=>setEmConfirmDel(null)} style={{...bSt("s",t),flex:1,padding:10,fontSize:13}}>{lang==="tr"?"Vazgeç":"Cancel"}</button>
-          <button onClick={()=>emConfirmDel.type==="section"?emDeleteSection(emConfirmDel.id):emDeleteItem(emConfirmDel.id)} style={{flex:1,padding:10,background:t.danBg,color:t.danger,border:`1px solid ${t.danBo}`,borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer"}}>{lang==="tr"?"Sil":"Delete"}</button>
+          <button onClick={()=>emConfirmDel.type==="section"?emDeleteSection(emConfirmDel.id):emDeleteItem(emConfirmDel.id)} style={{...bSt("d",t),flex:1,padding:10,fontSize:13,fontWeight:700}}>{lang==="tr"?"Sil":"Delete"}</button>
         </div>
       </div>
     </div>}
   </div>;
-
   // Liste
   return <div>{cropModalJSX}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
