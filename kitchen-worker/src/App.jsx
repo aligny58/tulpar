@@ -4812,19 +4812,31 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
       <SectionHeader title={lang==="tr"?"Ekip":lang==="en"?"Team":"Team"}/>
       {!team?<div style={{...cSt(t),padding:"16px"}}>
         <div style={{fontSize:13,color:t.tm,marginBottom:14,lineHeight:1.5}}>
-          {lang==="tr"?"Kitchen Manager Chef uygulamasından aldığınız davet kodunu girin. Ekibe katılınca stok ve üretim verileri senkronize olur.":
-           lang==="en"?"Enter the invite code from Kitchen Manager Chef. Stock and production data will sync after joining.":
-           "Enter invite code from Kitchen Manager Chef."}
+          {lang==="tr"?"Şefinizden aldığınız davet kodunu girin ve departmanınızı seçin. Şefiniz onayladıktan sonra ekibe katılacaksınız.":
+           lang==="en"?"Enter invite code and select your department. You will join the team after approval by your chef.":
+           "Enter invite code from your chef."}
         </div>
-        <input style={{...iSt(t),textTransform:"uppercase",letterSpacing:"0.2em",fontSize:20,textAlign:"center",fontWeight:700}}
+        <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.05em",marginBottom:6}}>{lang==="tr"?"DAVET KODU":"INVITE CODE"}</div>
+        <input style={{...iSt(t),textTransform:"uppercase",letterSpacing:"0.2em",fontSize:20,textAlign:"center",fontWeight:700,marginBottom:12}}
           placeholder="ABC123" maxLength={6} id="kmInviteInput"
           onInput={e=>{e.target.value=e.target.value.toUpperCase();}}/>
+        <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.05em",marginBottom:6}}>{lang==="tr"?"DEPARTMANIM":"MY DEPARTMENT"}</div>
+        <select id="kmDeptInput" style={{...iSt(t),marginBottom:12}}>
+          <option value="">{lang==="tr"?"— Seç —":"— Select —"}</option>
+          <option value="pastry">🍰 {lang==="tr"?"Pastane":"Pastry"}</option>
+          <option value="kitchen">🔥 {lang==="tr"?"Sıcak Mutfak":"Hot Kitchen"}</option>
+          <option value="cold">🥗 {lang==="tr"?"Soğuk Mutfak":"Cold Kitchen"}</option>
+          <option value="butcher">🥩 {lang==="tr"?"Kasap":"Butcher"}</option>
+          <option value="service">🍽️ {lang==="tr"?"Servis":"Service"}</option>
+          <option value="bar">🍷 Bar</option>
+        </select>
         <button onClick={async()=>{
           const code=document.getElementById("kmInviteInput")?.value?.trim();
+          const dept=document.getElementById("kmDeptInput")?.value||"";
           if(!code||code.length<6){window.toast.info(lang==="tr"?"6 haneli kodu girin":"Enter 6-digit code");return;}
+          if(!dept){window.toast.info(lang==="tr"?"Departmanınızı seçin":"Select your department");return;}
           if(!user?.userId){window.toast.info(lang==="tr"?"Önce giriş yapın":"Login first");return;}
           try{
-            // Supabase session'dan gerçek isim al
             const sb2=initSupabase();
             let realName=user.name||user.email;
             if(sb2){
@@ -4833,32 +4845,27 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
                 realName=session.user.user_metadata?.name||session.user.user_metadata?.full_name||session.user.email.split("@")[0];
               }
             }
-            const joinedTeam=await joinTeam(code,user.userId,realName);
+            const joinedTeam=await joinTeam(code,user.userId,realName,dept);
+            // Eğer buraya gelirse zaten üyeydi
             const newTeam={...joinedTeam,role:"member",inviteCode:joinedTeam.invite_code};
             setTeam(newTeam);
-            // Ekip üyelerini Supabase'den çek
             const sb=initSupabase();
             if(sb){
               const{data:members}=await sb.from("team_members").select("*").eq("team_id",joinedTeam.id);
               if(members)setTeamMembers(members.map(m=>({userId:m.user_id,name:m.position||m.user_id,role:m.role})));
-            }else{
-              setTeamMembers([{userId:user.userId,name:user.name||user.email,role:"member"}]);
             }
-            // Ekip verilerini senkronize et
-            const [syncStock,syncProd,syncRecipes,syncTodos]=await Promise.all([
-              syncFromTeam(joinedTeam.id,"team_stock"),
-              syncFromTeam(joinedTeam.id,"team_productions"),
-              syncFromTeam(joinedTeam.id,"team_recipes"),
-              syncFromTeam(joinedTeam.id,"team_todos")
-            ]);
-            if(syncStock&&syncStock.length>0)setStock(syncStock);
-            if(syncProd&&syncProd.length>0)setProductions(syncProd);
-            if(syncRecipes&&syncRecipes.length>0)setRecipes(syncRecipes);
-            if(syncTodos&&syncTodos.length>0)setTodos(syncTodos);
-            flash(lang==="tr"?"✓ Ekibe katıldınız! Veriler senkronize edildi.":"✓ Joined team! Data synced.");
-          }catch(e){window.toast.info(e.message);}
-        }} style={{...bSt("p",t),width:"100%",marginTop:12,padding:14,fontSize:15,fontWeight:700}}>
-          → {lang==="tr"?"Ekibe Katıl":"Join Team"}
+            flash(lang==="tr"?"✓ Ekibe katıldınız!":"✓ Joined team!");
+          }catch(e){
+            if(e.code==="SENT"){
+              flash(lang==="tr"?"📨 İstek gönderildi. Şefinizin onayını bekliyorsunuz.":"📨 Request sent. Waiting for approval.");
+            }else if(e.code==="PENDING"){
+              flash(lang==="tr"?"⏳ İsteğiniz onay bekliyor.":"⏳ Your request is pending approval.");
+            }else{
+              window.toast.info(e.message);
+            }
+          }
+        }} style={{...bSt("p",t),width:"100%",marginTop:4,padding:14,fontSize:15,fontWeight:700}}>
+          📨 {lang==="tr"?"İstek Gönder":"Send Request"}
         </button>
       </div>:<div style={{...cSt(t),padding:"16px"}}>
         <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:4}}>{team.name}</div>
@@ -6411,36 +6418,40 @@ const getChildTeams=async(parentId)=>{
   return data||[];
 };
 
-const joinTeam=async(inviteCode,userId,userName)=>{
+const joinTeam=async(inviteCode,userId,userName,requestedDepartment)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
-  // YENİ: Token bazlı davet ara
-  const{data:invite}=await sb.from("team_invites").select("*").eq("code",inviteCode.toUpperCase()).eq("used",false).single();
-  if(invite){
-    const{data:team,error:te}=await sb.from("teams").select("*").eq("id",invite.team_id).single();
-    if(te||!team)throw new Error("Davet edildiğiniz ekip bulunamadı");
-    if(invite.expires_at&&new Date(invite.expires_at)<new Date()){
-      throw new Error("Davet kodu süresi dolmuş");
-    }
-    // Worker veya dept_chef olarak katılır (Worker uygulamasında dept_chef olarak girmek mantıklı değil ama izin verelim)
-    const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
-    if(existing)return team;
-    const{error:me}=await sb.from("team_members").insert({
-      team_id:team.id,user_id:userId,role:invite.role||"worker",department:invite.department,position:userName
-    });
-    if(me)throw me;
-    await sb.from("team_invites").update({used:true,used_by:userId,used_at:new Date().toISOString()}).eq("id",invite.id);
-    return team;
-  }
-  // ESKİ: invite_code ile fallback
+  // Davet kodu ile ekibi bul
   const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).single();
   if(te||!team)throw new Error("Geçersiz davet kodu");
+  
+  // Zaten ekipte mi?
   const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
   if(existing)return team;
-  const{error:me}=await sb.from("team_members").insert({
-    team_id:team.id,user_id:userId,role:"worker",position:userName
+  
+  // Bekleyen istek var mı?
+  const{data:pendingReq}=await sb.from("team_join_requests").select("id,status").eq("team_id",team.id).eq("user_id",userId).eq("status","pending").single();
+  if(pendingReq){
+    const err=new Error("PENDING_APPROVAL");
+    err.code="PENDING";
+    err.team=team;
+    throw err;
+  }
+  
+  // Yeni istek gönder (Worker rolü)
+  const{error:re}=await sb.from("team_join_requests").insert({
+    team_id:team.id,
+    user_id:userId,
+    user_name:userName,
+    requested_department:requestedDepartment||null,
+    requested_role:"worker",
+    status:"pending"
   });
-  if(me)throw me;
-  return team;
+  if(re)throw re;
+  
+  const err=new Error("REQUEST_SENT");
+  err.code="SENT";
+  err.team=team;
+  throw err;
 };
 
 const syncFromTeam=async(teamId,table)=>{
