@@ -7342,12 +7342,11 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
     }
 
     // ── Detay modu (read-only) ──
-    const getPdfUrl=async(path)=>{
+    const getPdfUrl=(path)=>{
       if(!path)return null;
       const sb=initSupabase();if(!sb)return null;
-      const{data,error}=await sb.storage.from("event-pdfs").createSignedUrl(path,300);
-      if(error){console.warn("PDF URL hatası:",error.message);return null;}
-      return data?.signedUrl||null;
+      const{data:{publicUrl}}=sb.storage.from("event-pdfs").getPublicUrl(path);
+      return publicUrl;
     };
     const totalItems=Object.values(selectedEvent.departments||{}).reduce((s,a)=>s+(a?.length||0),0);
     return <div style={{padding:"12px 14px",paddingBottom:80}}>
@@ -7370,7 +7369,7 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
         <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selectedEvent.ai_summary}</div>
       </div>}
       <div style={{display:"flex",gap:8,marginBottom:16}}>
-        {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),flex:1,fontSize:13}}>
+        {selectedEvent.original_pdf_path&&<button onClick={()=>{const url=getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");}} style={{...bSt("s",t),flex:1,fontSize:13}}>
           📄 {lang==="tr"?"PDF'i Aç":"Open PDF"}
         </button>}
         <button onClick={()=>{setShowEdit(true);}} style={{...bSt("s",t),flex:1,fontSize:13}}>
