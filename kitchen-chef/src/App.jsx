@@ -5257,11 +5257,12 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             {lang==="tr"?"Yeni bir ekip oluşturun. Davet koduyla çalışanlarınızı ekleyebilirsiniz.":"Create a new team and invite your staff with the invite code."}
           </div>
           <input style={iSt(t)} placeholder={lang==="tr"?"Ekip adı (örn: Pastane Ekibi)":"Team name (e.g. Pastry Team)"} id="chefTeamNameInput"/>
-          <button disabled={window._createTeamLoading} onClick={async(e)=>{
+          <button onClick={async(e)=>{
             if(window._createTeamLoading)return;
             window._createTeamLoading=true;
-            e.currentTarget.disabled=true;
-            e.currentTarget.style.opacity='0.5';
+            const _btn=e.currentTarget;
+            _btn.style.opacity='0.5';
+            _btn.style.pointerEvents='none';
             const name=document.getElementById("chefTeamNameInput")?.value?.trim();
             if(!name){window.toast.info(lang==="tr"?"Ekip adı girin":"Enter team name");return;}
             if(!user?.userId){window.toast.info(lang==="tr"?"Önce giriş yapın":"Login first");return;}
@@ -5285,7 +5286,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
               if(navigator.share){navigator.share({title:"Kitchen Manager",text:shareText}).catch(()=>{});}
               else{const ta=document.createElement("textarea");ta.value=shareText;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand("copy");}catch{}document.body.removeChild(ta);}
               flash(lang==="tr"?`✓ Ekip oluşturuldu! Davet kodu: ${code} (kopyalandı)`:`✓ Team created! Invite code: ${code} (copied)`);
-            }catch(e){window.toast.info(e.message);}finally{window._createTeamLoading=false;}
+            }catch(e){window.toast.info(e.message);}finally{window._createTeamLoading=false;if(_btn){_btn.style.opacity="1";_btn.style.pointerEvents="auto";}}
           }} style={{...bSt("p",t),width:"100%",marginTop:10,padding:12}}>
             ✦ {lang==="tr"?"Oluştur":"Create"}
           </button>
