@@ -4025,12 +4025,11 @@ const EventsTab=({team,user,t})=>{
   const deptCount=(deptId)=>events.filter(ev=>(ev.departments?.[deptId]||[]).length>0).length;
 
   // PDF url
-  const getPdfUrl=async(path)=>{
+  const getPdfUrl=(path)=>{
     if(!path)return null;
     const sb=initSupabase();if(!sb)return null;
-    const{data,error}=await sb.storage.from("event-pdfs").createSignedUrl(path,300);
-    if(error){console.warn("PDF URL hatası:",error.message);return null;}
-    return data?.signedUrl||null;
+    const{data:{publicUrl}}=sb.storage.from("event-pdfs").getPublicUrl(path);
+    return publicUrl;
   };
 
   // Detay görünümü
@@ -4055,7 +4054,7 @@ const EventsTab=({team,user,t})=>{
 
     {/* Butonlar */}
     <div style={{display:"flex",gap:8,marginBottom:12}}>
-      {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),flex:1,fontSize:13}}>
+      {selEvent.original_pdf_path&&<button onClick={()=>{const url=getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");}} style={{...bSt("s",t),flex:1,fontSize:13}}>
         📄 {lang==="tr"?"PDF'i Aç":"Open PDF"}
       </button>}
       <button onClick={async()=>{if(!window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?"))return;const sb=initSupabase();if(!sb)return;await sb.from("events").delete().eq("id",selEvent.id);setEvents(p=>p.filter(e=>e.id!==selEvent.id));setSelEvent(null);}} style={{...bSt("d",t),flex:1,fontSize:13}}>
