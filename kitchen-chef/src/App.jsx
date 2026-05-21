@@ -4053,10 +4053,15 @@ const EventsTab=({team,user,t})=>{
       {selEvent.ai_summary&&<div style={{fontSize:13,color:t.ts,marginTop:10,paddingTop:10,borderTop:`1px solid ${t.border}`,lineHeight:1.6}}>{selEvent.ai_summary}</div>}
     </div>
 
-    {/* PDF butonu */}
-    {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:12}}>
-      📄 {lang==="tr"?"Orijinal PDF'i Aç":"Open Original PDF"}
-    </button>}
+    {/* Butonlar */}
+    <div style={{display:"flex",gap:8,marginBottom:12}}>
+      {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),flex:1,fontSize:13}}>
+        📄 {lang==="tr"?"PDF'i Aç":"Open PDF"}
+      </button>}
+      <button onClick={async()=>{if(!window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?"))return;const sb=initSupabase();if(!sb)return;await sb.from("events").delete().eq("id",selEvent.id);setEvents(p=>p.filter(e=>e.id!==selEvent.id));setSelEvent(null);}} style={{...bSt("d",t),flex:1,fontSize:13}}>
+        🗑 {lang==="tr"?"Sil":"Delete"}
+      </button>
+    </div>
 
     {/* AI özet */}
     {selEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 14px",marginBottom:12,background:t.acB,border:`1px solid ${t.acBo}`}}>
