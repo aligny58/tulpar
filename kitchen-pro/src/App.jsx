@@ -6701,6 +6701,7 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
   const[parsing,setParsing]=useState(false);
   const[parseProgress,setParseProgress]=useState("");
   const[selectedEvent,setSelectedEvent]=useState(null);
+  const[showEdit,setShowEdit]=useState(false);
   const[error,setError]=useState("");
   const[showManual,setShowManual]=useState(false);
   const[manualForm,setManualForm]=useState({name:"",event_date:"",start_time:"",pax:"",location:"",notes:"",items:"",photos:[]});
@@ -6770,31 +6771,6 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
     try{
       setParseProgress(lang==="tr"?"PDF okunuyor...":"Reading PDF...");
       const{text,isImageBased,pageCount}=await extractPDFText(file);
-
-      // ── Takım event menülerini Supabase'den çek ──
-      let teamMenuBlock="";
-      if(team?.id){
-        try{
-          const sb=initSupabase();
-          const[secRes,itemRes]=await Promise.all([
-            sb.from("event_menu_sections").select("id,department,name").eq("team_id",team.id),
-            sb.from("event_menu_items").select("section_id,name").eq("team_id",team.id).eq("status","active")
-          ]);
-          if(secRes.data&&itemRes.data&&secRes.data.length>0){
-            const lines=secRes.data.map(sec=>{
-              const its=itemRes.data.filter(i=>i.section_id===sec.id).map(i=>i.name);
-              return its.length>0?`- ${sec.department} › ${sec.name}: ${its.join(", ")}`:null;
-            }).filter(Boolean);
-            if(lines.length>0){
-              teamMenuBlock="
-
-TEAM EVENT MENU LIST — check this FIRST before applying department rules. If a BEO item name closely matches any item below, assign that department directly without further reasoning:
-"+lines.join("
-");
-            }
-          }
-        }catch(e){console.warn("Event menu fetch failed:",e);}
-      }
 
       const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data with multi-day support and sub-events (e.g. AM Coffee Break, Lunch, PM Coffee Break).
 
@@ -6889,7 +6865,7 @@ BE EXTREMELY CONCISE to fit in response limits:
   * Skip duplicate items across sub-events
   * Skip ATT TO ACCOUNTING details (covered in pricing fields)
   * summary: max 150 chars total
-Output minified JSON if possible (no extra whitespace between properties).${teamMenuBlock}`;
+Output minified JSON if possible (no extra whitespace between properties).`;
 
       let userMessages;
       if(isImageBased){
@@ -7291,87 +7267,159 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
 
   // Detail/edit form
   if(selectedEvent){
-    return <div style={{padding:"12px 14px",paddingBottom:60}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-        <button onClick={()=>setSelectedEvent(null)} style={{...bSt("g",t),padding:"6px 12px",fontSize:12}}>← {lang==="tr"?"Geri":"Back"}</button>
-        <div style={{fontSize:12,color:t.tm}}>{selectedEvent._isNew?(lang==="tr"?"Yeni Etkinlik":"New Event"):(lang==="tr"?"Etkinlik Düzenle":"Edit Event")}</div>
-      </div>
-
-      {selectedEvent.original_pdf_path&&<button onClick={async()=>{const sb=initSupabase();if(!sb)return;const{data,error}=await sb.storage.from("event-pdfs").createSignedUrl(selectedEvent.original_pdf_path,300);if(data?.signedUrl)window.open(data.signedUrl,"_blank");else alert("PDF açılamadı: "+(error?.message||"bilinmeyen hata"));}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:12}}>
-        📄 {lang==="tr"?"Orijinal PDF'i Aç":"Open Original PDF"}
-      </button>}
-
-      {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"15",border:`1px solid ${t.accent}40`}}>
-        <div style={{fontSize:9,fontWeight:700,color:t.accent,letterSpacing:"0.1em",marginBottom:4}}>🤖 AI ÖZET</div>
-        <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selectedEvent.ai_summary}</div>
-        {selectedEvent._isImageBased&&<div style={{fontSize:9,color:t.tm,marginTop:6}}>📷 {lang==="tr"?"Resim PDF — Vision ile analiz edildi":"Image PDF — Analyzed with Vision"}</div>}
-      </div>}
-
-      <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10}}>
-          <div><label style={lSt(t)}>{lang==="tr"?"Etkinlik Adı":"Event Name"} *</label>
-            <input style={iSt(t)} value={selectedEvent.name||""} onChange={e=>setSelectedEvent(s=>({...s,name:e.target.value}))}/>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><label style={lSt(t)}>{lang==="tr"?"Tarih":"Date"}</label>
-              <input type="date" style={iSt(t)} value={selectedEvent.event_date||""} onChange={e=>setSelectedEvent(s=>({...s,event_date:e.target.value}))}/>
+    // ── Edit modu ──
+    if(showEdit||selectedEvent._isNew){
+      return <div style={{padding:"12px 14px",paddingBottom:80}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <button onClick={()=>{if(selectedEvent._isNew){setSelectedEvent(null);}else{setShowEdit(false);}}} style={{...bSt("g",t),padding:"6px 12px",fontSize:12}}>← {lang==="tr"?"Geri":"Back"}</button>
+          <div style={{fontSize:12,color:t.tm}}>{selectedEvent._isNew?(lang==="tr"?"Yeni Etkinlik":"New Event"):(lang==="tr"?"Etkinlik Düzenle":"Edit Event")}</div>
+        </div>
+        {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"15",border:`1px solid ${t.accent}40`}}>
+          <div style={{fontSize:9,fontWeight:700,color:t.accent,letterSpacing:"0.1em",marginBottom:4}}>🤖 AI ÖZET</div>
+          <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selectedEvent.ai_summary}</div>
+          {selectedEvent._isImageBased&&<div style={{fontSize:9,color:t.tm,marginTop:6}}>📷 {lang==="tr"?"Resim PDF — Vision ile analiz edildi":"Image PDF — Analyzed with Vision"}</div>}
+        </div>}
+        <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10}}>
+            <div><label style={lSt(t)}>{lang==="tr"?"Etkinlik Adı":"Event Name"} *</label>
+              <input style={iSt(t)} value={selectedEvent.name||""} onChange={e=>setSelectedEvent(s=>({...s,name:e.target.value}))}/>
             </div>
-            <div><label style={lSt(t)}>{lang==="tr"?"Misafir":"Pax"}</label>
-              <input type="number" style={iSt(t)} value={selectedEvent.pax||""} onChange={e=>setSelectedEvent(s=>({...s,pax:parseInt(e.target.value,10)||0}))}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div><label style={lSt(t)}>{lang==="tr"?"Tarih":"Date"}</label>
+                <input type="date" style={iSt(t)} value={selectedEvent.event_date||""} onChange={e=>setSelectedEvent(s=>({...s,event_date:e.target.value}))}/>
+              </div>
+              <div><label style={lSt(t)}>{lang==="tr"?"Misafir":"Pax"}</label>
+                <input type="number" style={iSt(t)} value={selectedEvent.pax||""} onChange={e=>setSelectedEvent(s=>({...s,pax:parseInt(e.target.value,10)||0}))}/>
+              </div>
             </div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><label style={lSt(t)}>{lang==="tr"?"Başlangıç":"Start"}</label>
-              <input type="time" style={iSt(t)} value={selectedEvent.start_time||""} onChange={e=>setSelectedEvent(s=>({...s,start_time:e.target.value}))}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <div><label style={lSt(t)}>{lang==="tr"?"Başlangıç":"Start"}</label>
+                <input type="time" style={iSt(t)} value={selectedEvent.start_time||""} onChange={e=>setSelectedEvent(s=>({...s,start_time:e.target.value}))}/>
+              </div>
+              <div><label style={lSt(t)}>{lang==="tr"?"Bitiş":"End"}</label>
+                <input type="time" style={iSt(t)} value={selectedEvent.end_time||""} onChange={e=>setSelectedEvent(s=>({...s,end_time:e.target.value}))}/>
+              </div>
             </div>
-            <div><label style={lSt(t)}>{lang==="tr"?"Bitiş":"End"}</label>
-              <input type="time" style={iSt(t)} value={selectedEvent.end_time||""} onChange={e=>setSelectedEvent(s=>({...s,end_time:e.target.value}))}/>
+            <div><label style={lSt(t)}>{lang==="tr"?"Konum":"Location"}</label>
+              <input style={iSt(t)} value={selectedEvent.location||""} placeholder={lang==="tr"?"Salon adı...":"Venue name..."} onChange={e=>setSelectedEvent(s=>({...s,location:e.target.value}))}/>
             </div>
-          </div>
-          <div><label style={lSt(t)}>{lang==="tr"?"Konum":"Location"}</label>
-            <input style={iSt(t)} value={selectedEvent.location||""} placeholder={lang==="tr"?"Salon adı...":"Venue name..."} onChange={e=>setSelectedEvent(s=>({...s,location:e.target.value}))}/>
-          </div>
-          <div><label style={lSt(t)}>{lang==="tr"?"Kontrat No":"Contract No"}</label>
-            <input style={iSt(t)} value={selectedEvent.contract_no||""} onChange={e=>setSelectedEvent(s=>({...s,contract_no:e.target.value}))}/>
+            <div><label style={lSt(t)}>{lang==="tr"?"Kontrat No":"Contract No"}</label>
+              <input style={iSt(t)} value={selectedEvent.contract_no||""} onChange={e=>setSelectedEvent(s=>({...s,contract_no:e.target.value}))}/>
+            </div>
           </div>
         </div>
-      </div>
+        <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.05em",marginBottom:8,marginTop:16}}>
+          🏢 {lang==="tr"?"DEPARTMAN GÖREVLERİ":"DEPARTMENT TASKS"}
+        </div>
+        {DEPARTMENTS.map(d=>{
+          const items=(selectedEvent.departments?.[d.id])||[];
+          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:items.length?8:0}}>
+              <div style={{fontSize:12,fontWeight:700,color:t.text}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
+              <button onClick={()=>updateDept(d.id,[...items,""])} style={{...bSt("g",t),padding:"3px 8px",fontSize:11}}>+ {lang==="tr"?"Ekle":"Add"}</button>
+            </div>
+            {items.map((item,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:4}}>
+              <input style={{...iSt(t),flex:1,fontSize:12,padding:"6px 8px"}} value={item} onChange={e=>{
+                const newItems=[...items];newItems[i]=e.target.value;updateDept(d.id,newItems);
+              }}/>
+              <button onClick={()=>updateDept(d.id,items.filter((_,x)=>x!==i))} style={{...bSt("d",t),padding:"4px 8px",fontSize:11}}>✕</button>
+            </div>)}
+          </div>;
+        })}
+        <div><label style={lSt(t)}>{lang==="tr"?"Notlar":"Notes"}</label>
+          <textarea style={{...iSt(t),minHeight:60,resize:"vertical"}} value={selectedEvent.notes||""} onChange={e=>setSelectedEvent(s=>({...s,notes:e.target.value}))}/>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:16,position:"sticky",bottom:60,background:t.bg+"e0",backdropFilter:"blur(10px)",padding:"8px 0"}}>
+          <button onClick={()=>{if(selectedEvent._isNew){setSelectedEvent(null);}else{setShowEdit(false);}}} style={{...bSt("g",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
+          <button onClick={saveEvent} disabled={!selectedEvent.name?.trim()} style={{...bSt("p",t),flex:2,opacity:selectedEvent.name?.trim()?1:0.5}}>
+            ✓ {lang==="tr"?"Kaydet":"Save"}
+          </button>
+        </div>
+        {!selectedEvent._isNew&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("s",t),width:"100%",marginTop:10,fontSize:13,fontWeight:700}}>
+          📤 {lang==="tr"?"Departmanlara Dağıt":"Distribute to Departments"}
+        </button>}
+      </div>;
+    }
 
-      <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.05em",marginBottom:8,marginTop:16}}>
-        🏢 {lang==="tr"?"DEPARTMAN GÖREVLERİ":"DEPARTMENT TASKS"}
+    // ── Detay modu (read-only) ──
+    const getPdfUrl=async(path)=>{
+      if(!path)return null;
+      const sb=initSupabase();if(!sb)return null;
+      const{data,error}=await sb.storage.from("event-pdfs").createSignedUrl(path,300);
+      if(error){console.warn("PDF URL hatası:",error.message);return null;}
+      return data?.signedUrl||null;
+    };
+    const totalItems=Object.values(selectedEvent.departments||{}).reduce((s,a)=>s+(a?.length||0),0);
+    return <div style={{padding:"12px 14px",paddingBottom:80}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <h3 style={{fontSize:22,color:t.text,margin:0,fontFamily:"'Fraunces',serif"}}>{selectedEvent.name}</h3>
+        <button onClick={()=>{setSelectedEvent(null);setShowEdit(false);}} style={{...bSt("s",t),fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
       </div>
-      {DEPARTMENTS.map(d=>{
-        const items=(selectedEvent.departments?.[d.id])||[];
-        return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:items.length?8:0}}>
-            <div style={{fontSize:12,fontWeight:700,color:t.text}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
-            <button onClick={()=>updateDept(d.id,[...items,""])} style={{...bSt("g",t),padding:"3px 8px",fontSize:11}}>+ {lang==="tr"?"Ekle":"Add"}</button>
-          </div>
-          {items.map((item,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:4}}>
-            <input style={{...iSt(t),flex:1,fontSize:12,padding:"6px 8px"}} value={item} onChange={e=>{
-              const newItems=[...items];newItems[i]=e.target.value;updateDept(d.id,newItems);
-            }}/>
-            <button onClick={()=>updateDept(d.id,items.filter((_,x)=>x!==i))} style={{...bSt("d",t),padding:"4px 8px",fontSize:11}}>✕</button>
-          </div>)}
-        </div>;
-      })}
-
-      <div><label style={lSt(t)}>{lang==="tr"?"Notlar":"Notes"}</label>
-        <textarea style={{...iSt(t),minHeight:60,resize:"vertical"}} value={selectedEvent.notes||""} onChange={e=>setSelectedEvent(s=>({...s,notes:e.target.value}))}/>
+      <div style={{...cSt(t),padding:"12px 16px",marginBottom:12}}>
+        <div style={{display:"flex",flexWrap:"wrap",gap:10,fontSize:13,color:t.ts}}>
+          {selectedEvent.event_date&&<span>📅 {new Date(selectedEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}</span>}
+          {selectedEvent.end_date&&selectedEvent.end_date!==selectedEvent.event_date&&<span>→ {new Date(selectedEvent.end_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long"})}</span>}
+          {selectedEvent.start_time&&<span>🕐 {selectedEvent.start_time}{selectedEvent.end_time&&" – "+selectedEvent.end_time}</span>}
+          {selectedEvent.pax&&<span>👥 {selectedEvent.pax} pax</span>}
+          {selectedEvent.location&&<span>📍 {selectedEvent.location}</span>}
+          {selectedEvent.contract_no&&<span>📄 {selectedEvent.contract_no}</span>}
+        </div>
       </div>
-
-      <div style={{display:"flex",gap:8,marginTop:16,position:"sticky",bottom:60,background:t.bg+"e0",backdropFilter:"blur(10px)",padding:"8px 0"}}>
-        <button onClick={()=>setSelectedEvent(null)} style={{...bSt("g",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-        <button onClick={saveEvent} disabled={!selectedEvent.name?.trim()} style={{...bSt("p",t),flex:2,opacity:selectedEvent.name?.trim()?1:0.5}}>
-          ✓ {lang==="tr"?"Kaydet":"Save"}
+      {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 14px",marginBottom:12,background:t.acB,border:`1px solid ${t.acBo}`}}>
+        <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.1em",marginBottom:4}}>🤖 AI ÖZET</div>
+        <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selectedEvent.ai_summary}</div>
+      </div>}
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),flex:1,fontSize:13}}>
+          📄 {lang==="tr"?"PDF'i Aç":"Open PDF"}
+        </button>}
+        <button onClick={()=>{setShowEdit(true);}} style={{...bSt("s",t),flex:1,fontSize:13}}>
+          ✏️ {lang==="tr"?"Düzenle":"Edit"}
+        </button>
+        <button onClick={()=>deleteEvent(selectedEvent.id)} style={{...bSt("d",t),flex:1,fontSize:13}}>
+          🗑 {lang==="tr"?"Sil":"Delete"}
         </button>
       </div>
-
-      {!selectedEvent._isNew&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("s",t),width:"100%",marginTop:10,fontSize:13,fontWeight:700}}>
+      {totalItems===0&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("p",t),width:"100%",marginBottom:12,fontSize:13,fontWeight:700}}>
         📤 {lang==="tr"?"Departmanlara Dağıt":"Distribute to Departments"}
       </button>}
+      {(selectedEvent.sub_events||[]).length>0&&<>
+        <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:8,textTransform:"uppercase"}}>{lang==="tr"?"Etkinlik Programı":"Event Schedule"}</div>
+        {(selectedEvent.sub_events||[]).map((se,i)=><div key={i} style={{...cSt(t),padding:"10px 14px",marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+            <div style={{fontSize:13,fontWeight:700,color:t.text}}>{se.name||se.timeStart}</div>
+            <div style={{fontSize:11,color:t.tm}}>{se.timeStart}{se.timeEnd&&" – "+se.timeEnd}{se.pax&&` · ${se.pax} pax`}</div>
+          </div>
+          {se.room&&<div style={{fontSize:11,color:t.tm,marginBottom:6}}>📍 {se.room}</div>}
+          {(se.items||[]).length>0&&<div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {(se.items||[]).map((item,j)=>{
+              const depts=(item.departments||[]);
+              return<div key={j} style={{background:t.inBg,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                <span style={{fontSize:12,color:t.text,flex:1}}>{item.name}</span>
+                <div style={{display:"flex",gap:3,flexShrink:0}}>
+                  {depts.map(d=>{const dep=DEPARTMENTS.find(x=>x.id===d);return dep?<span key={d} style={{fontSize:10,background:dep.color+"20",color:dep.color,borderRadius:5,padding:"1px 6px",border:`1px solid ${dep.color}40`,fontWeight:600}}>{dep.icon}</span>:null;})}
+                </div>
+              </div>;
+            })}
+          </div>}
+        </div>)}
+      </>}
+      {totalItems>0&&<>
+        <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:8,marginTop:8,textTransform:"uppercase"}}>{lang==="tr"?"Departman Görevleri":"Department Tasks"}</div>
+        {DEPARTMENTS.filter(d=>(selectedEvent.departments?.[d.id]||[]).length>0).map(d=>{
+          const items=selectedEvent.departments[d.id]||[];
+          return<div key={d.id} style={{...cSt(t),padding:"10px 14px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
+            <div style={{fontSize:12,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
+            {items.map((item,i)=><div key={i} style={{fontSize:13,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
+          </div>;
+        })}
+        <button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("s",t),width:"100%",marginTop:4,fontSize:13}}>
+          📤 {lang==="tr"?"Yeniden Dağıt":"Redistribute"}
+        </button>
+      </>}
     </div>;
   }
+
 
   // List view
   return <div style={{padding:"12px 14px",paddingBottom:60}}>
