@@ -5257,7 +5257,11 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             {lang==="tr"?"Yeni bir ekip oluşturun. Davet koduyla çalışanlarınızı ekleyebilirsiniz.":"Create a new team and invite your staff with the invite code."}
           </div>
           <input style={iSt(t)} placeholder={lang==="tr"?"Ekip adı (örn: Pastane Ekibi)":"Team name (e.g. Pastry Team)"} id="chefTeamNameInput"/>
-          <button onClick={async()=>{
+          <button disabled={window._createTeamLoading} onClick={async(e)=>{
+            if(window._createTeamLoading)return;
+            window._createTeamLoading=true;
+            e.currentTarget.disabled=true;
+            e.currentTarget.style.opacity='0.5';
             const name=document.getElementById("chefTeamNameInput")?.value?.trim();
             if(!name){window.toast.info(lang==="tr"?"Ekip adı girin":"Enter team name");return;}
             if(!user?.userId){window.toast.info(lang==="tr"?"Önce giriş yapın":"Login first");return;}
@@ -5281,7 +5285,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
               if(navigator.share){navigator.share({title:"Kitchen Manager",text:shareText}).catch(()=>{});}
               else{const ta=document.createElement("textarea");ta.value=shareText;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand("copy");}catch{}document.body.removeChild(ta);}
               flash(lang==="tr"?`✓ Ekip oluşturuldu! Davet kodu: ${code} (kopyalandı)`:`✓ Team created! Invite code: ${code} (copied)`);
-            }catch(e){window.toast.info(e.message);}
+            }catch(e){window.toast.info(e.message);}finally{window._createTeamLoading=false;}
           }} style={{...bSt("p",t),width:"100%",marginTop:10,padding:12}}>
             ✦ {lang==="tr"?"Oluştur":"Create"}
           </button>
@@ -6899,6 +6903,11 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
 const generateInviteCode=()=>Math.random().toString(36).substring(2,8).toUpperCase();
 const createTeam=async(teamName,userId,userName,parentTeamId=null)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
+  // ═══ Bu kullanıcı zaten team kurmuş mu? ═══
+  const{data:existingTeams}=await sb.from("teams").select("id,name").eq("owner_id",userId).eq("app_type","manager");
+  if(existingTeams&&existingTeams.length>0){
+    throw new Error("Zaten bir ekibiniz var: "+existingTeams[0].name+". Önce mevcut ekibi silin.");
+  }
   const code=generateInviteCode();
   const insertData={name:teamName,invite_code:code.toUpperCase(),owner_id:userId,app_type:"manager"};
   if(parentTeamId)insertData.parent_team_id=parentTeamId;
