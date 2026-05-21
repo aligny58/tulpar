@@ -5180,6 +5180,21 @@ const AuthModal=({onClose,onLogin,t})=>{
       if(!sb){setErr(lang==="tr"?"Supabase yüklenemedi":"Supabase failed");setLoading(false);return}
       const{data,error}=await sb.auth.signInWithPassword({email,password});
       if(error)throw error;
+      // ═══ APP TIER KONTROLÜ ═══
+      const{data:memberCheck}=await sb.from("team_members").select("role").eq("user_id",data.user.id);
+      // Kullanıcı bir tier'a kayıtlı mı? Hangi tier'da?
+      if(memberCheck&&memberCheck.length>0){
+        const userTiers=memberCheck.map(m=>m.role);
+        const expectedTier="worker";
+        if(!userTiers.includes(expectedTier)){
+          // Yanlış app - logout ve uyarı
+          await sb.auth.signOut();
+          const otherApps=userTiers.includes("pro")?"Pro":userTiers.includes("manager")?"Manager":userTiers.includes("worker")?(lang==="tr"?"Çalışan":"Worker"):"";
+          throw new Error(lang==="tr"
+            ?`Bu hesap ${otherApps} uygulamasına kayıtlı. Bu uygulamaya giriş yapamazsınız.`
+            :`This account belongs to ${otherApps}. You cannot login here.`);
+        }
+      }
       // Kullanıcının gerçek adını al
       const displayName=data.user.user_metadata?.name||data.user.user_metadata?.full_name||data.user.email.split("@")[0];
       onLogin({
@@ -7551,10 +7566,27 @@ function App(){
     try{
       const sb=initSupabase();
       if(!sb){clearTimeout(_authTimeout);setAuthChecked(true);return;}
-      sb.auth.getSession().then(({data})=>{
+      sb.auth.getSession().then(async({data})=>{
         clearTimeout(_authTimeout);
         const isReset=new URLSearchParams(window.location.search).get("mode")==="reset";
         if(!isReset&&data.session&&data.session.user){
+          // ═══ APP TIER KONTROLÜ (session restore) ═══
+          try{
+            const{data:_memberCheck}=await sb.from("team_members").select("role").eq("user_id",data.session.user.id);
+            if(_memberCheck&&_memberCheck.length>0){
+              const _userTiers=_memberCheck.map(m=>m.role);
+              if(!_userTiers.includes("worker")){
+                await sb.auth.signOut();
+                LS.set("kmw_user",null);
+                LS.set("kmw_team",null);
+                setUser(null);
+                setAuthChecked(true);
+                const _other=_userTiers.includes("pro")?"Pro":_userTiers.includes("manager")?"Manager":(_userTiers.includes("worker")?"Çalışan":"");
+                setTimeout(()=>{if(window.toast)window.toast.error("Bu hesap "+_other+" uygulamasına ait");}, 500);
+                return;
+              }
+            }
+          }catch(_tcErr){console.warn("tier check:",_tcErr.message);}
           const u={
             email:data.session.user.email,
             name:data.session.user.user_metadata?.name||data.session.user.user_metadata?.full_name||data.session.user.email.split("@")[0],
