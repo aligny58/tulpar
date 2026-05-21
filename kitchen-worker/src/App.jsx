@@ -5181,19 +5181,18 @@ const AuthModal=({onClose,onLogin,t})=>{
       const{data,error}=await sb.auth.signInWithPassword({email,password});
       if(error)throw error;
       // ═══ APP TIER KONTROLÜ ═══
-      const{data:memberCheck}=await sb.from("team_members").select("role").eq("user_id",data.user.id);
-      // Kullanıcı bir tier'a kayıtlı mı? Hangi tier'da?
-      if(memberCheck&&memberCheck.length>0){
-        const userTiers=memberCheck.map(m=>m.role);
-        const expectedTier="worker";
-        if(!userTiers.includes(expectedTier)){
-          // Yanlış app - logout ve uyarı
-          await sb.auth.signOut();
-          const otherApps=userTiers.includes("pro")?"Pro":userTiers.includes("manager")?"Manager":userTiers.includes("worker")?(lang==="tr"?"Çalışan":"Worker"):"";
-          throw new Error(lang==="tr"
-            ?`Bu hesap ${otherApps} uygulamasına kayıtlı. Bu uygulamaya giriş yapamazsınız.`
-            :`This account belongs to ${otherApps}. You cannot login here.`);
-        }
+      const _metaTier=data.user?.user_metadata?.app_tier;
+      const{data:_memberCheck}=await sb.from("team_members").select("role").eq("user_id",data.user.id);
+      const _memberTiers=(_memberCheck||[]).map(m=>m.role);
+      const _allTiers=[..._memberTiers];
+      if(_metaTier&&!_allTiers.includes(_metaTier))_allTiers.push(_metaTier);
+      const _expectedTier="worker";
+      if(_allTiers.length>0&&!_allTiers.includes(_expectedTier)){
+        await sb.auth.signOut();
+        const _other=_allTiers.includes("pro")?"Pro":_allTiers.includes("manager")?"Manager":(_allTiers.includes("worker")?(lang==="tr"?"Çalışan":"Worker"):"");
+        throw new Error(lang==="tr"
+          ?`Bu hesap ${_other} uygulamasına kayıtlı. Bu uygulamaya giriş yapamazsınız.`
+          :`This account belongs to ${_other}. You cannot login here.`);
       }
       // Kullanıcının gerçek adını al
       const displayName=data.user.user_metadata?.name||data.user.user_metadata?.full_name||data.user.email.split("@")[0];
@@ -5221,7 +5220,7 @@ const AuthModal=({onClose,onLogin,t})=>{
       if(!sb){setErr(lang==="tr"?"Supabase yüklenemedi":"Supabase failed");setLoading(false);return}
       const{data,error}=await sb.auth.signUp({
         email,password,
-        options:{data:{name:name.trim(),full_name:name.trim()}}
+        options:{data:{name:name.trim(),full_name:name.trim(),app_tier:"worker"}}
       });
       if(error)throw error;
       if(data.user&&!data.user.email_confirmed_at){
@@ -7572,19 +7571,20 @@ function App(){
         if(!isReset&&data.session&&data.session.user){
           // ═══ APP TIER KONTROLÜ (session restore) ═══
           try{
+            const _metaT=data.session.user?.user_metadata?.app_tier;
             const{data:_memberCheck}=await sb.from("team_members").select("role").eq("user_id",data.session.user.id);
-            if(_memberCheck&&_memberCheck.length>0){
-              const _userTiers=_memberCheck.map(m=>m.role);
-              if(!_userTiers.includes("worker")){
-                await sb.auth.signOut();
-                LS.set("kmw_user",null);
-                LS.set("kmw_team",null);
-                setUser(null);
-                setAuthChecked(true);
-                const _other=_userTiers.includes("pro")?"Pro":_userTiers.includes("manager")?"Manager":(_userTiers.includes("worker")?"Çalışan":"");
-                setTimeout(()=>{if(window.toast)window.toast.error("Bu hesap "+_other+" uygulamasına ait");}, 500);
-                return;
-              }
+            const _mTiers=(_memberCheck||[]).map(m=>m.role);
+            const _aTiers=[..._mTiers];
+            if(_metaT&&!_aTiers.includes(_metaT))_aTiers.push(_metaT);
+            if(_aTiers.length>0&&!_aTiers.includes("worker")){
+              await sb.auth.signOut();
+              LS.set("kmw_user",null);
+              LS.set("kmw_team",null);
+              setUser(null);
+              setAuthChecked(true);
+              const _other=_aTiers.includes("pro")?"Pro":_aTiers.includes("manager")?"Manager":(_aTiers.includes("worker")?"Çalışan":"");
+              setTimeout(()=>{if(window.toast)window.toast.error("Bu hesap "+_other+" uygulamasına ait");}, 500);
+              return;
             }
           }catch(_tcErr){console.warn("tier check:",_tcErr.message);}
           const u={
