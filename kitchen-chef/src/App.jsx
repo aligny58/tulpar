@@ -4025,11 +4025,12 @@ const EventsTab=({team,user,t})=>{
   const deptCount=(deptId)=>events.filter(ev=>(ev.departments?.[deptId]||[]).length>0).length;
 
   // PDF url
-  const getPdfUrl=(path)=>{
+  const getPdfUrl=async(path)=>{
     if(!path)return null;
     const sb=initSupabase();if(!sb)return null;
-    const{data:{publicUrl}}=sb.storage.from("event-pdfs").getPublicUrl(path);
-    return publicUrl;
+    const{data,error}=await sb.storage.from("event-pdfs").createSignedUrl(path,300);
+    if(error){console.warn("PDF URL hatası:",error.message);return null;}
+    return data?.signedUrl||null;
   };
 
   // Detay görünümü
@@ -4053,7 +4054,7 @@ const EventsTab=({team,user,t})=>{
     </div>
 
     {/* PDF butonu */}
-    {selEvent.original_pdf_path&&<button onClick={()=>{const url=getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:12}}>
+    {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:12}}>
       📄 {lang==="tr"?"Orijinal PDF'i Aç":"Open Original PDF"}
     </button>}
 
