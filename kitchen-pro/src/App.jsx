@@ -7405,7 +7405,7 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       const totalItems=Object.values(ev.departments||{}).reduce((sum,arr)=>sum+(arr?.length||0),0);
       const isPast=ev.event_date&&new Date(ev.event_date)<new Date(new Date().toDateString());
       return <div key={ev.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,opacity:isPast?0.6:1,cursor:"pointer"}}
-        onClick={()=>setSelectedEvent(ev)}>
+        onClick={()=>{setSelectedEvent(ev);setShowEdit(false);}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.name}</div>
@@ -9976,6 +9976,45 @@ export default function App(){
   useEffect(()=>{stockRef.current=stock;},[stock]);
   const userRef=useRef(user);
   useEffect(()=>{userRef.current=user;},[user]);
+  // ═══ Login sonrası DB'den team yükle ═══
+  useEffect(()=>{
+    if(!user?.userId)return;
+    (async()=>{
+      try{
+        const sb=initSupabase();if(!sb)return;
+        // Önce owner olduğu team'i ara
+        let{data:ownTeams}=await sb.from("teams").select("*").eq("owner_id",user.userId).eq("app_type","pro");
+        let myTeam=null,myRole=null;
+        if(ownTeams&&ownTeams.length>0){
+          myTeam=ownTeams[0];
+          myRole="pro";
+        }else{
+          // Member olduğu team'i ara
+          const{data:memberships}=await sb.from("team_members").select("team_id,role,position,department").eq("user_id",user.userId);
+          if(memberships&&memberships.length>0){
+            const tid=memberships[0].team_id;
+            const{data:tData}=await sb.from("teams").select("*").eq("id",tid).single();
+            if(tData){
+              myTeam=tData;
+              myRole=memberships[0].role;
+            }
+          }
+        }
+        if(myTeam){
+          const teamObj={...myTeam,role:myRole==="manager"||myRole==="pro"?"chef":myRole,inviteCode:myTeam.invite_code};
+          setTeam(teamObj);
+          LS.set("kmp_team",teamObj);
+          // Üyeleri yükle
+          const{data:members}=await sb.from("team_members").select("user_id,role,position,department").eq("team_id",myTeam.id);
+          if(members){
+            const memberList=members.map(m=>({userId:m.user_id,name:m.position||"",role:m.role,department:m.department}));
+            setTeamMembers(memberList);
+            LS.set("kmp_team_members",memberList);
+          }
+        }
+      }catch(e){console.warn("team load:",e.message);}
+    })();
+  },[user?.userId]);
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
