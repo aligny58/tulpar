@@ -1080,12 +1080,12 @@ const THEMES={
 };
 
 // ═══ STYLE HELPERS ═══
-const iSt=(t)=>({background:t.inBg,border:`1px solid ${t.inBo}`,borderRadius:10,padding:"10px 12px",fontSize:14,color:t.text,width:"100%",outline:"none",fontFamily:"'Inter Tight',sans-serif"});
+const iSt=(t)=>({background:t.inBg,border:`1px solid ${t.inBo}`,borderRadius:10,padding:"10px 12px",fontSize:14,color:t.text,width:"100%",outline:"none",fontFamily:"'Inter Tight',sans-serif",boxSizing:"border-box"});
 const lSt=(t)=>({fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.1em",display:"block",marginBottom:8,textTransform:"uppercase"});
 const bSt=(v,t)=>({padding:"11px 20px",borderRadius:12,cursor:"pointer",fontSize:14,fontWeight:600,border:"none",transition:"all .2s",background:v==="p"?t.accent:v==="d"?t.danBg:t.pBg,color:v==="p"?(t.bg==="#1a1612"?"#1a1612":"#fff"):v==="d"?t.danger:t.ts,...(v==="d"?{border:`1px solid ${t.danBo}`}:{})});
 const cSt=(t)=>({background:t.card,borderRadius:18,border:`1px solid ${t.cardB}`,boxShadow:t.cardS,transition:"all .25s"});
 const mOv=(t)=>({position:"fixed",inset:0,background:t.overlay,backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px 8px",overflowX:"hidden"});
-const mPn=(t)=>({...cSt(t),padding:20,maxWidth:480,width:"100%",maxHeight:"92vh",overflowY:"auto",overflowX:"hidden",background:t.glass,backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)"});
+const mPn=(t)=>({...cSt(t),padding:20,maxWidth:480,width:"100%",maxHeight:"92vh",overflowY:"auto",overflowX:"hidden",boxSizing:"border-box",background:t.glass,backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)"});
 
 // ═══ LOGO — İki kavisli hançer (Osmanlı stili), ince daire çerçeve (madde 11) ═══
 const Logo=({size=28,c="#c8965a"})=><svg width={size} height={size} viewBox="0 0 48 48" fill="none">
@@ -10079,6 +10079,15 @@ export default function App(){
   });
   // Phantom üyeler — uygulamaya kayıtlı olmayan ekip üyeleri
   const[phantomMembers,setPhantomMembers]=useState(LS.get("kmp_phantom_members",[]));
+  // Global box-sizing reset - input/grid taşma sorununu engeller
+  useEffect(()=>{
+    const id="tulpar-global-reset";
+    if(document.getElementById(id))return;
+    const style=document.createElement("style");
+    style.id=id;
+    style.textContent=`*,*::before,*::after{box-sizing:border-box}input,select,textarea,button{font-family:inherit;max-width:100%}`;
+    document.head.appendChild(style);
+  },[]);
   // Phantom üyeleri Supabase'den yükle
   useEffect(()=>{
     if(!team?.id)return;
