@@ -31,7 +31,6 @@ const ToastContainer=()=>{
       <span style={{fontSize:16,fontWeight:700}}>{c.icon}</span>
       <span style={{flex:1,lineHeight:1.4,wordBreak:"break-word"}}>{t.message}</span>
     </div>;})}
-
   </div>;
 };
 
@@ -39,9 +38,9 @@ const ToastContainer=()=>{
 
 // ═══ STORAGE ═══
 const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-// ═══ PRO STORAGE PREFIX ═══
+// ═══ CHEF STORAGE PREFIX ═══
 (()=>{
-  // Eski tk_ key'leri kmp_'ye taşı
+  // Eski tk_ key'leri kmc_'ye taşı
   const toMigrate=["tk_recipes","tk_stock","tk_invoices","tk_lang","tk_dark",
     "tk_menus","tk_expenses","tk_storage","tk_productions","tk_reportcats",
     "tk_profile","tk_traceability","tk_lots","tk_trackedings","tk_resethour",
@@ -50,32 +49,32 @@ const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v)
   for(const k of toMigrate){
     const val=localStorage.getItem(k);
     if(val!==null){
-      const newKey="kmp_"+k.slice(3);
+      const newKey="kmc_"+k.slice(3);
       if(!localStorage.getItem(newKey))localStorage.setItem(newKey,val);
       localStorage.removeItem(k);
     }
   }
-  // km_ ve kmc_ verilerini temizle — ama kmp_ ve sb- verilerine dokunma
+  // KM'nin km_ verilerini temizle — ama kmc_ ve sb- verilerine dokunma
   const allKeys=[];
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
     if(k)allKeys.push(k);
   }
   allKeys.forEach(k=>{
-    if((k.startsWith("km_")||k.startsWith("kmc_"))&&!k.startsWith("kmp_"))localStorage.removeItem(k);
+    if(k.startsWith("km_")&&!k.startsWith("kmc_"))localStorage.removeItem(k);
   });
 })();
 
 const SK={
-  key:"kmp_apikey",recipes:"kmp_recipes",stock:"kmp_stock",invoices:"kmp_invoices",
-  lang:"kmp_lang",dark:"kmp_dark",logs:"kmp_logs",menus:"kmp_menus",
-  expenses:"kmp_expenses",storage:"kmp_storage",productions:"kmp_productions",
-  reportCats:"kmp_reportcats",profile:"kmp_profile",traceability:"kmp_traceability",
-  lots:"kmp_lots",trackedIngs:"kmp_trackedings",resetHour:"kmp_resethour",
-  organizations:"kmp_organizations",storageChecks:"kmp_storagechecks",
-  menuTemplates:"kmp_menutemplates",conversations:"kmp_conversations",
-  activeConvId:"kmp_activeconv",notifSettings:"kmp_notifsettings",
-  botMessages:"kmp_botmessages",calorieDB:"kmp_caloriedb",printers:"kmp_printers"
+  key:"kmc_apikey",recipes:"kmc_recipes",stock:"kmc_stock",invoices:"kmc_invoices",
+  lang:"kmc_lang",dark:"kmc_dark",logs:"kmc_logs",menus:"kmc_menus",
+  expenses:"kmc_expenses",storage:"kmc_storage",productions:"kmc_productions",
+  reportCats:"kmc_reportcats",profile:"kmc_profile",traceability:"kmc_traceability",
+  lots:"kmc_lots",trackedIngs:"kmc_trackedings",resetHour:"kmc_resethour",
+  organizations:"kmc_organizations",storageChecks:"kmc_storagechecks",
+  menuTemplates:"kmc_menutemplates",conversations:"kmc_conversations",
+  activeConvId:"kmc_activeconv",notifSettings:"kmc_notifsettings",
+  botMessages:"kmc_botmessages",calorieDB:"kmc_caloriedb",printers:"kmc_printers"
 };
 
 // Default organizasyonlar (numune etiketi için)
@@ -344,7 +343,7 @@ const initSupabase=()=>{
   if(supabase)return supabase;
   if(true){
     supabase=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
-      auth:{storageKey:"kmp-auth",storage:window.localStorage}
+      auth:{storageKey:"kmc-auth",storage:window.localStorage}
     });
     return supabase;
   }
@@ -460,8 +459,7 @@ const KITCHEN_TITLES=[
   "F&B Manager","Kitchen Manager","Barista","Bartender","Waiter"
 ];
 
-// ═══ HİYERARŞİK ROL SİSTEMİ (Pro) ═══
-// Kademe yüksek = otorite yüksek. Sadece daha düşük kademeye görev verilebilir.
+// ═══ HİYERARŞİK ROL SİSTEMİ ═══
 const ROLE_HIERARCHY={
   // En üst yönetim — sadece Pro'da
   "executive_chef":{level:100,label:{tr:"Executive Chef (Baş Aşçı)",en:"Executive Chef"},icon:"👑",app:"pro"},
@@ -484,19 +482,10 @@ const ROLE_HIERARCHY={
   "waiter":{level:15,label:{tr:"Waiter (Garson)",en:"Waiter"},icon:"🍽",app:"chef"},
   "member":{level:10,label:{tr:"Member (Üye)",en:"Member"},icon:"👤",app:"chef"}
 };
-
-// Bir kullanıcı diğerine görev atayabilir mi?
 const canAssignTo=(myRole,otherRole)=>{
-  const me=ROLE_HIERARCHY[myRole];
-  const them=ROLE_HIERARCHY[otherRole];
-  if(!me||!them)return false;
-  return me.level>them.level;
+  const me=ROLE_HIERARCHY[myRole];const them=ROLE_HIERARCHY[otherRole];
+  if(!me||!them)return false;return me.level>them.level;
 };
-
-// Bir rol Pro/Manager/Chef hangi uygulama için uygun?
-const getAppForRole=(role)=>ROLE_HIERARCHY[role]?.app||"chef";
-
-// Pro yöneticileri (üst kademe — sadece Pro'da görünür/kullanılır)
 const PRO_ROLES=Object.entries(ROLE_HIERARCHY).filter(([k,v])=>v.app==="pro").map(([k])=>k);
 const MANAGER_ROLES=Object.entries(ROLE_HIERARCHY).filter(([k,v])=>v.app==="manager").map(([k])=>k);
 const CHEF_ROLES=Object.entries(ROLE_HIERARCHY).filter(([k,v])=>v.app==="chef").map(([k])=>k);
@@ -1130,7 +1119,7 @@ const KeyModal=({onSave,t,initial})=>{
   const[k,setK]=useState(initial||"");
   return <div style={mOv(t)}><div style={mPn(t)}>
     <Logo size={56} c={t.accent}/>
-    <h2 style={{fontSize:24,marginTop:14,marginBottom:6,color:t.text}}>Kitchen Manager Pro</h2>
+    <h2 style={{fontSize:24,marginTop:14,marginBottom:6,color:t.text}}>Kitchen Manager</h2>
     <p style={{color:t.tm,fontSize:14,marginTop:0,marginBottom:20}}>Devam etmek için Anthropic API anahtarınızı girin. Anahtar sadece bu cihazda saklanır.</p>
     <input style={iSt(t)} value={k} onChange={e=>setK(e.target.value)} placeholder="sk-ant-api03-..." type="password"/>
     <button onClick={()=>{if(k.trim())onSave(k.trim())}} style={{...bSt("p",t),width:"100%",marginTop:14,padding:14}}>Kaydet ve Devam Et</button>
@@ -3991,11 +3980,577 @@ const ImageCropModal=({image,targetRatio,onClose,onCrop,t})=>{
   </div>;
 };
 
-const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t})=>{
+const DEPT_LIST=[
+  {id:"pastry",tr:"Pastry",en:"Pastry",icon:"🍰"},
+  {id:"hot",tr:"Sıcak Mutfak",en:"Hot Kitchen",icon:"🔥"},
+  {id:"cold",tr:"Soğuk Mutfak",en:"Cold Kitchen",icon:"🥗"},
+  {id:"breakfast",tr:"Kahvaltı",en:"Breakfast",icon:"🍳"},
+  {id:"bar",tr:"Bar",en:"Bar",icon:"🍹"},
+  {id:"service",tr:"Servis",en:"Service",icon:"🍽"},
+  {id:"butcher",tr:"Kasap",en:"Butcher",icon:"🥩"},
+];
+
+const EventsTab=({team,user,t,lang,bSt,cSt,iSt,lSt})=>{
+  const[events,setEvents]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[selEvent,setSelEvent]=useState(null);
+  const[deptFilter,setDeptFilter]=useState("all");
+  const[detailTab,setDetailTab]=useState("timeline");
+  const[expandedSessions,setExpandedSessions]=useState({});
+  // Fotoğraf state'leri
+  const[uploadingPhoto,setUploadingPhoto]=useState(null);
+  const[lightboxPhoto,setLightboxPhoto]=useState(null);
+
+  const DEPARTMENTS=[
+    {id:"kitchen",icon:"🍳",tr:"Sıcak Mutfak",en:"Hot Kitchen",color:"#dc2626"},
+    {id:"cold",icon:"🥗",tr:"Soğuk Mutfak",en:"Cold Kitchen",color:"#0891b2"},
+    {id:"pastry",icon:"🥐",tr:"Pastane",en:"Pastry",color:"#c8965a"},
+    {id:"butcher",icon:"🥩",tr:"Kasap",en:"Butchery",color:"#7f1d1d"},
+    {id:"service",icon:"🍽",tr:"Servis",en:"Banquet Service",color:"#7c3aed"},
+    {id:"bar",icon:"🍷",tr:"Bar",en:"Bar",color:"#059669"},
+    {id:"setup",icon:"🪑",tr:"Kurulum",en:"Setup",color:"#525252"},
+    {id:"accounting",icon:"💰",tr:"Muhasebe",en:"Accounting",color:"#1e40af"},
+    {id:"general",icon:"📋",tr:"Genel",en:"General",color:"#6b7280"}
+  ];
+
+  const userDept=user?.department||"";
+
+  useEffect(()=>{
+    if(!team?.id){setLoading(false);return;}
+    (async()=>{
+      try{
+        const sb=initSupabase();if(!sb)return;
+        const tids=[team.id];
+        if(team.parent_team_id)tids.push(team.parent_team_id);
+        const{data,error}=await sb.from("events").select("*").in("team_id",tids).order("event_date",{ascending:false});
+        if(!error&&data)setEvents(data);
+      }catch(e){console.warn("events:",e.message);}
+      setLoading(false);
+    })();
+  },[team?.id,team?.parent_team_id]);
+
+  const getPdfUrl=async(path)=>{
+    if(!path)return null;
+    const sb=initSupabase();if(!sb)return null;
+    const{data,error}=await sb.storage.from("event-pdfs").createSignedUrl(path,300);
+    if(error){console.warn("PDF URL:",error.message);return null;}
+    return data?.signedUrl||null;
+  };
+
+  // ── Session fotoğraf yükle ──
+  const uploadSessionPhoto=async(file,sessionIdx,eventId)=>{
+    if(!file||!team?.id)return;
+    if(file.size>8*1024*1024){window.toast.error(lang==="tr"?"Fotoğraf 8MB'dan büyük olamaz":"Photo must be under 8MB");return;}
+    setUploadingPhoto({sessionIdx,progress:0});
+    try{
+      const resized=await new Promise((res,rej)=>{
+        const reader=new FileReader();
+        reader.onload=ev=>{
+          const img=new Image();
+          img.onload=()=>{
+            const MAX=1200;
+            let w=img.width,h=img.height;
+            if(w>MAX||h>MAX){
+              if(w>h){h=Math.round(h*MAX/w);w=MAX;}
+              else{w=Math.round(w*MAX/h);h=MAX;}
+            }
+            const cv=document.createElement("canvas");
+            cv.width=w;cv.height=h;
+            cv.getContext("2d").drawImage(img,0,0,w,h);
+            cv.toBlob(blob=>{
+              if(!blob){rej(new Error("Resize failed"));return;}
+              res(new File([blob],file.name,{type:"image/jpeg"}));
+            },"image/jpeg",0.82);
+          };
+          img.onerror=()=>rej(new Error("Image load failed"));
+          img.src=ev.target.result;
+        };
+        reader.onerror=()=>rej(new Error("File read failed"));
+        reader.readAsDataURL(file);
+      });
+
+      const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
+      const ts=Date.now();
+      const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+      const path=`event-photos/${team.id}/${eventId||"new"}/${ts}_s${sessionIdx}_${safeName}`;
+      const{error:upErr}=await sb.storage.from("tulpar-storage").upload(path,resized,{
+        contentType:"image/jpeg",upsert:false
+      });
+      if(upErr)throw upErr;
+      const{data:{publicUrl}}=sb.storage.from("tulpar-storage").getPublicUrl(path);
+
+      const newPhotos={...(selEvent.session_photos||{})};
+      const key=String(sessionIdx);
+      newPhotos[key]=[...(newPhotos[key]||[]),publicUrl];
+
+      const updatedEvent={...selEvent,session_photos:newPhotos};
+      setSelEvent(updatedEvent);
+
+      if(eventId&&eventId!=="new"){
+        const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
+        if(!dbErr)setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
+      }
+      window.toast.success(lang==="tr"?"✓ Fotoğraf eklendi":"✓ Photo added");
+    }catch(e){
+      window.toast.error((lang==="tr"?"Fotoğraf yüklenemedi: ":"Upload failed: ")+e.message);
+    }finally{
+      setUploadingPhoto(null);
+    }
+  };
+
+  // ── Session fotoğraf sil ──
+  const deleteSessionPhoto=async(sessionIdx,photoIdx,eventId)=>{
+    const newPhotos={...(selEvent.session_photos||{})};
+    const key=String(sessionIdx);
+    if(!newPhotos[key])return;
+    newPhotos[key]=newPhotos[key].filter((_,i)=>i!==photoIdx);
+    if(!newPhotos[key].length)delete newPhotos[key];
+    const updatedEvent={...selEvent,session_photos:newPhotos};
+    setSelEvent(updatedEvent);
+    setLightboxPhoto(null);
+    if(eventId&&eventId!=="new"){
+      const sb=initSupabase();if(!sb)return;
+      const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
+      if(!dbErr)setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
+    }
+  };
+
+  // ── Detay modu ──
+  if(selEvent){
+    const totalItems=Object.values(selEvent.departments||{}).reduce((s,a)=>s+(a?.length||0),0);
+    const subEvents=selEvent.sub_events||[];
+    const guestAllergies=selEvent.guest_allergies||[];
+    const sessionPhotos=selEvent.session_photos||{};
+
+    const SESSION_TYPES={
+      coffee_break:{icon:"☕",color:"#d97706",bg:"#fef3c7",tr:"Coffee Break",en:"Coffee Break"},
+      lunch:{icon:"🍽",color:"#16a34a",bg:"#dcfce7",tr:"Öğlen",en:"Lunch"},
+      dinner:{icon:"🍷",color:"#9333ea",bg:"#f3e8ff",tr:"Akşam",en:"Dinner"},
+      dessert:{icon:"🍰",color:"#ec4899",bg:"#fce7f3",tr:"Tatlı",en:"Dessert"},
+      cocktail:{icon:"🥂",color:"#0891b2",bg:"#cffafe",tr:"Kokteyl",en:"Cocktail"},
+      tea_service:{icon:"🫖",color:"#d97706",bg:"#fef3c7",tr:"Çay Servisi",en:"Tea Service"},
+      meeting:{icon:"📋",color:"#64748b",bg:"#f1f5f9",tr:"Toplantı",en:"Meeting"},
+      setup:{icon:"🪑",color:"#525252",bg:"#f5f5f5",tr:"Kurulum",en:"Setup"},
+      other:{icon:"📅",color:"#64748b",bg:"#f1f5f9",tr:"Diğer",en:"Other"}
+    };
+    const sessionMeta=(s)=>SESSION_TYPES[s.type]||SESSION_TYPES.other;
+    const isKitchenSession=(s)=>(s.items||[]).length>0;
+    const ALLERGEN_ICONS={gluten:"🌾",dairy:"🥛",egg:"🥚",nut:"🌰",peanut:"🥜",shellfish:"🦐",fish:"🐟",soy:"🫘",sesame:"🌻",sulphite:"🍷",celery:"🌿",mustard:"🌶",lupin:"🌱",mollusc:"🦪"};
+    const allergenLabel=(a)=>ALLERGEN_ICONS[a]||"⚠";
+
+    const byDate={};
+    subEvents.forEach((s,idx)=>{
+      const d=s.date||selEvent.event_date||"unknown";
+      if(!byDate[d])byDate[d]=[];
+      byDate[d].push({...s,_idx:idx});
+    });
+
+    const deptTasks={};
+    subEvents.forEach(s=>{
+      (s.items||[]).forEach(item=>{
+        (item.departments||[]).forEach(did=>{
+          if(!deptTasks[did])deptTasks[did]=[];
+          deptTasks[did].push({name:item.name,allergens:item.allergens||[],session:s.name,date:s.date,time:s.timeStart});
+        });
+      });
+    });
+
+    return <div style={{padding:"12px 14px",paddingBottom:80}}>
+
+      {/* Lightbox */}
+      {lightboxPhoto&&<div onClick={()=>setLightboxPhoto(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,padding:20}}>
+        <img src={lightboxPhoto.url} style={{maxWidth:"100%",maxHeight:"75vh",borderRadius:12,objectFit:"contain"}} onClick={e=>e.stopPropagation()}/>
+        <div style={{display:"flex",gap:10}} onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setLightboxPhoto(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>✕ {lang==="tr"?"Kapat":"Close"}</button>
+          <button onClick={()=>deleteSessionPhoto(lightboxPhoto.sessionIdx,lightboxPhoto.photoIdx,selEvent.id)} style={{background:"#dc2626",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>🗑 {lang==="tr"?"Sil":"Delete"}</button>
+        </div>
+      </div>}
+
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <button onClick={()=>{setSelEvent(null);setDetailTab("timeline");setExpandedSessions({});}} style={{...bSt("g",t),fontSize:12,padding:"6px 10px"}}>← {lang==="tr"?"Etkinlikler":"Events"}</button>
+        <div style={{display:"flex",gap:6}}>
+          {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>📄 PDF</button>}
+          <button onClick={async()=>{if(!window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?"))return;const sb=initSupabase();if(!sb)return;await sb.from("events").delete().eq("id",selEvent.id);setEvents(p=>p.filter(e=>e.id!==selEvent.id));setSelEvent(null);}} style={{...bSt("d",t),fontSize:12,padding:"6px 10px"}}>🗑</button>
+        </div>
+      </div>
+
+      <h3 style={{fontSize:20,color:t.text,margin:"0 0 6px 0",fontFamily:"'Fraunces',serif",lineHeight:1.25}}>{selEvent.name}</h3>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,fontSize:11,color:t.tm,marginBottom:14}}>
+        {selEvent.event_date&&<span>📅 {new Date(selEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}{selEvent.end_date&&selEvent.end_date!==selEvent.event_date?" – "+new Date(selEvent.end_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long"}):""}</span>}
+        {selEvent.pax&&<span>👥 {selEvent.pax} pax</span>}
+        {selEvent.location&&<span>📍 {selEvent.location}</span>}
+        {selEvent.contract_no&&<span>📄 #{selEvent.contract_no}</span>}
+      </div>
+
+      {/* 3 Tab */}
+      <div style={{display:"flex",borderBottom:`1px solid ${t.border}`,marginBottom:14}}>
+        {[
+          {id:"timeline",icon:"⏱",tr:"Timeline",en:"Timeline"},
+          {id:"depts",icon:"🍽",tr:"Departmanlar",en:"Departments"},
+          {id:"beo",icon:"📄",tr:"BEO",en:"BEO"}
+        ].map(tab=>(
+          <div key={tab.id} onClick={()=>setDetailTab(tab.id)} style={{flex:1,textAlign:"center",padding:"10px 4px",fontSize:12,fontWeight:detailTab===tab.id?700:400,color:detailTab===tab.id?t.text:t.tm,borderBottom:`2px solid ${detailTab===tab.id?t.text:"transparent"}`,cursor:"pointer",transition:"all 0.15s"}}>
+            {tab.icon} {lang==="tr"?tab.tr:tab.en}
+          </div>
+        ))}
+      </div>
+
+      {/* ─── TIMELINE TAB ─── */}
+      {detailTab==="timeline"&&<div>
+        {selEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"12",border:`1px solid ${t.accent}30`}}>
+          <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.08em",marginBottom:4}}>🤖 AI ÖZET</div>
+          <div style={{fontSize:12,color:t.text,lineHeight:1.55}}>{selEvent.ai_summary}</div>
+        </div>}
+
+        {guestAllergies.length>0&&<div style={{background:"#fef3c7",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 12px",marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#92400e",letterSpacing:"0.08em",marginBottom:6,textTransform:"uppercase"}}>⚠ {lang==="tr"?"Misafir Alerjen Uyarıları":"Guest Allergy Warnings"}</div>
+          {guestAllergies.map((a,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#78350f",padding:"3px 0",borderBottom:i<guestAllergies.length-1?"1px solid #fde68a":"none"}}>
+              <span style={{background:"#fde68a",color:"#92400e",fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap"}}>{a.count} {lang==="tr"?"misafir":"guest"}</span>
+              <span>{a.type}{a.note?" — "+a.note:""}</span>
+            </div>
+          ))}
+        </div>}
+
+        {subEvents.length===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
+          {lang==="tr"?"Bu etkinlik için saat bazlı oturum bilgisi yok.":"No timeline sessions for this event."}
+        </div>}
+
+        {/* Eski format: sub_events yok ama departments var */}
+        {subEvents.length===0&&totalItems>0&&<div>
+          <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:8,textTransform:"uppercase"}}>{lang==="tr"?"Departman Görevleri":"Department Tasks"}</div>
+          {DEPARTMENTS.filter(d=>(selEvent.departments?.[d.id]||[]).length>0).map(d=>{
+            const items=selEvent.departments[d.id]||[];
+            const isMine=userDept===d.id;
+            return <div key={d.id} style={{...cSt(t),padding:"10px 14px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":undefined}}>
+              <div style={{fontSize:12,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
+              {items.map((item,i)=><div key={i} style={{fontSize:13,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
+            </div>;
+          })}
+        </div>}
+
+        {Object.keys(byDate).sort().map(date=>(
+          <div key={date}>
+            {Object.keys(byDate).length>1&&<div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",margin:"4px 0 10px",display:"flex",alignItems:"center",gap:8}}>
+              {date!=="unknown"?new Date(date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"—"}
+              <span style={{flex:1,height:1,background:t.border}}/>
+            </div>}
+            {byDate[date].map(s=>{
+              const meta=sessionMeta(s);
+              const isOpen=expandedSessions[s._idx];
+              const isKitchen=isKitchenSession(s);
+              const sPhotos=sessionPhotos[String(s._idx)]||[];
+              const isUploading=uploadingPhoto?.sessionIdx===s._idx;
+              return <div key={s._idx} style={{border:`1px solid ${t.border}`,borderRadius:8,marginBottom:8,overflow:"hidden",borderStyle:isKitchen?"solid":"dashed",opacity:isKitchen?1:0.65}}>
+                <div onClick={isKitchen?()=>setExpandedSessions(p=>({...p,[s._idx]:!p[s._idx]})):undefined} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:isKitchen?"pointer":"default",background:t.card}}>
+                  <div style={{width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,background:meta.bg,flexShrink:0}}>{meta.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:t.text}}>{s.name||meta[lang==="tr"?"tr":"en"]}</div>
+                    <div style={{fontSize:11,color:t.tm,marginTop:1,display:"flex",gap:8,flexWrap:"wrap"}}>
+                      {s.timeStart&&<span>🕐 {s.timeStart}{s.timeEnd&&"–"+s.timeEnd}</span>}
+                      {s.room&&<span>📍 {s.room}</span>}
+                      {s.pax!=null&&<span>👥 {s.pax}</span>}
+                      {!isKitchen&&<span style={{fontStyle:"italic"}}>{lang==="tr"?"mutfak görevi yok":"no kitchen task"}</span>}
+                    </div>
+                  </div>
+                  {/* Fotoğraf butonu */}
+                  <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,background:sPhotos.length>0?t.accent+"20":t.bg,border:`1px solid ${sPhotos.length>0?t.accent:t.border}`,borderRadius:8,padding:"5px 8px",cursor:isUploading?"wait":"pointer",flexShrink:0}}>
+                    {isUploading?<span style={{fontSize:11,color:t.accent}}>⏳</span>:<span style={{fontSize:13}}>📷</span>}
+                    {sPhotos.length>0&&<span style={{fontSize:10,fontWeight:700,color:t.accent}}>{sPhotos.length}</span>}
+                    <input type="file" accept="image/*" style={{display:"none"}} disabled={isUploading} onChange={async e=>{
+                      const f=e.target.files?.[0];
+                      if(f)await uploadSessionPhoto(f,s._idx,selEvent.id);
+                      e.target.value="";
+                    }}/>
+                  </label>
+                  {isKitchen&&<span style={{fontSize:14,color:t.tm,transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>▶</span>}
+                </div>
+
+                {/* Fotoğraf şeridi */}
+                {sPhotos.length>0&&<div style={{display:"flex",gap:6,padding:"6px 12px",overflowX:"auto",background:t.bg,borderTop:`1px solid ${t.border}`,scrollbarWidth:"none"}}>
+                  {sPhotos.map((url,pi)=>(
+                    <img key={pi} src={url} onClick={()=>setLightboxPhoto({url,sessionIdx:s._idx,photoIdx:pi})}
+                      style={{width:52,height:52,objectFit:"cover",borderRadius:6,cursor:"pointer",flexShrink:0,border:`1px solid ${t.border}`}}/>
+                  ))}
+                </div>}
+
+                {isKitchen&&isOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${t.border}`}}>
+                  {(()=>{
+                    const AL={gluten:"🌾",dairy:"🥛",egg:"🥚",nut:"🌰",peanut:"🥜",shellfish:"🦐",fish:"🐟",soy:"🫘",sesame:"🌻",sulphite:"🍷",celery:"🌿",mustard:"🌶",lupin:"🌱",mollusc:"🦪"};
+                    const grouped={};
+                    (s.items||[]).forEach(item=>{
+                      (item.departments||["general"]).forEach(did=>{
+                        if(!grouped[did])grouped[did]=[];
+                        grouped[did].push(item);
+                      });
+                    });
+                    return Object.keys(grouped).map(did=>{
+                      const d=DEPARTMENTS.find(x=>x.id===did)||{icon:"📋",tr:"Diğer",en:"Other",color:"#64748b"};
+                      const isMine=userDept===did;
+                      return <div key={did} style={{marginTop:10}}>
+                        <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,background:isMine?d.color+"25":d.color+"15",color:d.color,marginBottom:5,border:isMine?`1px solid ${d.color}40`:"none"}}>
+                          {d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}
+                        </div>
+                        {grouped[did].map((item,i)=>(
+                          <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<grouped[did].length-1?`1px dashed ${t.border}`:"none"}}>
+                            <span style={{fontSize:12,color:t.text,lineHeight:1.4,flex:1}}>{item.name}</span>
+                            {(item.allergens||[]).length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0}}>
+                              {(item.allergens||[]).map((a,j)=>(
+                                <span key={j} title={a} style={{fontSize:10,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{AL[a]||"⚠"}</span>
+                              ))}
+                            </div>}
+                          </div>
+                        ))}
+                      </div>;
+                    });
+                  })()}
+                  {(s.notesTr||s.notesEn)&&<div style={{marginTop:10,padding:"8px 10px",background:t.bg,borderRadius:6,fontSize:11,color:t.ts,lineHeight:1.5}}>
+                    <div style={{fontWeight:600,marginBottom:3,color:t.tm,fontSize:10,letterSpacing:"0.05em",textTransform:"uppercase"}}>{lang==="tr"?"Notlar":"Notes"}</div>
+                    {lang==="tr"?(s.notesTr||s.notesEn):(s.notesEn||s.notesTr)}
+                  </div>}
+                </div>}
+              </div>;
+            })}
+          </div>
+        ))}
+      </div>}
+
+      {/* ─── DEPARTMANLAR TAB ─── */}
+      {detailTab==="depts"&&<div>
+        {Object.keys(deptTasks).length===0&&totalItems===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
+          {lang==="tr"?"Henüz departman görevi yok.":"No department tasks yet."}
+        </div>}
+
+        {Object.keys(deptTasks).length>0&&DEPARTMENTS.filter(d=>deptTasks[d.id]?.length>0).map(d=>{
+          const isMine=userDept===d.id;
+          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":undefined}}>
+            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:8}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:11}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
+            {deptTasks[d.id].map((task,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<deptTasks[d.id].length-1?`1px dashed ${t.border}`:"none"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:t.text,lineHeight:1.4}}>{task.name}</div>
+                  <div style={{fontSize:10,color:t.tm,marginTop:1}}>{task.session}{task.time?" · "+task.time:""}</div>
+                </div>
+                {task.allergens.length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0,marginTop:2}}>
+                  {task.allergens.map((a,j)=>(
+                    <span key={j} title={a} style={{fontSize:10,background:t.bg,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{allergenLabel(a)}</span>
+                  ))}
+                </div>}
+              </div>
+            ))}
+          </div>;
+        })}
+
+        {/* Eski format uyumluluk */}
+        {Object.keys(deptTasks).length===0&&totalItems>0&&DEPARTMENTS.filter(d=>(selEvent.departments?.[d.id]||[]).length>0).map(d=>{
+          const items=selEvent.departments[d.id]||[];
+          const isMine=userDept===d.id;
+          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":undefined}}>
+            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
+            {items.map((item,i)=><div key={i} style={{fontSize:12,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
+          </div>;
+        })}
+      </div>}
+
+      {/* ─── BEO TAB ─── */}
+      {detailTab==="beo"&&<div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Etkinlik Bilgileri":"Event Information"}</div>
+          {[
+            ["Contract no",selEvent.contract_no?"#"+selEvent.contract_no:""],
+            [lang==="tr"?"Müşteri":"Client",selEvent.account_name],
+            [lang==="tr"?"Yetkili":"Contact",selEvent.contact_name?selEvent.contact_name+(selEvent.contact_phone?" — "+selEvent.contact_phone:""):selEvent.contact_phone],
+            ["Conf. Manager",selEvent.conf_manager],
+            [lang==="tr"?"Statüs":"Status",selEvent.status]
+          ].filter(r=>r[1]).map((r,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${t.border}`}}>
+              <span style={{color:t.tm}}>{r[0]}</span>
+              <span style={{color:t.text,fontWeight:500,textAlign:"right",maxWidth:"65%"}}>{r[1]}</span>
+            </div>
+          ))}
+        </div>
+
+        {(selEvent.total_amount||selEvent.price_per_person)&&<div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Muhasebe":"Billing"}</div>
+          <div style={{...cSt(t),padding:"10px 12px",background:t.bg}}>
+            {selEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
+              <span>{lang==="tr"?"Kişi başı":"Per person"}</span>
+              <span>{selEvent.currency||"EUR"} {selEvent.price_per_person}</span>
+            </div>}
+            {selEvent.pax&&selEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
+              <span>{selEvent.pax} pax × {selEvent.price_per_person}</span>
+              <span>{selEvent.currency||"EUR"} {(selEvent.pax*selEvent.price_per_person).toFixed(2)}</span>
+            </div>}
+            {selEvent.total_amount&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700,color:t.text,paddingTop:8,borderTop:`1px solid ${t.border}`,marginTop:4}}>
+              <span>{lang==="tr"?"Toplam":"Total"} (+KDV %{selEvent.vat_rate||20})</span>
+              <span>{selEvent.currency||"EUR"} {selEvent.total_amount}</span>
+            </div>}
+          </div>
+        </div>}
+
+        {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
+          📄 {lang==="tr"?"Orijinal BEO PDF'ini Aç":"Open Original BEO PDF"}
+        </button>}
+
+        {selEvent.notes&&<div style={{...cSt(t),padding:"10px 12px",marginTop:8}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Notlar":"Notes"}</div>
+          <div style={{fontSize:12,color:t.text,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{selEvent.notes}</div>
+        </div>}
+      </div>}
+    </div>;
+  }
+
+  // ── Liste görünümü ──
+  const filtered=deptFilter==="all"?events:events.filter(ev=>(ev.departments?.[deptFilter]||[]).length>0||(ev.sub_events||[]).some(s=>(s.items||[]).some(it=>(it.departments||[]).includes(deptFilter))));
+  const deptCounts={};
+  events.forEach(ev=>{
+    Object.keys(ev.departments||{}).forEach(did=>{if(ev.departments[did]?.length){deptCounts[did]=(deptCounts[did]||0)+1;}});
+    (ev.sub_events||[]).forEach(s=>(s.items||[]).forEach(it=>(it.departments||[]).forEach(did=>{deptCounts[did]=(deptCounts[did]||0)+1;})));
+  });
+
+  return <div style={{padding:"12px 14px",paddingBottom:60}}>
+    <div style={{marginBottom:12}}>
+      <h2 style={{fontSize:20,margin:0,color:t.text,fontFamily:"'Fraunces',serif"}}>🎉 {lang==="tr"?"Etkinlikler":"Events"}</h2>
+      <div style={{fontSize:12,color:t.tm,marginTop:4}}>{lang==="tr"?"Mutfağa gelen BEO'lar":"BEOs assigned to your kitchen"}</div>
+    </div>
+
+    {/* Departman filtresi */}
+    <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:14,paddingBottom:4,scrollbarWidth:"none"}}>
+      <button onClick={()=>setDeptFilter("all")} style={{...bSt(deptFilter==="all"?"p":"g",t),padding:"6px 12px",fontSize:11,whiteSpace:"nowrap",flexShrink:0}}>
+        {lang==="tr"?"Tümü":"All"} ({events.length})
+      </button>
+      {DEPARTMENTS.filter(d=>deptCounts[d.id]).map(d=>{
+        const mine=userDept===d.id;
+        const active=deptFilter===d.id;
+        return <button key={d.id} onClick={()=>setDeptFilter(d.id)} style={{padding:"6px 12px",fontSize:11,whiteSpace:"nowrap",borderRadius:14,border:`1px solid ${active?d.color:t.border}`,background:active?d.color+"20":(mine?d.color+"08":t.cardBg||t.card),color:active?d.color:t.text,fontWeight:active||mine?700:500,cursor:"pointer",flexShrink:0}}>
+          {d.icon} {lang==="tr"?d.tr:d.en} ({deptCounts[d.id]}){mine&&" ✓"}
+        </button>;
+      })}
+    </div>
+
+    {loading?<div style={{padding:30,textAlign:"center",color:t.tm}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>:
+     filtered.length===0?<div style={{padding:40,textAlign:"center"}}>
+      <div style={{fontSize:48,marginBottom:12,opacity:0.3}}>📭</div>
+      <div style={{fontSize:13,color:t.tm}}>{lang==="tr"?"Henüz etkinlik yok":"No events yet"}</div>
+    </div>:
+    filtered.map(ev=>{
+      const dateStr=ev.event_date?new Date(ev.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short",year:"numeric"}):"";
+      const deptCount=Object.keys(ev.departments||{}).filter(k=>ev.departments[k]?.length).length;
+      const totalItems=Object.values(ev.departments||{}).reduce((sum,arr)=>sum+(arr?.length||0),0);
+      const subEvCount=(ev.sub_events||[]).length;
+      const isPast=ev.event_date&&new Date(ev.event_date)<new Date(new Date().toDateString());
+      const myTasks=userDept?(ev.departments?.[userDept]||[]).length+(ev.sub_events||[]).reduce((s,se)=>s+(se.items||[]).filter(it=>(it.departments||[]).includes(userDept)).length,0):0;
+      const photoCount=Object.values(ev.session_photos||{}).reduce((s,a)=>s+(a?.length||0),0);
+      return <div key={ev.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,opacity:isPast?0.6:1,cursor:"pointer",borderLeft:myTasks>0?`3px solid ${t.accent}`:undefined}}
+        onClick={()=>{setSelEvent(ev);setDetailTab("timeline");setExpandedSessions({});}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.name}</div>
+            <div style={{fontSize:11,color:t.tm,display:"flex",flexWrap:"wrap",gap:8}}>
+              {dateStr&&<span>📅 {dateStr}</span>}
+              {ev.start_time&&<span>🕐 {ev.start_time}</span>}
+              {ev.pax&&<span>👥 {ev.pax}</span>}
+              {ev.location&&<span>📍 {ev.location}</span>}
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:6,fontSize:10,color:t.tm}}>
+              <span>{subEvCount>0?`⏱ ${subEvCount} oturum`:`🏢 ${deptCount} dept`} · {totalItems} {lang==="tr"?"görev":"tasks"}</span>
+              {photoCount>0&&<span>📷 {photoCount}</span>}
+              {ev.original_pdf_path&&<span>📎 PDF</span>}
+            </div>
+          </div>
+          {myTasks>0&&<div style={{fontSize:11,fontWeight:700,color:t.accent,whiteSpace:"nowrap",flexShrink:0}}>✓ {myTasks} {lang==="tr"?"görev":"tasks"}</div>}
+        </div>
+      </div>;
+    })}
+  </div>;
+};
+const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>{
   const[showCreate,setSC]=useState(false);
   const[editMenu,setEM]=useState(null);
   const[previewMenu,setPM]=useState(null);
   const[cropImage,setCropImage]=useState(null);
+  // ── Event Menüleri state ──
+  const[showEM,setShowEM]=useState(false);
+  const[emSections,setEmSections]=useState([]);
+  const[emItems,setEmItems]=useState([]);
+  const[emLoading,setEmLoading]=useState(false);
+  const[emInfoSeen,setEmInfoSeen]=useState(()=>localStorage.getItem("kmc_eventmenu_info")==="1");
+  const[emSelDept,setEmSelDept]=useState("pastry");
+  const[emShowArchive,setEmShowArchive]=useState(false);
+  const[emNewSecName,setEmNewSecName]=useState("");
+  const[emAddingSec,setEmAddingSec]=useState(false);
+  const[emAddingItemSec,setEmAddingItemSec]=useState(null);
+  const[emNewItemName,setEmNewItemName]=useState("");
+  const[emNewItemYear,setEmNewItemYear]=useState(String(new Date().getFullYear()));
+  const[emConfirmDel,setEmConfirmDel]=useState(null);
+
+  const sb=()=>initSupabase();
+  const lang=t?.lang||"tr";
+
+  // ── Event Menü yükle ──
+  useEffect(()=>{
+    if(showEM&&team?.id&&emSections.length===0)emLoadAll();
+  },[showEM,team?.id]);
+
+  const emLoadAll=async()=>{
+    if(!team?.id)return;
+    setEmLoading(true);
+    try{
+      const s=sb();
+      const[secRes,itemRes]=await Promise.all([
+        s.from("event_menu_sections").select("*").eq("team_id",team.id).order("sort_order",{ascending:true}),
+        s.from("event_menu_items").select("*").eq("team_id",team.id).order("created_at",{ascending:true})
+      ]);
+      if(secRes.data)setEmSections(secRes.data);
+      if(itemRes.data)setEmItems(itemRes.data);
+    }catch(e){console.error(e);}
+    setEmLoading(false);
+  };
+
+  const emAddSection=async()=>{
+    const name=emNewSecName.trim();
+    if(!name||!team?.id)return;
+    const rec={team_id:team.id,department:emSelDept,name,sort_order:emSections.filter(s=>s.department===emSelDept).length};
+    const{data,error}=await sb().from("event_menu_sections").insert(rec).select().single();
+    if(!error&&data){setEmSections(p=>[...p,data]);setEmNewSecName("");setEmAddingSec(false);}
+  };
+
+  const emDeleteSection=async(id)=>{
+    await sb().from("event_menu_sections").delete().eq("id",id);
+    setEmSections(p=>p.filter(s=>s.id!==id));
+    setEmItems(p=>p.filter(i=>i.section_id!==id));
+    setEmConfirmDel(null);
+  };
+
+  const emAddItem=async(sectionId)=>{
+    const name=emNewItemName.trim();
+    if(!name||!team?.id)return;
+    const rec={team_id:team.id,section_id:sectionId,name,year_tag:emNewItemYear||null,status:"active"};
+    const{data,error}=await sb().from("event_menu_items").insert(rec).select().single();
+    if(!error&&data){setEmItems(p=>[...p,data]);setEmNewItemName("");setEmNewItemYear(String(new Date().getFullYear()));setEmAddingItemSec(null);}
+  };
+
+  const emArchiveItem=async(id)=>{
+    const now=new Date().toISOString();
+    await sb().from("event_menu_items").update({status:"archived",archived_at:now}).eq("id",id);
+    setEmItems(p=>p.map(i=>i.id===id?{...i,status:"archived",archived_at:now}:i));
+  };
+
+  const emRestoreItem=async(id)=>{
+    await sb().from("event_menu_items").update({status:"active",archived_at:null}).eq("id",id);
+    setEmItems(p=>p.map(i=>i.id===id?{...i,status:"active",archived_at:null}:i));
+  };
+
+  const emDeleteItem=async(id)=>{
+    await sb().from("event_menu_items").delete().eq("id",id);
+    setEmItems(p=>p.filter(i=>i.id!==id));
+    setEmConfirmDel(null);
+  };
+
+  const emDeptSections=emSections.filter(s=>s.department===emSelDept);
+  const emActiveItems=(secId)=>emItems.filter(i=>i.section_id===secId&&i.status==="active");
+  const emArchivedItems=(secId)=>emItems.filter(i=>i.section_id===secId&&i.status==="archived");
 
   // Yeni menü oluştur
   const createMenu=(type)=>{
@@ -4340,11 +4895,150 @@ const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t})=>{
     }} style={{...bSt("s",t),width:"100%",marginTop:8,fontSize:13}}>+ {t.lang==="tr"?"Yeni Bölüm":t.lang==="en"?"New Section":"+"}</button>
   </div>;
 
+  if(showEM) return <div>{cropModalJSX}
+    {/* ── Header ── */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <h3 style={{fontSize:22,color:t.text,margin:0}}>{lang==="tr"?"Event Menüleri":"Event Menus"}</h3>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <button onClick={()=>{localStorage.removeItem("kmc_eventmenu_info");setEmInfoSeen(false);}} style={{...bSt("s",t),padding:"8px 12px",fontSize:12}}>ℹ️</button>
+        <button onClick={()=>setShowEM(false)} style={{...bSt("s",t),fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
+      </div>
+    </div>
+
+    {/* ── Info ekranı ── */}
+    {!emInfoSeen&&<div style={{...cSt(t),padding:"20px 22px",marginBottom:16}}>
+      <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:8}}>{lang==="tr"?"Event Menüleri Nedir?":"What are Event Menus?"}</div>
+      <div style={{fontSize:13,color:t.ts,lineHeight:1.7,marginBottom:12}}>{lang==="tr"?"BEO PDF'leri okunurken AI, yemekleri doğru departmana atamak için bu listeyi kullanır. Her departmanın etkinlik menüsünü buradan yönet.":"When BEO PDFs are parsed, the AI uses this list to assign dishes to the correct department. Manage each department's event menu here."}</div>
+      <div style={{padding:"10px 14px",background:t.acB,border:`1px solid ${t.acBo}`,borderRadius:10,fontSize:13,color:t.text,lineHeight:1.8,marginBottom:12}}>
+        🍰 Pastry › Baklava › Fıstıklı Baklava <span style={{color:t.tm}}>· 2025</span><br/>
+        🔥 {lang==="tr"?"Sıcak Mutfak":"Hot Kitchen"} › {lang==="tr"?"Et Yemekleri":"Meat"} › {lang==="tr"?"Kuzu Tandır":"Lamb Tandır"}
+      </div>
+      <div style={{fontSize:12,color:t.tm,marginBottom:14,lineHeight:1.6}}>{lang==="tr"?"Sezon sonu menü değiştiğinde eski kalemleri arşivleyebilirsin — silinmezler, arşivde kalırlar.":"When the menu changes at season end, archive old items — they stay in the archive, not deleted."}</div>
+      <button onClick={()=>{localStorage.setItem("kmc_eventmenu_info","1");setEmInfoSeen(true);}} style={{...bSt("p",t),width:"100%",fontSize:14}}>{lang==="tr"?"Anladım →":"Got it →"}</button>
+    </div>}
+
+    {!team?.id&&<div style={{...cSt(t),padding:"40px 20px",textAlign:"center"}}>
+      <div style={{fontSize:40,marginBottom:8,opacity:0.5}}>👥</div>
+      <div style={{fontSize:14,color:t.tm}}>{lang==="tr"?"Ekip bağlantısı gerekli":"Team connection required"}</div>
+    </div>}
+
+    {team?.id&&emInfoSeen&&<>
+      {/* ── Departman seç ── */}
+      <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:10,textTransform:"uppercase"}}>{lang==="tr"?"Departman":"Department"}</div>
+        <div style={{display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",paddingBottom:2}}>
+          {DEPT_LIST.map(d=>{
+            const cnt=emSections.filter(s=>s.department===d.id).reduce((a,s)=>a+emActiveItems(s.id).length,0);
+            return<button key={d.id} onClick={()=>setEmSelDept(d.id)} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,fontSize:13,fontWeight:500,border:"1px solid",background:emSelDept===d.id?t.pA:"transparent",color:emSelDept===d.id?t.pAT:t.ts,borderColor:emSelDept===d.id?t.pA:t.inBo,cursor:"pointer",flexShrink:0}}>
+              {d.icon} {lang==="tr"?d.tr:d.en}{cnt>0?` (${cnt})`:""}
+            </button>;
+          })}
+        </div>
+      </div>
+
+      {/* ── Arşiv toggle + loading ── */}
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+        <button onClick={()=>setEmShowArchive(p=>!p)} style={{...bSt("s",t),padding:"6px 12px",fontSize:12,color:emShowArchive?t.accent:t.ts,fontWeight:emShowArchive?700:400}}>
+          📦 {emShowArchive?(lang==="tr"?"Arşiv Açık":"Archive Open"):(lang==="tr"?"Arşivi Göster":"Show Archive")}
+        </button>
+      </div>
+
+      {emLoading&&<div style={{...cSt(t),padding:"32px 20px",textAlign:"center",marginBottom:12}}>
+        <div style={{fontSize:22,marginBottom:6,opacity:0.5}}>⏳</div>
+        <div style={{fontSize:13,color:t.tm}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>
+      </div>}
+
+      {/* ── Bölümler ── */}
+      {emDeptSections.map(sec=>{
+        const aItems=emActiveItems(sec.id);
+        const archItems=emArchivedItems(sec.id);
+        return<div key={sec.id} style={{...cSt(t),marginBottom:10,overflow:"hidden"}}>
+          {/* Bölüm başlık */}
+          <div style={{padding:"11px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${t.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:14}}>📁</span>
+              <span style={{fontSize:15,fontWeight:700,color:t.text}}>{sec.name}</span>
+              <span style={{fontSize:12,color:t.tm,fontWeight:400}}>({aItems.length})</span>
+            </div>
+            <button onClick={()=>setEmConfirmDel({type:"section",id:sec.id})} style={{...bSt("d",t),padding:"4px 10px",fontSize:13}}>×</button>
+          </div>
+          {/* Kalemler */}
+          <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
+            {aItems.map(item=><div key={item.id} style={{background:t.inBg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <div style={{flex:1,minWidth:0}}>
+                <span style={{fontSize:13,color:t.text,fontWeight:600}}>{item.name}</span>
+                {item.year_tag&&<span style={{fontSize:11,color:t.tm,marginLeft:8,background:t.card,borderRadius:5,padding:"1px 7px",border:`1px solid ${t.border}`}}>{item.year_tag}</span>}
+              </div>
+              <div style={{display:"flex",gap:4,flexShrink:0}}>
+                <button onClick={()=>emArchiveItem(item.id)} title={lang==="tr"?"Arşivle":"Archive"} style={{...bSt("s",t),padding:"4px 9px",fontSize:12}}>📦</button>
+                <button onClick={()=>setEmConfirmDel({type:"item",id:item.id})} style={{...bSt("d",t),padding:"4px 9px",fontSize:12}}>×</button>
+              </div>
+            </div>)}
+
+            {/* Arşivlenenler */}
+            {emShowArchive&&archItems.length>0&&<>
+              <div style={{fontSize:11,fontWeight:700,color:t.tm,marginTop:4,paddingTop:8,borderTop:`1px dashed ${t.border}`,letterSpacing:"0.06em"}}>📦 {lang==="tr"?"ARŞİV":"ARCHIVE"}</div>
+              {archItems.map(item=><div key={item.id} style={{background:t.inBg,borderRadius:10,padding:"7px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,opacity:0.6}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <span style={{fontSize:12,color:t.text,textDecoration:"line-through"}}>{item.name}</span>
+                  {item.year_tag&&<span style={{fontSize:11,color:t.tm,marginLeft:6}}>{item.year_tag}</span>}
+                </div>
+                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  <button onClick={()=>emRestoreItem(item.id)} style={{...bSt("s",t),padding:"3px 9px",fontSize:11,color:t.accent}}>{lang==="tr"?"Geri Al":"Restore"}</button>
+                  <button onClick={()=>setEmConfirmDel({type:"item",id:item.id})} style={{...bSt("d",t),padding:"3px 8px",fontSize:11}}>×</button>
+                </div>
+              </div>)}
+            </>}
+
+            {/* Kalem ekle */}
+            {emAddingItemSec===sec.id?<div style={{background:t.inBg,borderRadius:10,padding:"10px 12px",border:`1px dashed ${t.accent}`,display:"flex",flexDirection:"column",gap:8,marginTop:2}}>
+              <input value={emNewItemName} onChange={e=>setEmNewItemName(e.target.value)} placeholder={lang==="tr"?"Yemek adı...":"Dish name..."} onKeyDown={e=>e.key==="Enter"&&emAddItem(sec.id)} autoFocus style={iSt(t)}/>
+              <div style={{display:"flex",gap:8}}>
+                <input value={emNewItemYear} onChange={e=>setEmNewItemYear(e.target.value)} placeholder={lang==="tr"?"Yıl (örn: 2026)":"Year (e.g. 2026)"} style={{...iSt(t),flex:1}}/>
+                <button onClick={()=>emAddItem(sec.id)} style={{...bSt("p",t),padding:"10px 18px",fontSize:13}}>{lang==="tr"?"Ekle":"Add"}</button>
+                <button onClick={()=>{setEmAddingItemSec(null);setEmNewItemName("");}} style={{...bSt("s",t),padding:"10px 14px",fontSize:13}}>✕</button>
+              </div>
+            </div>:<button onClick={()=>{setEmAddingItemSec(sec.id);setEmNewItemName("");setEmNewItemYear(String(new Date().getFullYear()));}} style={{...bSt("s",t),width:"100%",marginTop:2,fontSize:13}}>
+              + {lang==="tr"?"Yemek ekle":"Add dish"}
+            </button>}
+          </div>
+        </div>;
+      })}
+
+      {/* ── Bölüm ekle ── */}
+      {emAddingSec?<div style={{...cSt(t),padding:"14px 16px",marginBottom:10}}>
+        <label style={lSt(t)}>{lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} — Yeni Bölüm`:`${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} — New Section`}</label>
+        <div style={{display:"flex",gap:8}}>
+          <input value={emNewSecName} onChange={e=>setEmNewSecName(e.target.value)} placeholder={lang==="tr"?"Bölüm adı (örn: Baklava)...":"Section name (e.g. Baklava)..."} onKeyDown={e=>e.key==="Enter"&&emAddSection()} autoFocus style={{...iSt(t),flex:1}}/>
+          <button onClick={emAddSection} style={{...bSt("p",t),padding:"10px 18px",fontSize:13}}>{lang==="tr"?"Ekle":"Add"}</button>
+          <button onClick={()=>{setEmAddingSec(false);setEmNewSecName("");}} style={{...bSt("s",t),padding:"10px 14px",fontSize:13}}>✕</button>
+        </div>
+      </div>:<button onClick={()=>setEmAddingSec(true)} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:10}}>
+        + {lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} bölümü ekle`:`Add ${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} section`}
+      </button>}
+    </>}
+
+    {/* ── Silme onay modal ── */}
+    {emConfirmDel&&<div onClick={()=>setEmConfirmDel(null)} style={{position:"fixed",inset:0,background:t.overlay,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div onClick={e=>e.stopPropagation()} style={{...cSt(t),padding:24,maxWidth:300,width:"100%"}}>
+        <div style={{fontSize:22,textAlign:"center",marginBottom:10}}>{emConfirmDel.type==="section"?"📁":"🗑"}</div>
+        <div style={{fontSize:15,fontWeight:700,color:t.text,textAlign:"center",marginBottom:6}}>{emConfirmDel.type==="section"?(lang==="tr"?"Bölümü sil?":"Delete section?"):(lang==="tr"?"Kalemi sil?":"Delete item?")}</div>
+        <div style={{fontSize:13,color:t.tm,textAlign:"center",marginBottom:18,lineHeight:1.5}}>{emConfirmDel.type==="section"?(lang==="tr"?"Bölüm ve içindeki tüm kalemler silinecek.":"Section and all its items will be deleted."):(lang==="tr"?"Bu işlem geri alınamaz.":"This cannot be undone.")}</div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>setEmConfirmDel(null)} style={{...bSt("s",t),flex:1,padding:10,fontSize:13}}>{lang==="tr"?"Vazgeç":"Cancel"}</button>
+          <button onClick={()=>emConfirmDel.type==="section"?emDeleteSection(emConfirmDel.id):emDeleteItem(emConfirmDel.id)} style={{...bSt("d",t),flex:1,padding:10,fontSize:13,fontWeight:700}}>{lang==="tr"?"Sil":"Delete"}</button>
+        </div>
+      </div>
+    </div>}
+  </div>;
   // Liste
   return <div>{cropModalJSX}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
       <h3 style={{fontSize:22,color:t.text}}>{t.L.menus} <span style={{fontSize:14,color:t.tm,fontWeight:400}}>({menus.length})</span></h3>
-      <button onClick={()=>setSC(true)} style={{...bSt("p",t),fontSize:13}}>{t.L.newMenu}</button>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>{setShowEM(true);}} style={{...bSt("s",t),padding:"11px 16px",fontSize:13}}>📂 {lang==="tr"?"Event Menü":"Event Menu"}</button>
+        <button onClick={()=>setSC(true)} style={{...bSt("p",t),padding:"11px 16px",fontSize:13}}>{t.L.newMenu}</button>
+      </div>
     </div>
     {/* Oluşturma modal */}
     {showCreate&&<div style={{...cSt(t),padding:"18px 20px",marginBottom:16}}>
@@ -4589,7 +5283,7 @@ User: "FR.06 getir" → List production records, ask date if needed`;
 };
 
 // ═══ SETTINGS ═══
-const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,invoices,setRecipes,setStock,setInvoices,expenses,setExpenses,storageAreas,setStorageAreas,profile,setProfile,traceability,setTraceability,trackedIngs,setTrackedIngs,resetHour,setResetHour,organizations,setOrganizations,notifSettings,setNotifSettings,printers,setPrinters,setBotMessages,calorieDB,setCalorieDB,user,setUser,authRequired,setAuthRequired,setShowAuth,handleLogout,externalSection,setExternalSection,team,setTeam,teamMembers,setTeamMembers,phantomMembers=[],setPhantomMembers,wallpaper,setWallpaper,customWP,setCustomWP,t})=>{
+const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,invoices,setRecipes,setStock,setInvoices,expenses,setExpenses,storageAreas,setStorageAreas,profile,setProfile,traceability,setTraceability,trackedIngs,setTrackedIngs,resetHour,setResetHour,organizations,setOrganizations,notifSettings,setNotifSettings,printers,setPrinters,setBotMessages,calorieDB,setCalorieDB,user,setUser,authRequired,setAuthRequired,setShowAuth,handleLogout,externalSection,setExternalSection,team,setTeam,teamMembers,setTeamMembers,wallpaper,setWallpaper,customWP,setCustomWP,t})=>{
   const[msg,setMsg]=useState("");
   const[section,setSection_]=useState(externalSection||null);
   const setSection=(s)=>{setSection_(s);if(setExternalSection)setExternalSection(s);};
@@ -4673,7 +5367,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
       </div>
 
       <div style={{textAlign:"center",fontSize:12,color:t.tm,marginTop:24,padding:"16px 0"}}>
-        <div style={{fontWeight:600,color:t.ts,fontFamily:"'Fraunces',serif",fontSize:14}}>Kitchen Manager Pro</div>
+        <div style={{fontWeight:600,color:t.ts,fontFamily:"'Fraunces',serif",fontSize:14}}>Kitchen Manager</div>
         <div style={{fontSize:10,marginTop:4,opacity:0.7}}>v1.0.0 · by Tulpar Kitchen Software</div>
       </div>
     </div>;
@@ -4689,7 +5383,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
         <div style={{fontSize:13,fontWeight:600,color:t.text,marginBottom:12}}>{lang==="tr"?"Arka Plan":"Wallpaper"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:6}}>
           {WALLPAPERS.filter(w=>w.id!=="custom").map(wp=><button key={wp.id} onClick={()=>{
-            setWallpaper(wp.id);localStorage.setItem("kmp_wallpaper",wp.id);
+            setWallpaper(wp.id);localStorage.setItem("kmc_wallpaper",wp.id);
           }} style={{aspectRatio:"1",borderRadius:10,border:wallpaper===wp.id?`2px solid ${t.accent}`:`2px solid ${t.border}`,cursor:"pointer",overflow:"hidden",position:"relative",...(wp.id==="default"?{background:t.bg}:wp.style),minHeight:40}}>
             {wallpaper===wp.id&&<span style={{position:"absolute",bottom:2,right:2,fontSize:7,background:t.accent,color:"#fff",borderRadius:"50%",width:14,height:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</span>}
           </button>)}
@@ -4717,8 +5411,8 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
                 canvas.getContext("2d").drawImage(img,0,0,w,h);
                 const url=canvas.toDataURL("image/jpeg",0.75);
                 try{
-                  localStorage.setItem("kmp_customwp",url);
-                  localStorage.setItem("kmp_wallpaper","custom");
+                  localStorage.setItem("kmc_customwp",url);
+                  localStorage.setItem("kmc_wallpaper","custom");
                   setCustomWP(url);setWallpaper("custom");
                 }catch(err){
                   window.toast.info(lang==="tr"?"Fotoğraf çok büyük, daha küçük seçin":"Photo too large, try a smaller one");
@@ -4732,7 +5426,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
         </label>
         {wallpaper==="custom"&&customWP&&<div style={{marginTop:8,position:"relative"}}>
           <img src={customWP} style={{width:"100%",height:80,objectFit:"cover",borderRadius:8}} alt="wallpaper"/>
-          <button onClick={()=>{setWallpaper("default");setCustomWP("");localStorage.removeItem("kmp_wallpaper");localStorage.removeItem("kmp_customwp");}} style={{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.6)",border:"none",borderRadius:"50%",width:20,height:20,color:"#fff",cursor:"pointer",fontSize:11}}>✕</button>
+          <button onClick={()=>{setWallpaper("default");setCustomWP("");localStorage.removeItem("kmc_wallpaper");localStorage.removeItem("kmc_customwp");}} style={{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.6)",border:"none",borderRadius:"50%",width:20,height:20,color:"#fff",cursor:"pointer",fontSize:11}}>✕</button>
         </div>}
       </div>
     </div>}
@@ -4805,16 +5499,16 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             </div>
           </div>
           <div><label style={lSt(t)}>{t.L.department}</label><input style={iSt(t)} placeholder={t.L.placeholderDept||t.L.settingsProfileDeptPh} value={profile.department} onChange={e=>setProfile({...profile,department:e.target.value})}/></div>
-          <div><label style={lSt(t)}>{t.L.role} <span style={{color:t.accent,fontSize:10,fontWeight:700}}>(PRO)</span></label>
+          <div><label style={lSt(t)}>{t.L.role} <span style={{color:t.accent,fontSize:10,fontWeight:700}}>(MANAGER)</span></label>
             <select style={iSt(t)} value={ROLE_HIERARCHY[profile.role]?profile.role:""}
               onChange={e=>setProfile({...profile,role:e.target.value})}>
               <option value="">{lang==="tr"?"-- Görev Seçin --":"-- Select Role --"}</option>
-              <optgroup label={lang==="tr"?"👑 Üst Yönetim (Pro)":"👑 Top Management (Pro)"}>
-                {PRO_ROLES.map(r=><option key={r} value={r}>{ROLE_HIERARCHY[r].icon} {ROLE_HIERARCHY[r].label[lang]||ROLE_HIERARCHY[r].label.en}</option>)}
+              <optgroup label={lang==="tr"?"🎩 Yönetici Kademesi (Manager)":"🎩 Manager Level"}>
+                {MANAGER_ROLES.map(r=><option key={r} value={r}>{ROLE_HIERARCHY[r].icon} {ROLE_HIERARCHY[r].label[lang]||ROLE_HIERARCHY[r].label.en}</option>)}
               </optgroup>
             </select>
             <div style={{fontSize:10,color:t.tm,marginTop:6,lineHeight:1.5}}>
-              💡 {lang==="tr"?"Pro yöneticisi olarak alt kademedeki herkese görev atayabilir, ekipler kurabilirsiniz.":"As Pro manager, you can assign tasks to all subordinates and create teams."}
+              💡 {lang==="tr"?"Manager olarak alt kademedeki çalışanlara görev atayabilirsiniz.":"As Manager, you can assign tasks to lower-level staff."}
             </div>
           </div>
         </div>
@@ -5057,10 +5751,10 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
               const newTeam=await createTeam(name,user.userId,realName);
               const newTeam2={...newTeam,role:"chef",inviteCode:newTeam.invite_code};
               setTeam(newTeam2);
-              LS.set("kmp_team",newTeam2);
+              LS.set("kmc_team",newTeam2);
               const chefMember=[{userId:user.userId,name:realName,role:"chef"}];
               setTeamMembers(chefMember);
-              LS.set("kmp_team_members",chefMember);
+              LS.set("kmc_team_members",chefMember);
               // Davet kodunu göster ve kopyala
               const code=newTeam.invite_code;
               const shareText=`${lang==="tr"?"Kitchen Manager'a katıl!":"Join Kitchen Manager!"}\n${lang==="tr"?"Ekip":"Team"}: ${name}\n${lang==="tr"?"Davet Kodu":"Invite Code"}: ${code}\n${window.location.origin}${window.location.pathname}`;
@@ -5080,14 +5774,14 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
           <div style={{fontSize:28,fontWeight:900,color:t.accent,letterSpacing:"0.3em",textAlign:"center",marginBottom:8}}>{team.inviteCode||team.invite_code}</div>
           <button onClick={async()=>{
             const code=team.inviteCode||team.invite_code;
-            const shareText=`${lang==="tr"?"Kitchen Manager'a katıl!":"Join Kitchen Manager!"}\n${lang==="tr"?"Ekip":"Team"}: ${team.name}\n${lang==="tr"?"Davet Kodu":"Invite Code"}: ${code}\n${window.location.origin}${window.location.pathname.replace("pro.html","index.html")}`;
+            const shareText=`${lang==="tr"?"Kitchen Manager'a katıl!":"Join Kitchen Manager!"}\n${lang==="tr"?"Ekip":"Team"}: ${team.name}\n${lang==="tr"?"Davet Kodu":"Invite Code"}: ${code}\n${window.location.origin}${window.location.pathname.replace("chef.html","index.html")}`;
             if(navigator.share){try{await navigator.share({title:"Kitchen Manager",text:shareText});}catch{}}
             else{const ta=document.createElement("textarea");ta.value=shareText;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand("copy");}catch{}document.body.removeChild(ta);flash(lang==="tr"?"✓ Kopyalandı":"✓ Copied");}
           }} style={{...bSt("p",t),width:"100%",fontSize:13}}>
             📤 {lang==="tr"?"Davet Linkini Paylaş":"Share Invite Link"}
           </button>
         </div>}
-        {/* Departmanlı Davet Sistemi (Yeni) */}
+        {/* Bekleyen İstekler — sadece şef görür */}
         {team.role==="chef"&&<JoinRequestsCard team={team} user={user} t={t}/>}
         {/* Ülke / Bölge ayarı */}
         {team.role==="chef"&&<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
@@ -5103,16 +5797,15 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             if(error){window.toast.error(error.message);return;}
             const updated={...team,country:newCountry,weekend_days:newWeekend};
             setTeam(updated);
-            LS.set("kmp_team",updated);
+            LS.set("kmc_team",updated);
             window.toast.success(lang==="tr"?"✓ Ülke güncellendi":"✓ Country updated");
           }} style={{...iSt(t),width:"100%",fontSize:13}}>
             {COMMON_COUNTRIES.map(c=><option key={c.code} value={c.code}>{c.flag} {c.name}</option>)}
           </select>
           <div style={{fontSize:10,color:t.tm,marginTop:6,lineHeight:1.4}}>
-            {lang==="tr"?`Varsayılan yıllık izin: ${getDefaultAnnualLeave(team.country||"TR")} gün • Hafta sonu: ${(team.weekend_days||[0,6]).map(d=>["Paz","Pzt","Sal","Çar","Per","Cum","Cmt"][d]).join(", ")}`:`Default leave: ${getDefaultAnnualLeave(team.country||"TR")} days • Weekend: ${(team.weekend_days||[0,6]).map(d=>["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]).join(", ")}`}
+            {lang==="tr"?`Varsayılan yıllık izin: ${getDefaultAnnualLeave(team.country||"TR")} gün`:`Default leave: ${getDefaultAnnualLeave(team.country||"TR")} days`}
           </div>
         </div>}
-        {/* Hızlı Vardiya Şablonları */}
         {team.role==="chef"&&<ShiftPresetsCard team={team} setTeam={setTeam} t={t} lang={lang}/>}
         {/* Üst Ekibe Bağlan */}
         {<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
@@ -5149,8 +5842,39 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
         {/* Alt Ekipler */}
         {<ChildTeamsSection teamId={team.id} t={t} lang={lang}/>}
 
-        {/* Ekip Üyeleri Listesi (Gerçek + Phantom) */}
-        <PhantomMembersSection team={team} teamMembers={teamMembers} phantomMembers={phantomMembers} setPhantomMembers={setPhantomMembers} user={user} t={t} lang={lang}/>
+        {/* Ekip Üyeleri Listesi */}
+        {teamMembers&&teamMembers.length>0&&<div style={{...cSt(t),padding:"12px 14px",marginBottom:12,background:t.inBg}}>
+          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>👥 {lang==="tr"?"EKİP ÜYELERİ":"TEAM MEMBERS"} ({teamMembers.length})</span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {teamMembers.map((m,i)=>{
+              const isMe=(m.userId||m.user_id)===user?.userId;
+              const isChef=m.role==="chef"||m.role==="head_chef"||m.role==="executive_chef";
+              return <div key={(m.userId||m.user_id||i)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:t.bg,border:`1px solid ${t.border}`,borderRadius:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
+                  <div style={{width:32,height:32,borderRadius:"50%",background:isChef?t.accent:t.tm,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0}}>
+                    {(m.name||"?").charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:t.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                      {m.name||"-"}{isMe&&<span style={{fontSize:10,color:t.tm,fontWeight:400,marginLeft:6}}>({lang==="tr"?"Sen":"You"})</span>}
+                    </div>
+                    <div style={{fontSize:10,color:t.tm,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                      {isChef?"👑 ":""}
+                      {m.role==="chef"?(lang==="tr"?"Şef":"Chef"):
+                       m.role==="head_chef"?(lang==="tr"?"Baş Şef":"Head Chef"):
+                       m.role==="executive_chef"?(lang==="tr"?"Executive Şef":"Executive Chef"):
+                       m.role==="sous_chef"?"Sous Chef":
+                       m.role==="member"?(lang==="tr"?"Üye":"Member"):
+                       (m.role||"")}
+                    </div>
+                  </div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>}
         <button onClick={async()=>{
           if(!team?.id||!user?.userId)return;
           try{
@@ -5164,14 +5888,14 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             if(syncProd&&syncProd.length>0)setProductions(syncProd);
             if(syncRecipes&&syncRecipes.length>0)setRecipes(syncRecipes);
             if(syncTodos&&syncTodos.length>0)setTodos(syncTodos);
-            LS.set("kmp_last_sync",new Date().toISOString());
+            LS.set("kmc_last_sync",new Date().toISOString());
             flash(lang==="tr"?"✓ Senkronize edildi":"✓ Synced");
           }catch(e){window.toast.info(e.message);}
         }} style={{...bSt("s",t),width:"100%",marginBottom:10}}>
           🔄 {lang==="tr"?"Şimdi Senkronize Et":"Sync Now"}
         </button>
-        {LS.get("kmp_last_sync",null)&&<div style={{fontSize:10,color:t.tm,textAlign:"center",marginBottom:12}}>
-          {lang==="tr"?"Son sync:":"Last sync:"} {new Date(LS.get("kmp_last_sync","")).toLocaleString()}
+        {LS.get("kmc_last_sync",null)&&<div style={{fontSize:10,color:t.tm,textAlign:"center",marginBottom:12}}>
+          {lang==="tr"?"Son sync:":"Last sync:"} {new Date(LS.get("kmc_last_sync","")).toLocaleString()}
         </div>}
         <button onClick={()=>{
           if(window.confirm(lang==="tr"?"Ekipten ayrılmak istediğinize emin misiniz?":"Leave team?")){
@@ -5434,7 +6158,7 @@ const AuthModal=({onClose,onLogin,t})=>{
       const _memberTiers=(_memberCheck||[]).map(m=>m.role);
       const _allTiers=[..._memberTiers];
       if(_metaTier&&!_allTiers.includes(_metaTier))_allTiers.push(_metaTier);
-      const _expectedTier="pro";
+      const _expectedTier="manager";
       if(_allTiers.length>0&&!_allTiers.includes(_expectedTier)){
         await sb.auth.signOut();
         const _other=_allTiers.includes("pro")?"Pro":_allTiers.includes("manager")?"Manager":(_allTiers.includes("worker")?(lang==="tr"?"Çalışan":"Worker"):"");
@@ -5468,7 +6192,7 @@ const AuthModal=({onClose,onLogin,t})=>{
       if(!sb){setErr(lang==="tr"?"Supabase yüklenemedi":"Supabase failed");setLoading(false);return}
       const{data,error}=await sb.auth.signUp({
         email,password,
-        options:{data:{name:name.trim(),full_name:name.trim(),app_tier:"pro"}}
+        options:{data:{name:name.trim(),full_name:name.trim(),app_tier:"manager"}}
       });
       if(error)throw error;
       if(data.user&&!data.user.email_confirmed_at){
@@ -5545,7 +6269,7 @@ const AuthModal=({onClose,onLogin,t})=>{
 
   return <div style={mOv(t)}><div onClick={e=>e.stopPropagation()} style={{...mPn(t),maxWidth:400}}>
     <div style={{textAlign:"center",marginBottom:18}}>
-      <div style={{fontSize:28,fontFamily:"'Fraunces',serif",fontWeight:700,color:t.text}}>Kitchen Manager <span style={{fontSize:14,color:"#fff",background:`linear-gradient(135deg,${t.accent} 0%,#8b6332 100%)`,padding:"3px 8px",borderRadius:5,letterSpacing:"0.1em",fontWeight:800,marginLeft:4,verticalAlign:"middle"}}>PRO</span></div>
+      <div style={{fontSize:28,fontFamily:"'Fraunces',serif",fontWeight:700,color:t.text}}>Kitchen Manager</div>
       <div style={{fontSize:11,color:t.tm,marginTop:4}}>by Tulpar Kitchen Software</div>
     </div>
     <div style={{display:"flex",gap:4,marginBottom:16,background:t.inBg,padding:3,borderRadius:10}}>
@@ -5653,7 +6377,7 @@ const ChatTab=({team,teamMembers,user,recipes,menus,stock,productions,t})=>{
   const lang=t.lang;
 
   const myName=user?.name||user?.email||"?";
-  const myRole=(()=>{try{return JSON.parse(localStorage.getItem("kmp_profile")||"{}")?.role||"";}catch(e){return "";}})();
+  const myRole=(()=>{try{return JSON.parse(localStorage.getItem("kmc_profile")||"{}")?.role||"";}catch(e){return "";}})();
   const[chatError,setChatError]=useState("");
 
   const L={
@@ -5709,7 +6433,7 @@ const ChatTab=({team,teamMembers,user,recipes,menus,stock,productions,t})=>{
       const uid=session?.user?.id||user?.userId||user?.id;
       const uname=session?.user?.user_metadata?.name||session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||myName;
       if(!uid){setSending(false);return;}
-      const profile=JSON.parse(localStorage.getItem("kmp_profile")||"{}");
+      const profile=JSON.parse(localStorage.getItem("kmc_profile")||"{}");
       await sb.from("team_messages").insert({
         team_id:team.id,
         user_id:uid,
@@ -6151,7 +6875,7 @@ const UnifiedChatTab=({team,teamMembers,user,recipes,menus,stock,productions,api
     const{data:{session}}=await sb.auth.getSession();
     const uid=session?.user?.id||myUid;
     const uname=session?.user?.user_metadata?.name||session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||user?.name||"?";
-    const profile=JSON.parse(localStorage.getItem("kmp_profile")||"{}");
+    const profile=JSON.parse(localStorage.getItem("kmc_profile")||"{}");
     await sb.from("team_messages").insert({
       team_id:team.id,user_id:uid,user_name:uname,
       user_role:profile.role||"",private_to:otherUid,
@@ -6656,16 +7380,16 @@ const generateInviteCode=()=>Math.random().toString(36).substring(2,8).toUpperCa
 const createTeam=async(teamName,userId,userName,parentTeamId=null)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
   // ═══ Bu kullanıcı zaten team kurmuş mu? ═══
-  const{data:existingTeams}=await sb.from("teams").select("id,name").eq("owner_id",userId).eq("app_type","pro");
+  const{data:existingTeams}=await sb.from("teams").select("id,name").eq("owner_id",userId).eq("app_type","manager");
   if(existingTeams&&existingTeams.length>0){
     throw new Error("Zaten bir ekibiniz var: "+existingTeams[0].name+". Önce mevcut ekibi silin.");
   }
   const code=generateInviteCode();
-  const insertData={name:teamName,invite_code:code.toUpperCase(),owner_id:userId,app_type:"pro"};
+  const insertData={name:teamName,invite_code:code.toUpperCase(),owner_id:userId,app_type:"manager"};
   if(parentTeamId)insertData.parent_team_id=parentTeamId;
   const{data:team,error:te}=await sb.from("teams").insert(insertData).select().single();
   if(te)throw te;
-  const{error:me}=await sb.from("team_members").insert({team_id:team.id,user_id:userId,role:"pro",position:userName});
+  const{error:me}=await sb.from("team_members").insert({team_id:team.id,user_id:userId,role:"manager",position:userName});
   if(me)throw me;
   return team;
 };
@@ -6686,17 +7410,41 @@ const getChildTeams=async(parentId)=>{
   return data||[];
 };
 
-const joinTeam=async(inviteCode,userId,userName)=>{
+const joinTeam=async(inviteCode,userId,userName,requestedDepartment)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
-  const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).eq("app_type","pro").single();
-  if(te||!team)throw new Error("Geçersiz davet kodu");
+  // Davet kodu ile ekibi bul
+  const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).single();
+  if(te||!team)throw new Error(lang==="tr"?"Geçersiz davet kodu":"Invalid invite code");
+  
+  // Zaten ekipte mi?
   const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
   if(existing)return team;
-  const{error:me}=await sb.from("team_members").insert({
-    team_id:team.id,user_id:userId,role:"worker",position:userName
+  
+  // Bekleyen istek var mı?
+  const{data:pendingReq}=await sb.from("team_join_requests").select("id,status").eq("team_id",team.id).eq("user_id",userId).eq("status","pending").single();
+  if(pendingReq){
+    const err=new Error("PENDING_APPROVAL");
+    err.code="PENDING";
+    err.team=team;
+    throw err;
+  }
+  
+  // Yeni istek gönder
+  const{error:re}=await sb.from("team_join_requests").insert({
+    team_id:team.id,
+    user_id:userId,
+    user_name:userName,
+    requested_department:requestedDepartment||null,
+    requested_role:"chef",  // Manager kullanıyor → departman şefi
+    status:"pending"
   });
-  if(me)throw me;
-  return team;
+  if(re)throw re;
+  
+  // İstek gönderildi, ekibe henüz dahil değil
+  const err=new Error("REQUEST_SENT");
+  err.code="SENT";
+  err.team=team;
+  throw err;
 };
 
 const syncFromTeam=async(teamId,table)=>{
@@ -6717,1000 +7465,7 @@ const setTeamData=async(teamId,table,jsonData,userId)=>{
 };
 
 
-const EventsTab=({team,teamMembers,user,apiKey,t})=>{
-  const lang=t.lang;
-  const[events,setEvents]=useState([]);
-  const[loading,setLoading]=useState(true);
-  const[showNew,setShowNew]=useState(false);
-  const[parsing,setParsing]=useState(false);
-  const[parseProgress,setParseProgress]=useState("");
-  const[selectedEvent,setSelectedEvent]=useState(null);
-  const[showEdit,setShowEdit]=useState(false);
-  const[error,setError]=useState("");
-  const[showManual,setShowManual]=useState(false);
-  const[manualForm,setManualForm]=useState({name:"",event_date:"",start_time:"",pax:"",location:"",notes:"",items:"",photos:[]});
-  const[manualBusy,setManualBusy]=useState(false);
-  const[manualPreview,setManualPreview]=useState(null);
-  const[detailTab,setDetailTab]=useState("timeline");
-  const[expandedSessions,setExpandedSessions]=useState({});
-  // Fotoğraf state'leri
-  const[uploadingPhoto,setUploadingPhoto]=useState(null); // {sessionIdx, progress}
-  const[lightboxPhoto,setLightboxPhoto]=useState(null); // {url, sessionIdx, photoIdx}
-
-  const DEPARTMENTS=[
-    {id:"kitchen",icon:"🍳",tr:"Sıcak Mutfak",en:"Hot Kitchen",color:"#dc2626"},
-    {id:"cold",icon:"🥗",tr:"Soğuk Mutfak",en:"Cold Kitchen",color:"#0891b2"},
-    {id:"pastry",icon:"🥐",tr:"Pastane",en:"Pastry",color:"#c8965a"},
-    {id:"butcher",icon:"🥩",tr:"Kasap",en:"Butchery",color:"#7f1d1d"},
-    {id:"service",icon:"🍽",tr:"Servis",en:"Banquet Service",color:"#7c3aed"},
-    {id:"bar",icon:"🍷",tr:"Bar",en:"Bar",color:"#059669"},
-    {id:"setup",icon:"🪑",tr:"Kurulum",en:"Setup",color:"#525252"},
-    {id:"accounting",icon:"💰",tr:"Muhasebe",en:"Accounting",color:"#1e40af"},
-    {id:"general",icon:"📋",tr:"Genel",en:"General",color:"#6b7280"}
-  ];
-
-  useEffect(()=>{
-    if(!team?.id){setLoading(false);return;}
-    const sb=initSupabase();if(!sb){setLoading(false);return;}
-    sb.from("events").select("*").eq("team_id",team.id).order("event_date",{ascending:false}).limit(50)
-      .then(({data,error})=>{
-        if(error){console.warn("[events] load error:",error.message);setEvents([]);setLoading(false);return;}
-        setEvents(data||[]);setLoading(false);
-      });
-  },[team?.id]);
-
-  const extractPDFText=async(file)=>{
-    if(!window.pdfjsLib){
-      await new Promise((res,rej)=>{
-        const s=document.createElement("script");
-        s.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-        s.onload=res;s.onerror=rej;document.head.appendChild(s);
-      });
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    }
-    const buf=await file.arrayBuffer();
-    const pdf=await window.pdfjsLib.getDocument({data:buf}).promise;
-    const pages=[];
-    let totalLen=0;
-    for(let i=1;i<=pdf.numPages;i++){
-      const page=await pdf.getPage(i);
-      const content=await page.getTextContent();
-      const txt=content.items.map(it=>it.str).join(" ");
-      pages.push(txt);
-      totalLen+=txt.replace(/\s/g,"").length;
-    }
-    return{text:pages.join("\n\n--- SAYFA ---\n\n"),isImageBased:totalLen<200,pageCount:pdf.numPages};
-  };
-
-  const pdfToBase64=(file)=>new Promise((res,rej)=>{
-    const r=new FileReader();
-    r.onload=()=>res(r.result.split(",")[1]);
-    r.onerror=()=>rej(new Error("Dosya okunamadı"));
-    r.readAsDataURL(file);
-  });
-
-  const parseWithAI=async(file)=>{
-    setParsing(true);setError("");
-    try{
-      setParseProgress(lang==="tr"?"PDF okunuyor...":"Reading PDF...");
-      const{text,isImageBased,pageCount}=await extractPDFText(file);
-
-      const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data with multi-day support and sub-events (e.g. AM Coffee Break, Lunch, PM Coffee Break).\n\nOutput VALID JSON ONLY (no markdown, no explanation), matching this schema:\n{\n  \"name\": \"Event/booking name (e.g. Live Consulting Meeting, Wedding Tasting)\",\n  \"contractNo\": \"Contract/booking number if shown (e.g. 714268)\",\n  \"accountName\": \"Account/company name (e.g. Asemble Organizasyon)\",\n  \"confManager\": \"Conf/Cat Manager name if shown\",\n  \"contactName\": \"Primary contact person name (e.g. Emel Duman)\",\n  \"contactPhone\": \"Contact phone number if shown\",\n  \"startDate\": \"YYYY-MM-DD — earliest date in BEO\",\n  \"endDate\": \"YYYY-MM-DD — latest date in BEO (same as startDate if single-day)\",\n  \"currency\": \"EUR/USD/TRY/GBP\",\n  \"totalAmount\": number or null,\n  \"pricePerPerson\": number or null,\n  \"vatRate\": number (default 20),\n  \"guestAllergies\": [\n    {\n      \"count\": number,\n      \"type\": \"Allergy/diet type (gluten free, lactose free, vegetarian, vegan, nut allergy, halal, kosher)\",\n      \"note\": \"Optional extra context if BEO mentions specific guests/sessions\"\n    }\n  ],\n  \"subEvents\": [\n    {\n      \"date\": \"YYYY-MM-DD\",\n      \"timeStart\": \"HH:MM\",\n      \"timeEnd\": \"HH:MM\",\n      \"name\": \"Sub-event name (Meeting, AM Coffee Break, Lunch, PM Coffee Break, Tea & Coffee, Dessert Service)\",\n      \"type\": \"Type code: coffee_break | lunch | dinner | dessert | cocktail | meeting | tea_service | setup | other\",\n      \"room\": \"Room/venue (Kaftan, Tugra Lobby, Tugra Restaurant)\",\n      \"setUp\": \"Set-up type (Lounge, Theater, Coffee Break, Existing Setup)\",\n      \"pax\": number,\n      \"items\": [\n        {\n          \"name\": \"Menu item exact name (e.g. 'Mekik çeşitleri', 'Grilled lamb loin')\",\n          \"departments\": [\"pastry\"],\n          \"allergens\": [\"gluten\",\"dairy\",\"egg\",\"nut\",\"shellfish\",\"fish\",\"soy\",\"sesame\",\"sulphite\",\"celery\",\"mustard\",\"peanut\",\"lupin\",\"mollusc\"]\n        }\n      ],\n      \"notesTr\": \"Turkish notes/instructions from ATT TO X sections (if any)\",\n      \"notesEn\": \"English notes/instructions from ATT TO X sections (if any)\"\n    }\n  ],\n  \"summary\": \"STRICT REQUIREMENT — write this in ${lang==="tr"?"TURKISH (Türkçe)":"ENGLISH"}, 2-3 sentences max\"\n}\n\nDepartment codes (each item can have MULTIPLE departments):\n- \"kitchen\" = Hot kitchen: main courses, hot starters, hot canapes, hot soups\n- \"cold\" = Cold kitchen: cold starters, salads, cold canapes\n- \"pastry\" = Pastane (Türkiye usulü): tatlılar (panna cotta, tiramisu, profiterole, tarts), hamur işleri (mekik, muffin, brioche, poğaça, simit, focaccia), ekmek ve viennoiserie. EKMEK DAHİL HER ŞEY.\n- \"butcher\" = Meat prep: lamb cuts, beef tenderloin, marinades\n- \"service\" = Banquet service: table arrangements, plating, lounge setup\n- \"bar\" = Beverages: cocktails, wine, soft drinks (note: Tea & Coffee is service, not bar)\n- \"setup\" = Furniture/equipment: podium, AV, signage, skirt, chairs\n- \"accounting\" = Pricing, billing notes, VAT\n- \"general\" = Other notes\n\nRules:\n- ALWAYS extract every sub-event separately (Meeting, AM Break, Lunch, PM Break, Tea Service, Dessert Service).\n- Each menu item is one entry with departments array (can be multi: \"Tahini buns\" = [\"pastry\"]).\n- Each menu item MUST have an \"allergens\" array — list ALL allergens likely present based on the dish name and common ingredients. Use exactly these codes: gluten, dairy, egg, nut, shellfish, fish, soy, sesame, sulphite, celery, mustard, peanut, lupin, mollusc.\n- Notes (ATT TO ...) belong to the sub-event they're under. Split TR and EN if both languages present.\n- Setup instructions (podium, chair, skirt) → \"setup\" department + put in notes.\n- If a sub-event has no menu items (e.g. pure meeting), items can be empty array AND set \"type\": \"meeting\".\n- For meat dishes, also add \"butcher\" if prep cuts are needed.\n- Convert dates: \"27. February 2026\" → \"2026-02-27\".\n- Extract exact pax from \"Exp/Gtd: 12 / 12\" or \"for 40 pax\".\n\nGUEST ALLERGY EXTRACTION:\n- Scan the ENTIRE BEO for any mention of guest allergies, diets, intolerances or dietary restrictions.\n- Look for phrases: \"X guests vegetarian\", \"1 misafir gluten free\", \"2 vegan\", \"lactose intolerant\", \"halal option\", \"no nuts\", \"celiac\", \"1 kişi laktoz intoleransı\", \"vejetaryen\", \"vegan menü\" etc.\n- Each unique allergy/diet → one entry in guestAllergies array with count and type.\n- If no allergies mentioned anywhere, return empty array [].\n\nALLERGEN ASSIGNMENT FOR EACH ITEM:\n- gluten: wheat flour, bread, pasta, cake, cookies, biscuits, pastry, breaded items, beer\n- dairy: milk, cheese, cream, butter, yogurt, panna cotta, tiramisu, cream sauces\n- egg: eggs, mayonnaise, meringue, brioche, custard, fresh pasta\n- nut: walnut, almond, hazelnut, pistachio, pecan (NOT peanut — that's separate)\n- peanut: peanuts specifically\n- shellfish: shrimp/karides, prawn, crab, lobster\n- fish: salmon, tuna, anchovies, sardine\n- soy: soy sauce, tofu, edamame\n- sesame: tahini, sesame seeds, simit (has sesame)\n- sulphite: wine, vinegar (in significant amounts)\n\nCRITICAL — BILINGUAL MENU HANDLING:\n- BEO often shows the same dish in English AND Turkish on consecutive lines or separated by \"/\" or \"**\".\n- ALWAYS merge them into ONE menu item using format: \"EnglishName / TurkishName\"\n- NEVER create duplicate items for the same dish in different languages.\n\nDEPARTMENT ASSIGNMENT EXAMPLES:\n- \"Tea & Coffee\", \"Soft drinks\" → [\"service\"]\n- \"Cocktails\", \"Wine\", \"Beer\" → [\"bar\"]\n- \"Lamb loin\", \"Beef tenderloin\" → [\"kitchen\",\"butcher\"]\n- \"Panna cotta\", \"Tiramisu\", \"Profiterole\" → [\"pastry\"]\n- \"Mekik\", \"Muffin\", \"Brioche\", \"Poğaça\", \"Simit\", \"Focaccia\" → [\"pastry\"]\n- \"Salad\", \"Cold starter\" → [\"cold\"]\n\nLANGUAGE OUTPUT:\n- summary MUST be in ${lang==="tr"?"Turkish":"English"} — NOT bilingual, just one language.\n\nCRITICAL OUTPUT FORMAT: Return ONLY pure JSON. No markdown fences, no comments, no trailing commas, no explanations before or after. Just valid parseable JSON, starting with { and ending with }.\nBE EXTREMELY CONCISE to fit in response limits:\n  * notesTr/notesEn: maximum 80 chars each, single line summaries only\n  * Menu item names: max 60 chars\n  * summary: max 150 chars total\nOutput minified JSON if possible.`;
-
-      let userMessages;
-      if(isImageBased){
-        setParseProgress(lang==="tr"?"Resim PDF tespit edildi, vision ile analiz ediliyor...":"Image-based PDF detected, analyzing with vision...");
-        const base64=await pdfToBase64(file);
-        userMessages=[{
-          role:"user",
-          content:[
-            {type:"document",source:{type:"base64",media_type:"application/pdf",data:base64}},
-            {type:"text",text:"Extract event details and assign items to departments per the schema."}
-          ]
-        }];
-      }else{
-        setParseProgress(lang==="tr"?"AI analiz ediyor...":"AI analyzing..."+ ` (${pageCount} pages)`);
-        userMessages=[{
-          role:"user",
-          content:`Analyze this BEO and output JSON:\n\n${text.slice(0,12000)}`
-        }];
-      }
-
-      const model=isImageBased?"claude-sonnet-4-5":"claude-haiku-4-5";
-      const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev",{
-        method:"POST",
-        headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
-        body:JSON.stringify({model,max_tokens:16000,system:sysPrompt,messages:userMessages})
-      });
-      if(!resp.ok){
-        const errText=await resp.text().catch(()=>"");
-        let errMsg="HTTP "+resp.status;
-        try{const j=JSON.parse(errText);if(j.error?.message)errMsg+=" — "+j.error.message;else if(j.error)errMsg+=" — "+JSON.stringify(j.error);}catch{errMsg+=" — "+errText.slice(0,200);}
-        if(resp.status===503||resp.status===529){
-          setParseProgress(lang==="tr"?"AI yoğun, tekrar deniyor...":"AI busy, retrying...");
-          await new Promise(r=>setTimeout(r,2500));
-          const resp2=await fetch("https://kitchen-manager-ai.aligny0.workers.dev/",{
-            method:"POST",
-            headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
-            body:JSON.stringify({model,max_tokens:16000,system:sysPrompt,messages:userMessages})
-          });
-          if(!resp2.ok){const t2=await resp2.text().catch(()=>"");throw new Error("AI hatası ("+resp2.status+"): "+(t2.slice(0,200)||errMsg));}
-          const data2=await resp2.json();
-          const aiText2=data2?.content?.[0]?.text||"";
-          let jsonStr2=aiText2.trim().replace(/^```(?:json|JSON)?\s*\n?/,"").replace(/\n?```\s*$/,"").trim();
-          const fb=jsonStr2.search(/[\{\[]/);const lb=Math.max(jsonStr2.lastIndexOf("}"),jsonStr2.lastIndexOf("]"));
-          if(fb>=0&&lb>fb)jsonStr2=jsonStr2.substring(fb,lb+1);
-          const parsed2=JSON.parse(jsonStr2);
-          setParseProgress(lang==="tr"?"Tamamlandı":"Done");
-          return{parsed:parsed2,rawText:text.slice(0,5000),isImageBased};
-        }
-        throw new Error("AI hatası: "+errMsg);
-      }
-      const data=await resp.json();
-      const aiText=data?.content?.[0]?.text||"";
-      let jsonStr=aiText.trim();
-      jsonStr=jsonStr.replace(/^```(?:json|JSON)?\s*\n?/,"").replace(/\n?```\s*$/,"").trim();
-      const firstBrace=jsonStr.search(/[\{\[]/);
-      const lastBrace=Math.max(jsonStr.lastIndexOf("}"),jsonStr.lastIndexOf("]"));
-      if(firstBrace>=0&&lastBrace>firstBrace){jsonStr=jsonStr.substring(firstBrace,lastBrace+1);}
-      let parsed;
-      try{parsed=JSON.parse(jsonStr);}
-      catch(e){
-        try{
-          const cleaned=jsonStr.replace(/[\u0000-\u001F]+/g,(m)=>m.replace(/\n/g," ").replace(/\t/g," ").replace(/[^\s]/g,""));
-          parsed=JSON.parse(cleaned);
-        }catch(e2){
-          try{
-            let fixed=jsonStr.replace(/,(\s*[\}\]])/g,"$1");
-            const opens=(fixed.match(/\{/g)||[]).length;
-            const closes=(fixed.match(/\}/g)||[]).length;
-            const arrOpens=(fixed.match(/\[/g)||[]).length;
-            const arrCloses=(fixed.match(/\]/g)||[]).length;
-            const quotes=(fixed.match(/(?<!\\)"/g)||[]).length;
-            if(quotes%2!==0)fixed+='"';
-            for(let i=0;i<arrOpens-arrCloses;i++)fixed+="]";
-            for(let i=0;i<opens-closes;i++)fixed+="}";
-            parsed=JSON.parse(fixed);
-            console.warn("[AI] JSON kesilmişti, kurtarıldı");
-          }catch(e3){
-            console.warn("AI JSON parse hatası:",e.message,"\nİlk 500 char:",jsonStr.slice(0,500),"\nSon 200 char:",jsonStr.slice(-200));
-            throw new Error("AI JSON parse edilemedi: "+e.message);
-          }
-        }
-      }
-      setParseProgress(lang==="tr"?"Tamamlandı":"Done");
-      return{parsed,rawText:text.slice(0,5000),isImageBased};
-    }finally{
-      setParsing(false);
-    }
-  };
-
-  const handleUpload=async(file)=>{
-    if(!file||!team?.id)return;
-    if(file.size>10*1024*1024){setError(lang==="tr"?"PDF 10MB'dan büyük olamaz":"PDF must be under 10MB");return;}
-    setError("");
-    try{
-      const{parsed,rawText,isImageBased}=await parseWithAI(file);
-      let pdfPath=null;
-      try{
-        const sb=initSupabase();
-        if(sb){
-          const ts=Date.now();
-          const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
-          pdfPath=`${team.id}/${ts}_${safeName}`;
-          const{error:upErr}=await sb.storage.from("event-pdfs").upload(pdfPath,file,{contentType:"application/pdf",upsert:false});
-          if(upErr){console.warn("PDF Storage upload hatası:",upErr.message);pdfPath=null;}
-        }
-      }catch(e){console.warn("PDF upload exception:",e.message);}
-
-      const aggDepts={};
-      (parsed.subEvents||[]).forEach(se=>{
-        (se.items||[]).forEach(it=>{
-          (it.departments||[]).forEach(d=>{
-            if(!aggDepts[d])aggDepts[d]=[];
-            if(!aggDepts[d].includes(it.name))aggDepts[d].push(it.name);
-          });
-        });
-      });
-
-      setSelectedEvent({
-        id:null,
-        team_id:team.id,
-        name:parsed.name||file.name.replace(/\.pdf$/i,""),
-        contract_no:parsed.contractNo||"",
-        account_name:parsed.accountName||"",
-        conf_manager:parsed.confManager||"",
-        contact_name:parsed.contactName||"",
-        contact_phone:parsed.contactPhone||"",
-        event_date:parsed.startDate||parsed.date||"",
-        end_date:parsed.endDate||parsed.startDate||parsed.date||"",
-        start_time:(parsed.subEvents?.[0]?.timeStart)||parsed.startTime||"",
-        end_time:(parsed.subEvents?.[parsed.subEvents.length-1]?.timeEnd)||parsed.endTime||"",
-        pax:parsed.subEvents?.[0]?.pax||parsed.pax||0,
-        location:parsed.subEvents?.[0]?.room||parsed.location||"",
-        departments:Object.keys(aggDepts).length?aggDepts:(parsed.departments||{}),
-        sub_events:parsed.subEvents||[],
-        currency:parsed.currency||"EUR",
-        total_amount:parsed.totalAmount||null,
-        price_per_person:parsed.pricePerPerson||null,
-        vat_rate:parsed.vatRate||20,
-        original_pdf_path:pdfPath,
-        original_pdf_size:file.size,
-        ai_summary:parsed.summary||"",
-        guest_allergies:parsed.guestAllergies||[],
-        session_photos:{},
-        raw_text:rawText,
-        pdf_name:file.name,
-        status:"draft",
-        notes:"",
-        _isNew:true,
-        _isImageBased:isImageBased
-      });
-      setShowNew(false);
-    }catch(e){
-      setError((lang==="tr"?"Hata: ":"Error: ")+e.message);
-    }
-  };
-
-  const saveEvent=async()=>{
-    if(!selectedEvent||!selectedEvent.name?.trim())return;
-    const sb=initSupabase();if(!sb)return;
-    const payload={
-      team_id:team.id,
-      name:selectedEvent.name.trim(),
-      contract_no:selectedEvent.contract_no||null,
-      account_name:selectedEvent.account_name||null,
-      conf_manager:selectedEvent.conf_manager||null,
-      contact_name:selectedEvent.contact_name||null,
-      contact_phone:selectedEvent.contact_phone||null,
-      event_date:selectedEvent.event_date||null,
-      end_date:selectedEvent.end_date||null,
-      start_time:selectedEvent.start_time||null,
-      end_time:selectedEvent.end_time||null,
-      pax:selectedEvent.pax||null,
-      location:selectedEvent.location||null,
-      departments:selectedEvent.departments||{},
-      sub_events:selectedEvent.sub_events||[],
-      currency:selectedEvent.currency||"EUR",
-      total_amount:selectedEvent.total_amount||null,
-      price_per_person:selectedEvent.price_per_person||null,
-      vat_rate:selectedEvent.vat_rate||20,
-      original_pdf_path:selectedEvent.original_pdf_path||null,
-      original_pdf_size:selectedEvent.original_pdf_size||null,
-      ai_summary:selectedEvent.ai_summary||null,
-      guest_allergies:selectedEvent.guest_allergies||[],
-      session_photos:selectedEvent.session_photos||{},
-      raw_text:selectedEvent.raw_text||null,
-      pdf_name:selectedEvent.pdf_name||null,
-      status:selectedEvent.status||"draft",
-      notes:selectedEvent.notes||null,
-      created_by:user?.userId||null
-    };
-    let res;
-    if(selectedEvent.id){
-      res=await sb.from("events").update(payload).eq("id",selectedEvent.id).select().single();
-    }else{
-      res=await sb.from("events").insert(payload).select().single();
-    }
-    if(res.error){window.toast.error((lang==="tr"?"Kayıt başarısız: ":"Save failed: ")+res.error.message);return;}
-    if(res.data){
-      if(selectedEvent.id){
-        setEvents(p=>p.map(e=>e.id===res.data.id?res.data:e));
-      }else{
-        setEvents(p=>[res.data,...p]);
-      }
-      setSelectedEvent(null);
-    }
-  };
-
-  // ── Session fotoğraf yükle ──
-  const uploadSessionPhoto=async(file,sessionIdx,eventId)=>{
-    if(!file||!team?.id)return;
-    const MAX_SIZE=8*1024*1024;
-    if(file.size>MAX_SIZE){window.toast.error(lang==="tr"?"Fotoğraf 8MB'dan büyük olamaz":"Photo must be under 8MB");return;}
-    setUploadingPhoto({sessionIdx,progress:0});
-    try{
-      // Resize
-      const resized=await new Promise((res,rej)=>{
-        const reader=new FileReader();
-        reader.onload=ev=>{
-          const img=new Image();
-          img.onload=()=>{
-            const MAX=1200;
-            let w=img.width,h=img.height;
-            if(w>MAX||h>MAX){
-              if(w>h){h=Math.round(h*MAX/w);w=MAX;}
-              else{w=Math.round(w*MAX/h);h=MAX;}
-            }
-            const cv=document.createElement("canvas");
-            cv.width=w;cv.height=h;
-            cv.getContext("2d").drawImage(img,0,0,w,h);
-            cv.toBlob(blob=>{
-              if(!blob){rej(new Error("Resize failed"));return;}
-              res(new File([blob],file.name,{type:"image/jpeg"}));
-            },"image/jpeg",0.82);
-          };
-          img.onerror=()=>rej(new Error("Image load failed"));
-          img.src=ev.target.result;
-        };
-        reader.onerror=()=>rej(new Error("File read failed"));
-        reader.readAsDataURL(file);
-      });
-
-      const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
-      const ts=Date.now();
-      const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
-      const path=`event-photos/${team.id}/${eventId||"new"}/${ts}_s${sessionIdx}_${safeName}`;
-      const{error:upErr}=await sb.storage.from("tulpar-storage").upload(path,resized,{
-        contentType:"image/jpeg",upsert:false
-      });
-      if(upErr)throw upErr;
-      const{data:{publicUrl}}=sb.storage.from("tulpar-storage").getPublicUrl(path);
-
-      // State güncelle
-      const newPhotos={...(selectedEvent.session_photos||{})};
-      const key=String(sessionIdx);
-      newPhotos[key]=[...(newPhotos[key]||[]),publicUrl];
-
-      const updatedEvent={...selectedEvent,session_photos:newPhotos};
-      setSelectedEvent(updatedEvent);
-
-      // DB'ye kaydet (event daha önce kaydedilmişse)
-      if(eventId&&eventId!=="new"){
-        const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
-        if(dbErr)console.warn("session_photos DB güncelleme:",dbErr.message);
-        else setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
-      }
-      window.toast.success(lang==="tr"?"✓ Fotoğraf eklendi":"✓ Photo added");
-    }catch(e){
-      window.toast.error((lang==="tr"?"Fotoğraf yüklenemedi: ":"Upload failed: ")+e.message);
-    }finally{
-      setUploadingPhoto(null);
-    }
-  };
-
-  // ── Session fotoğraf sil ──
-  const deleteSessionPhoto=async(sessionIdx,photoIdx,eventId)=>{
-    const newPhotos={...(selectedEvent.session_photos||{})};
-    const key=String(sessionIdx);
-    if(!newPhotos[key])return;
-    newPhotos[key]=newPhotos[key].filter((_,i)=>i!==photoIdx);
-    if(!newPhotos[key].length)delete newPhotos[key];
-
-    const updatedEvent={...selectedEvent,session_photos:newPhotos};
-    setSelectedEvent(updatedEvent);
-    setLightboxPhoto(null);
-
-    if(eventId&&eventId!=="new"){
-      const sb=initSupabase();if(!sb)return;
-      const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
-      if(!dbErr)setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
-    }
-  };
-
-  const aiDistributeManual=async()=>{
-    if(!manualForm.name?.trim()){window.toast.error(lang==="tr"?"Etkinlik adı gerekli":"Event name required");return;}
-    if(!manualForm.items?.trim()){window.toast.error(lang==="tr"?"En az 1 menü kalemi gerekli":"At least 1 menu item required");return;}
-    setManualBusy(true);setError("");
-    try{
-      const items=manualForm.items.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
-      if(!items.length){throw new Error(lang==="tr"?"Geçerli kalem yok":"No valid items");}
-      const prompt=`You are a banquet kitchen dispatcher. Categorize each menu/event item into one of these departments:\n- kitchen (Hot Kitchen): hot mains, hot starters, soups, hot canapes, grilled, fried items\n- cold (Cold Kitchen): cold starters, salads, cold canapes, mezes, hummus\n- pastry: desserts, baklava, cakes, ice cream, sweets\n- butcher: meat preparation requirements, lamb, beef tenderloin\n- service (Banquet Service): table setup, service notes, decorations\n- bar: drinks, cocktails, wine, beverages, coffee, tea\n- setup: equipment, av, signage, podium\n- accounting: pricing, billing\n- general: anything that doesn't fit\n\nItems to categorize:\n${items.map((it,i)=>`${i+1}. ${it}`).join("\n")}\n\nRespond with ONLY a JSON object, no other text:\n{\n  \"kitchen\": [\"item1\",\"item2\"],\n  \"cold\": [],\n  \"pastry\": [\"item3\"],\n  ...all 10 departments, empty arrays if none...\n}\n\nUse the EXACT item text as input. Each item should appear in exactly one department.`;
-      const proxyUrl="https://kitchen-manager-ai.aligny0.workers.dev";
-      const res=await fetch(proxyUrl,{
-        method:"POST",
-        headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
-        body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1024,messages:[{role:"user",content:prompt}]})
-      });
-      if(!res.ok){const txt=await res.text();throw new Error(`API ${res.status}: ${txt.slice(0,100)}`);}
-      const data=await res.json();
-      const text=data.content?.[0]?.text||"";
-      const m=text.match(/\{[\s\S]*\}/);
-      if(!m)throw new Error(lang==="tr"?"AI yanıtı anlaşılamadı":"AI response unclear");
-      const departments=JSON.parse(m[0]);
-      Object.keys(departments).forEach(k=>{if(!Array.isArray(departments[k])||!departments[k].length)delete departments[k];});
-      setManualPreview({...manualForm,departments,_isNew:true,team_id:team.id});
-    }catch(e){
-      console.warn("[manual ai]",e);
-      const items=manualForm.items.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
-      setManualPreview({...manualForm,departments:{general:items},_isNew:true,team_id:team.id});
-      window.toast.info(lang==="tr"?"AI ulaşılamadı, manuel atayın":"AI unavailable, assign manually");
-    }
-    setManualBusy(false);
-  };
-
-  const saveManualEvent=async()=>{
-    if(!manualPreview)return;
-    const sb=initSupabase();if(!sb)return;
-    const payload={
-      team_id:team.id,
-      name:manualPreview.name,
-      event_date:manualPreview.event_date||null,
-      start_time:manualPreview.start_time||null,
-      pax:manualPreview.pax?parseInt(manualPreview.pax,10):null,
-      location:manualPreview.location||null,
-      summary:manualPreview.notes||null,
-      departments:manualPreview.departments||{},
-      session_photos:{},
-      photos:manualPreview.photos||[],
-      source:"manual",
-      created_by:user?.userId||null
-    };
-    try{
-      const{data,error}=await sb.from("events").insert(payload).select().single();
-      if(error)throw error;
-      setEvents(p=>[data,...p]);
-      window.toast.success(lang==="tr"?"✓ Etkinlik kaydedildi":"✓ Event saved");
-      setShowManual(false);
-      setManualPreview(null);
-      setManualForm({name:"",event_date:"",start_time:"",pax:"",location:"",notes:"",items:"",photos:[]});
-    }catch(e){window.toast.error(e.message);}
-  };
-
-  const handleManualPhoto=async(file)=>{
-    if(!file)return;
-    if(file.size>5*1024*1024){window.toast.error(lang==="tr"?"Foto 5MB'dan büyük olamaz":"Photo > 5MB");return;}
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      const img=new Image();
-      img.onload=()=>{
-        const MAX=800;
-        const sc=Math.min(MAX/img.width,MAX/img.height,1);
-        const cv=document.createElement("canvas");
-        cv.width=img.width*sc;cv.height=img.height*sc;
-        cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
-        const dataUrl=cv.toDataURL("image/jpeg",0.75);
-        setManualForm(f=>({...f,photos:[...(f.photos||[]),dataUrl].slice(0,5)}));
-      };
-      img.src=ev.target.result;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const distributeToDepartments=async(ev)=>{
-    if(!ev?.departments||!team?.id)return;
-    const sb=initSupabase();if(!sb)return;
-    if(!window.confirm(lang==="tr"?"Departmanlara görevler ekip sohbetine gönderilecek. Onaylıyor musun?":"Tasks will be sent to team chat. Confirm?"))return;
-    let count=0;
-    for(const[deptId,items] of Object.entries(ev.departments)){
-      if(!items||!items.length)continue;
-      const dept=DEPARTMENTS.find(d=>d.id===deptId);
-      const deptLabel=dept?(lang==="tr"?dept.tr:dept.en):deptId;
-      const deptIcon=dept?.icon||"📋";
-      const dateStr=ev.event_date?new Date(ev.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US"):"";
-      const msg=`${deptIcon} **${deptLabel.toUpperCase()}** — ${ev.name}\n📅 ${dateStr}${ev.start_time?` ${ev.start_time}`:""} ${ev.pax?`· ${ev.pax} pax`:""}${ev.location?`\n📍 ${ev.location}`:""}\n\n${items.map((it,i)=>`${i+1}. ${it}`).join("\n")}`;
-      await sb.from("team_messages").insert({
-        team_id:team.id,
-        user_id:user?.userId||"event",
-        user_name:`📅 Event: ${ev.name}`,
-        user_role:"event",
-        type:"text",
-        text:msg
-      });
-      count++;
-    }
-    window.toast.success(lang==="tr"?`✓ ${count} departmana dağıtıldı`:`✓ Distributed to ${count} departments`);
-  };
-
-  const deleteEvent=async(id)=>{
-    if(!window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?"))return;
-    const sb=initSupabase();if(!sb)return;
-    await sb.from("events").delete().eq("id",id);
-    setEvents(p=>p.filter(e=>e.id!==id));
-    if(selectedEvent?.id===id)setSelectedEvent(null);
-  };
-
-  const updateDept=(deptId,items)=>{
-    setSelectedEvent(s=>({...s,departments:{...s.departments,[deptId]:items}}));
-  };
-
-  if(!team){
-    return <div style={{padding:20,textAlign:"center"}}>
-      <div style={{fontSize:48,marginBottom:12,opacity:0.3}}>🎉</div>
-      <div style={{fontSize:14,color:t.tm}}>{lang==="tr"?"Ekip kurun veya katılın — Etkinlikler özelliği için ekip gerekli.":"Create or join a team — Events feature requires a team."}</div>
-    </div>;
-  }
-
-  // ── Detay / Edit modu ──
-  if(selectedEvent){
-    if(showEdit||selectedEvent._isNew){
-      return <div style={{padding:"12px 14px",paddingBottom:80}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-          <button onClick={()=>{if(selectedEvent._isNew){setSelectedEvent(null);}else{setShowEdit(false);}}} style={{...bSt("g",t),padding:"6px 12px",fontSize:12}}>← {lang==="tr"?"Geri":"Back"}</button>
-          <div style={{fontSize:12,color:t.tm}}>{selectedEvent._isNew?(lang==="tr"?"Yeni Etkinlik":"New Event"):(lang==="tr"?"Etkinlik Düzenle":"Edit Event")}</div>
-        </div>
-
-        {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"15",border:`1px solid ${t.accent}40`}}>
-          <div style={{fontSize:9,fontWeight:700,color:t.accent,letterSpacing:"0.1em",marginBottom:4}}>🤖 AI ÖZET</div>
-          <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selectedEvent.ai_summary}</div>
-        </div>}
-
-        <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10}}>
-            <div><label style={lSt(t)}>{lang==="tr"?"Etkinlik Adı":"Event Name"} *</label>
-              <input style={iSt(t)} value={selectedEvent.name||""} onChange={e=>setSelectedEvent(s=>({...s,name:e.target.value}))}/>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <div><label style={lSt(t)}>{lang==="tr"?"Tarih":"Date"}</label>
-                <input type="date" style={iSt(t)} value={selectedEvent.event_date||""} onChange={e=>setSelectedEvent(s=>({...s,event_date:e.target.value}))}/>
-              </div>
-              <div><label style={lSt(t)}>{lang==="tr"?"Misafir":"Pax"}</label>
-                <input type="number" style={iSt(t)} value={selectedEvent.pax||""} onChange={e=>setSelectedEvent(s=>({...s,pax:parseInt(e.target.value,10)||0}))}/>
-              </div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <div><label style={lSt(t)}>{lang==="tr"?"Başlangıç":"Start"}</label>
-                <input type="time" style={iSt(t)} value={selectedEvent.start_time||""} onChange={e=>setSelectedEvent(s=>({...s,start_time:e.target.value}))}/>
-              </div>
-              <div><label style={lSt(t)}>{lang==="tr"?"Bitiş":"End"}</label>
-                <input type="time" style={iSt(t)} value={selectedEvent.end_time||""} onChange={e=>setSelectedEvent(s=>({...s,end_time:e.target.value}))}/>
-              </div>
-            </div>
-            <div><label style={lSt(t)}>{lang==="tr"?"Konum":"Location"}</label>
-              <input style={iSt(t)} value={selectedEvent.location||""} onChange={e=>setSelectedEvent(s=>({...s,location:e.target.value}))}/>
-            </div>
-            <div><label style={lSt(t)}>{lang==="tr"?"Kontrat No":"Contract No"}</label>
-              <input style={iSt(t)} value={selectedEvent.contract_no||""} onChange={e=>setSelectedEvent(s=>({...s,contract_no:e.target.value}))}/>
-            </div>
-          </div>
-        </div>
-        <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.05em",marginBottom:8,marginTop:16}}>
-          🏢 {lang==="tr"?"DEPARTMAN GÖREVLERİ":"DEPARTMENT TASKS"}
-        </div>
-        {DEPARTMENTS.map(d=>{
-          const items=(selectedEvent.departments?.[d.id])||[];
-          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:items.length?8:0}}>
-              <div style={{fontSize:12,fontWeight:700,color:t.text}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
-              <button onClick={()=>updateDept(d.id,[...items,""])} style={{...bSt("g",t),padding:"3px 8px",fontSize:11}}>+ {lang==="tr"?"Ekle":"Add"}</button>
-            </div>
-            {items.map((item,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:4}}>
-              <input style={{...iSt(t),flex:1,fontSize:12,padding:"6px 8px"}} value={item} onChange={e=>{
-                const newItems=[...items];newItems[i]=e.target.value;updateDept(d.id,newItems);
-              }}/>
-              <button onClick={()=>updateDept(d.id,items.filter((_,x)=>x!==i))} style={{...bSt("d",t),padding:"4px 8px",fontSize:11}}>✕</button>
-            </div>)}
-          </div>;
-        })}
-        <div style={{marginTop:12}}><label style={lSt(t)}>{lang==="tr"?"Notlar":"Notes"}</label>
-          <textarea style={{...iSt(t),minHeight:60,resize:"vertical"}} value={selectedEvent.notes||""} onChange={e=>setSelectedEvent(s=>({...s,notes:e.target.value}))}/>
-        </div>
-        <div style={{display:"flex",gap:8,marginTop:16}}>
-          <button onClick={()=>{if(selectedEvent._isNew){setSelectedEvent(null);}else{setShowEdit(false);}}} style={{...bSt("g",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-          <button onClick={async()=>{await saveEvent();setShowEdit(false);}} disabled={!selectedEvent.name?.trim()} style={{...bSt("p",t),flex:2,opacity:selectedEvent.name?.trim()?1:0.5}}>
-            ✓ {lang==="tr"?"Kaydet":"Save"}
-          </button>
-        </div>
-        {!selectedEvent._isNew&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("s",t),width:"100%",marginTop:10,fontSize:13,fontWeight:700}}>
-          📤 {lang==="tr"?"Departmanlara Dağıt":"Distribute to Departments"}
-        </button>}
-      </div>;
-    }
-
-    // ── Detay modu — 3 tab ──
-    const getPdfUrl=async(path)=>{
-      if(!path)return null;
-      const sb=initSupabase();if(!sb)return null;
-      const{data,error}=await sb.storage.from("event-pdfs").createSignedUrl(path,300);
-      if(error){console.warn("PDF URL:",error.message);return null;}
-      return data?.signedUrl||null;
-    };
-    const totalItems=Object.values(selectedEvent.departments||{}).reduce((s,a)=>s+(a?.length||0),0);
-    const subEvents=selectedEvent.sub_events||[];
-    const guestAllergies=selectedEvent.guest_allergies||[];
-    const sessionPhotos=selectedEvent.session_photos||{};
-
-    const SESSION_TYPES={
-      coffee_break:{icon:"☕",color:"#d97706",bg:"#fef3c7",tr:"Coffee Break",en:"Coffee Break"},
-      lunch:{icon:"🍽",color:"#16a34a",bg:"#dcfce7",tr:"Öğlen",en:"Lunch"},
-      dinner:{icon:"🍷",color:"#9333ea",bg:"#f3e8ff",tr:"Akşam",en:"Dinner"},
-      dessert:{icon:"🍰",color:"#ec4899",bg:"#fce7f3",tr:"Tatlı",en:"Dessert"},
-      cocktail:{icon:"🥂",color:"#0891b2",bg:"#cffafe",tr:"Kokteyl",en:"Cocktail"},
-      tea_service:{icon:"🫖",color:"#d97706",bg:"#fef3c7",tr:"Çay Servisi",en:"Tea Service"},
-      meeting:{icon:"📋",color:"#64748b",bg:"#f1f5f9",tr:"Toplantı",en:"Meeting"},
-      setup:{icon:"🪑",color:"#525252",bg:"#f5f5f5",tr:"Kurulum",en:"Setup"},
-      other:{icon:"📅",color:"#64748b",bg:"#f1f5f9",tr:"Diğer",en:"Other"}
-    };
-    const sessionMeta=(s)=>SESSION_TYPES[s.type]||SESSION_TYPES.other;
-    const isKitchenSession=(s)=>(s.items||[]).length>0;
-    const ALLERGEN_ICONS={gluten:"🌾",dairy:"🥛",egg:"🥚",nut:"🌰",peanut:"🥜",shellfish:"🦐",fish:"🐟",soy:"🫘",sesame:"🌻",sulphite:"🍷",celery:"🌿",mustard:"🌶",lupin:"🌱",mollusc:"🦪"};
-    const allergenLabel=(a)=>ALLERGEN_ICONS[a]||"⚠";
-
-    const byDate={};
-    subEvents.forEach((s,idx)=>{
-      const d=s.date||selectedEvent.event_date||"unknown";
-      if(!byDate[d])byDate[d]=[];
-      byDate[d].push({...s,_idx:idx});
-    });
-
-    const deptTasks={};
-    subEvents.forEach(s=>{
-      (s.items||[]).forEach(item=>{
-        (item.departments||[]).forEach(did=>{
-          if(!deptTasks[did])deptTasks[did]=[];
-          deptTasks[did].push({name:item.name,allergens:item.allergens||[],session:s.name,date:s.date,time:s.timeStart});
-        });
-      });
-    });
-
-    return <div style={{padding:"12px 14px",paddingBottom:80}}>
-      {/* Lightbox */}
-      {lightboxPhoto&&<div onClick={()=>setLightboxPhoto(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,padding:20}}>
-        <img src={lightboxPhoto.url} style={{maxWidth:"100%",maxHeight:"75vh",borderRadius:12,objectFit:"contain"}} onClick={e=>e.stopPropagation()}/>
-        <div style={{display:"flex",gap:10}} onClick={e=>e.stopPropagation()}>
-          <button onClick={()=>setLightboxPhoto(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>✕ {lang==="tr"?"Kapat":"Close"}</button>
-          <button onClick={()=>deleteSessionPhoto(lightboxPhoto.sessionIdx,lightboxPhoto.photoIdx,selectedEvent.id)} style={{background:"#dc2626",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>🗑 {lang==="tr"?"Sil":"Delete"}</button>
-        </div>
-      </div>}
-
-      {/* Header */}
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-        <button onClick={()=>{setSelectedEvent(null);setShowEdit(false);setDetailTab("timeline");setExpandedSessions({});}} style={{...bSt("g",t),fontSize:12,padding:"6px 10px"}}>← {lang==="tr"?"Etkinlikler":"Events"}</button>
-        <div style={{display:"flex",gap:6}}>
-          {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>📄 PDF</button>}
-          <button onClick={()=>setShowEdit(true)} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>✏️</button>
-          <button onClick={async()=>{if(window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?")){await deleteEvent(selectedEvent.id);}}} style={{...bSt("d",t),fontSize:12,padding:"6px 10px"}}>🗑</button>
-        </div>
-      </div>
-
-      <h3 style={{fontSize:20,color:t.text,margin:"0 0 6px 0",fontFamily:"'Fraunces',serif",lineHeight:1.25}}>{selectedEvent.name}</h3>
-      <div style={{display:"flex",flexWrap:"wrap",gap:8,fontSize:11,color:t.tm,marginBottom:14}}>
-        {selectedEvent.event_date&&<span>📅 {new Date(selectedEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}{selectedEvent.end_date&&selectedEvent.end_date!==selectedEvent.event_date?" – "+new Date(selectedEvent.end_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long"}):""}</span>}
-        {selectedEvent.pax&&<span>👥 {selectedEvent.pax} pax</span>}
-        {selectedEvent.location&&<span>📍 {selectedEvent.location}</span>}
-        {selectedEvent.contract_no&&<span>📄 #{selectedEvent.contract_no}</span>}
-      </div>
-
-      {/* Tabs */}
-      <div style={{display:"flex",borderBottom:`1px solid ${t.border}`,marginBottom:14}}>
-        {[
-          {id:"timeline",icon:"⏱",tr:"Timeline",en:"Timeline"},
-          {id:"depts",icon:"🍽",tr:"Departmanlar",en:"Departments"},
-          {id:"beo",icon:"📄",tr:"BEO",en:"BEO"}
-        ].map(tab=>(
-          <div key={tab.id} onClick={()=>setDetailTab(tab.id)} style={{flex:1,textAlign:"center",padding:"10px 4px",fontSize:12,fontWeight:detailTab===tab.id?700:400,color:detailTab===tab.id?t.text:t.tm,borderBottom:`2px solid ${detailTab===tab.id?t.text:"transparent"}`,cursor:"pointer",transition:"all 0.15s"}}>
-            {tab.icon} {lang==="tr"?tab.tr:tab.en}
-          </div>
-        ))}
-      </div>
-
-      {/* ─── TIMELINE TAB ─── */}
-      {detailTab==="timeline"&&<div>
-        {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"12",border:`1px solid ${t.accent}30`}}>
-          <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.08em",marginBottom:4}}>🤖 AI ÖZET</div>
-          <div style={{fontSize:12,color:t.text,lineHeight:1.55}}>{selectedEvent.ai_summary}</div>
-        </div>}
-
-        {guestAllergies.length>0&&<div style={{background:"#fef3c7",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 12px",marginBottom:14}}>
-          <div style={{fontSize:10,fontWeight:700,color:"#92400e",letterSpacing:"0.08em",marginBottom:6,textTransform:"uppercase"}}>⚠ {lang==="tr"?"Misafir Alerjen Uyarıları":"Guest Allergy Warnings"}</div>
-          {guestAllergies.map((a,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#78350f",padding:"3px 0",borderBottom:i<guestAllergies.length-1?"1px solid #fde68a":"none"}}>
-              <span style={{background:"#fde68a",color:"#92400e",fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap"}}>{a.count} {lang==="tr"?"misafir":"guest"}</span>
-              <span>{a.type}{a.note?" — "+a.note:""}</span>
-            </div>
-          ))}
-        </div>}
-
-        {subEvents.length===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
-          {lang==="tr"?"Bu etkinlik için saat bazlı oturum bilgisi yok. PDF yeniden yüklenirse AI yeni formatta çıkaracak.":"No timeline sessions for this event. Re-upload the PDF to extract structured timeline."}
-        </div>}
-
-        {Object.keys(byDate).sort().map(date=>(
-          <div key={date}>
-            {Object.keys(byDate).length>1&&<div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",margin:"4px 0 10px",display:"flex",alignItems:"center",gap:8}}>
-              {date!=="unknown"?new Date(date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"—"}
-              <span style={{flex:1,height:1,background:t.border}}/>
-            </div>}
-            {byDate[date].map(s=>{
-              const meta=sessionMeta(s);
-              const isOpen=expandedSessions[s._idx];
-              const isKitchen=isKitchenSession(s);
-              const sPhotos=sessionPhotos[String(s._idx)]||[];
-              const isUploading=uploadingPhoto?.sessionIdx===s._idx;
-              return <div key={s._idx} style={{border:`1px solid ${t.border}`,borderRadius:8,marginBottom:8,overflow:"hidden",borderStyle:isKitchen?"solid":"dashed",opacity:isKitchen?1:0.65}}>
-                <div onClick={isKitchen?()=>setExpandedSessions(p=>({...p,[s._idx]:!p[s._idx]})):undefined} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:isKitchen?"pointer":"default",background:t.card}}>
-                  <div style={{width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,background:meta.bg,flexShrink:0}}>{meta.icon}</div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:600,color:t.text}}>{s.name||meta[lang==="tr"?"tr":"en"]}</div>
-                    <div style={{fontSize:11,color:t.tm,marginTop:1,display:"flex",gap:8,flexWrap:"wrap"}}>
-                      {s.timeStart&&<span>🕐 {s.timeStart}{s.timeEnd&&"–"+s.timeEnd}</span>}
-                      {s.room&&<span>📍 {s.room}</span>}
-                      {s.pax!=null&&<span>👥 {s.pax}</span>}
-                      {!isKitchen&&<span style={{fontStyle:"italic"}}>{lang==="tr"?"mutfak görevi yok":"no kitchen task"}</span>}
-                    </div>
-                  </div>
-                  {/* Fotoğraf butonu — her session için */}
-                  <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,background:sPhotos.length>0?t.accent+"20":t.bg,border:`1px solid ${sPhotos.length>0?t.accent:t.border}`,borderRadius:8,padding:"5px 8px",cursor:isUploading?"wait":"pointer",flexShrink:0}}>
-                    {isUploading?<span style={{fontSize:11,color:t.accent}}>⏳</span>:<span style={{fontSize:13}}>📷</span>}
-                    {sPhotos.length>0&&<span style={{fontSize:10,fontWeight:700,color:t.accent}}>{sPhotos.length}</span>}
-                    <input type="file" accept="image/*" style={{display:"none"}} disabled={isUploading} onChange={async e=>{
-                      const f=e.target.files?.[0];
-                      if(f)await uploadSessionPhoto(f,s._idx,selectedEvent.id);
-                      e.target.value="";
-                    }}/>
-                  </label>
-                  {isKitchen&&<span style={{fontSize:14,color:t.tm,transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>▶</span>}
-                </div>
-
-                {/* Fotoğraf şeridi */}
-                {sPhotos.length>0&&<div style={{display:"flex",gap:6,padding:"6px 12px",overflowX:"auto",background:t.bg,borderTop:`1px solid ${t.border}`,scrollbarWidth:"none"}}>
-                  {sPhotos.map((url,pi)=>(
-                    <img key={pi} src={url} onClick={()=>setLightboxPhoto({url,sessionIdx:s._idx,photoIdx:pi})}
-                      style={{width:52,height:52,objectFit:"cover",borderRadius:6,cursor:"pointer",flexShrink:0,border:`1px solid ${t.border}`}}/>
-                  ))}
-                </div>}
-
-                {isKitchen&&isOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${t.border}`}}>
-                  {(()=>{
-                    const grouped={};
-                    (s.items||[]).forEach(item=>{
-                      (item.departments||["general"]).forEach(did=>{
-                        if(!grouped[did])grouped[did]=[];
-                        grouped[did].push(item);
-                      });
-                    });
-                    return Object.keys(grouped).map(did=>{
-                      const d=DEPARTMENTS.find(x=>x.id===did)||{icon:"📋",tr:"Diğer",en:"Other",color:"#64748b"};
-                      return <div key={did} style={{marginTop:10}}>
-                        <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,background:d.color+"15",color:d.color,marginBottom:5}}>
-                          {d.icon} {lang==="tr"?d.tr:d.en}
-                        </div>
-                        {grouped[did].map((item,i)=>(
-                          <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<grouped[did].length-1?`1px dashed ${t.border}`:"none"}}>
-                            <span style={{fontSize:12,color:t.text,lineHeight:1.4,flex:1}}>{item.name}</span>
-                            {(item.allergens||[]).length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0}}>
-                              {(item.allergens||[]).map((a,j)=>(
-                                <span key={j} title={a} style={{fontSize:10,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{allergenLabel(a)}</span>
-                              ))}
-                            </div>}
-                          </div>
-                        ))}
-                      </div>;
-                    });
-                  })()}
-                  {(s.notesTr||s.notesEn)&&<div style={{marginTop:10,padding:"8px 10px",background:t.bg,borderRadius:6,fontSize:11,color:t.ts,lineHeight:1.5}}>
-                    <div style={{fontWeight:600,marginBottom:3,color:t.tm,fontSize:10,letterSpacing:"0.05em",textTransform:"uppercase"}}>{lang==="tr"?"Notlar":"Notes"}</div>
-                    {lang==="tr"?(s.notesTr||s.notesEn):(s.notesEn||s.notesTr)}
-                  </div>}
-                </div>}
-              </div>;
-            })}
-          </div>
-        ))}
-
-        {totalItems===0&&subEvents.length===0&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("p",t),width:"100%",marginTop:12,fontSize:13,fontWeight:700}}>
-          📤 {lang==="tr"?"Departmanlara Dağıt":"Distribute to Departments"}
-        </button>}
-      </div>}
-
-      {/* ─── DEPARTMANLAR TAB ─── */}
-      {detailTab==="depts"&&<div>
-        {Object.keys(deptTasks).length===0&&totalItems===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
-          {lang==="tr"?"Henüz departman görevi yok.":"No department tasks yet."}
-        </div>}
-        {Object.keys(deptTasks).length>0&&DEPARTMENTS.filter(d=>deptTasks[d.id]?.length>0).map(d=>(
-          <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
-            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:8}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
-            {deptTasks[d.id].map((task,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<deptTasks[d.id].length-1?`1px dashed ${t.border}`:"none"}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,color:t.text,lineHeight:1.4}}>{task.name}</div>
-                  <div style={{fontSize:10,color:t.tm,marginTop:1}}>{task.session}{task.time?" · "+task.time:""}</div>
-                </div>
-                {task.allergens.length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0,marginTop:2}}>
-                  {task.allergens.map((a,j)=>(
-                    <span key={j} title={a} style={{fontSize:10,background:t.bg,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{allergenLabel(a)}</span>
-                  ))}
-                </div>}
-              </div>
-            ))}
-          </div>
-        ))}
-        {Object.keys(deptTasks).length===0&&totalItems>0&&DEPARTMENTS.filter(d=>(selectedEvent.departments?.[d.id]||[]).length>0).map(d=>{
-          const items=selectedEvent.departments[d.id]||[];
-          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
-            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
-            {items.map((item,i)=><div key={i} style={{fontSize:12,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
-          </div>;
-        })}
-        {totalItems>0&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("s",t),width:"100%",marginTop:6,fontSize:13}}>
-          📤 {lang==="tr"?"Yeniden Dağıt":"Redistribute"}
-        </button>}
-      </div>}
-
-      {/* ─── BEO TAB ─── */}
-      {detailTab==="beo"&&<div>
-        <div style={{marginBottom:14}}>
-          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Etkinlik Bilgileri":"Event Information"}</div>
-          {[
-            ["Contract no",selectedEvent.contract_no?"#"+selectedEvent.contract_no:""],
-            [lang==="tr"?"Müşteri":"Client",selectedEvent.account_name],
-            [lang==="tr"?"Yetkili":"Contact",selectedEvent.contact_name?selectedEvent.contact_name+(selectedEvent.contact_phone?" — "+selectedEvent.contact_phone:""):selectedEvent.contact_phone],
-            ["Conf. Manager",selectedEvent.conf_manager],
-            [lang==="tr"?"Statüs":"Status",selectedEvent.status]
-          ].filter(r=>r[1]).map((r,i)=>(
-            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${t.border}`}}>
-              <span style={{color:t.tm}}>{r[0]}</span>
-              <span style={{color:t.text,fontWeight:500,textAlign:"right",maxWidth:"65%"}}>{r[1]}</span>
-            </div>
-          ))}
-        </div>
-        {(selectedEvent.total_amount||selectedEvent.price_per_person)&&<div style={{marginBottom:14}}>
-          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Muhasebe":"Billing"}</div>
-          <div style={{...cSt(t),padding:"10px 12px",background:t.bg}}>
-            {selectedEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
-              <span>{lang==="tr"?"Kişi başı":"Per person"}</span>
-              <span>{selectedEvent.currency||"EUR"} {selectedEvent.price_per_person}</span>
-            </div>}
-            {selectedEvent.pax&&selectedEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
-              <span>{selectedEvent.pax} pax × {selectedEvent.price_per_person}</span>
-              <span>{selectedEvent.currency||"EUR"} {(selectedEvent.pax*selectedEvent.price_per_person).toFixed(2)}</span>
-            </div>}
-            {selectedEvent.total_amount&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700,color:t.text,paddingTop:8,borderTop:`1px solid ${t.border}`,marginTop:4}}>
-              <span>{lang==="tr"?"Toplam":"Total"} (+KDV %{selectedEvent.vat_rate||20})</span>
-              <span>{selectedEvent.currency||"EUR"} {selectedEvent.total_amount}</span>
-            </div>}
-          </div>
-        </div>}
-        {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
-          📄 {lang==="tr"?"Orijinal BEO PDF'ini Aç":"Open Original BEO PDF"}
-        </button>}
-        {selectedEvent.notes&&<div style={{...cSt(t),padding:"10px 12px",marginTop:8}}>
-          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Notlar":"Notes"}</div>
-          <div style={{fontSize:12,color:t.text,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{selectedEvent.notes}</div>
-        </div>}
-      </div>}
-    </div>;
-  }
-
-  // ── List view ──
-  return <div style={{padding:"12px 14px",paddingBottom:60}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-      <div>
-        <div style={{fontSize:18,fontWeight:700,color:t.text,fontFamily:"'Fraunces',serif"}}>🎉 {lang==="tr"?"Etkinlikler":"Events"}</div>
-        <div style={{fontSize:11,color:t.tm,marginTop:2}}>{lang==="tr"?"BEO yükle, AI departmanlara dağıtsın":"Upload BEO, AI distributes to departments"}</div>
-      </div>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>{setShowManual(true);setManualPreview(null);}} style={{...bSt("s",t),padding:"8px 12px",fontSize:13,display:"flex",alignItems:"center",gap:4}}>
-          ✍️ {lang==="tr"?"Manuel":"Manual"}
-        </button>
-        <label style={{...bSt("p",t),padding:"8px 14px",fontSize:13,cursor:parsing?"wait":"pointer",opacity:parsing?0.6:1,display:"flex",alignItems:"center",gap:6}}>
-          {parsing?"⏳":"📄+"} {parsing?(parseProgress||"..."):(lang==="tr"?"PDF":"PDF")}
-          <input type="file" accept=".pdf" disabled={parsing} style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)handleUpload(f);e.target.value="";}}/>
-        </label>
-      </div>
-    </div>
-
-    {error&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:"#fee",border:"1px solid #fbb",color:"#900"}}>
-      ⚠️ {error}
-    </div>}
-
-    {parsing&&<div style={{...cSt(t),padding:"14px",marginBottom:12,background:t.accent+"15",border:`1px dashed ${t.accent}`}}>
-      <div style={{fontSize:13,fontWeight:600,color:t.accent,marginBottom:4}}>🤖 {lang==="tr"?"AI Analiz Ediyor":"AI Analyzing"}</div>
-      <div style={{fontSize:11,color:t.tm}}>{parseProgress}</div>
-    </div>}
-
-    {loading?<div style={{padding:30,textAlign:"center",color:t.tm}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>:
-     events.length===0?<div style={{padding:40,textAlign:"center"}}>
-      <div style={{fontSize:48,marginBottom:12,opacity:0.3}}>📭</div>
-      <div style={{fontSize:13,color:t.tm}}>{lang==="tr"?"Henüz etkinlik yok. PDF yükle veya manuel ekle.":"No events yet. Upload a PDF or add manually."}</div>
-    </div>:events.map(ev=>{
-      const dateStr=ev.event_date?new Date(ev.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short",year:"numeric"}):"";
-      const deptCount=Object.keys(ev.departments||{}).filter(k=>ev.departments[k]?.length).length;
-      const totalItems=Object.values(ev.departments||{}).reduce((sum,arr)=>sum+(arr?.length||0),0);
-      const isPast=ev.event_date&&new Date(ev.event_date)<new Date(new Date().toDateString());
-      const photoCount=Object.values(ev.session_photos||{}).reduce((s,a)=>s+(a?.length||0),0);
-      return <div key={ev.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,opacity:isPast?0.6:1,cursor:"pointer"}}
-        onClick={()=>{setSelectedEvent(ev);setShowEdit(false);setDetailTab("timeline");setExpandedSessions({});}}>
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.name}</div>
-            <div style={{fontSize:10,color:t.tm,display:"flex",gap:8,flexWrap:"wrap"}}>
-              {dateStr&&<span>📅 {dateStr}</span>}
-              {ev.start_time&&<span>🕐 {ev.start_time}</span>}
-              {ev.pax&&<span>👥 {ev.pax} pax</span>}
-              {ev.location&&<span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:140}}>📍 {ev.location}</span>}
-            </div>
-            <div style={{display:"flex",gap:10,marginTop:6,fontSize:10,color:t.accent,fontWeight:600}}>
-              <span>🏢 {deptCount} {lang==="tr"?"dept":"depts"} · {totalItems} {lang==="tr"?"görev":"tasks"}</span>
-              {photoCount>0&&<span style={{color:t.tm}}>📷 {photoCount}</span>}
-            </div>
-          </div>
-          <button onClick={e=>{e.stopPropagation();deleteEvent(ev.id);}} style={{...bSt("d",t),padding:"4px 8px",fontSize:11}}>✕</button>
-        </div>
-      </div>;
-    })}
-
-    {/* Manuel Modal */}
-    {showManual&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowManual(false);}}>
-      <div style={{background:t.bg,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",padding:"16px 14px calc(20px + env(safe-area-inset-bottom))"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontSize:16,fontWeight:700,color:t.text,fontFamily:"'Fraunces',serif"}}>{manualPreview?(lang==="tr"?"Önizleme — Düzenle":"Preview — Edit"):(lang==="tr"?"Manuel Etkinlik":"Manual Event")}</div>
-          <button onClick={()=>{setShowManual(false);setManualPreview(null);}} style={{background:"none",border:"none",fontSize:22,color:t.tm,cursor:"pointer",padding:"0 6px"}}>✕</button>
-        </div>
-
-        {!manualPreview?<>
-          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
-            <input style={iSt(t)} placeholder={lang==="tr"?"Etkinlik adı *":"Event name *"} value={manualForm.name} onChange={e=>setManualForm(f=>({...f,name:e.target.value}))}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-              <input style={iSt(t)} type="date" value={manualForm.event_date} onChange={e=>setManualForm(f=>({...f,event_date:e.target.value}))}/>
-              <input style={iSt(t)} type="time" value={manualForm.start_time} onChange={e=>setManualForm(f=>({...f,start_time:e.target.value}))}/>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:6}}>
-              <input style={iSt(t)} type="number" placeholder={lang==="tr"?"Kişi (pax)":"Pax"} value={manualForm.pax} onChange={e=>setManualForm(f=>({...f,pax:e.target.value}))}/>
-              <input style={iSt(t)} placeholder={lang==="tr"?"Lokasyon":"Location"} value={manualForm.location} onChange={e=>setManualForm(f=>({...f,location:e.target.value}))}/>
-            </div>
-            <textarea style={{...iSt(t),minHeight:60,resize:"vertical"}} placeholder={lang==="tr"?"Notlar (opsiyonel)":"Notes (optional)"} value={manualForm.notes} onChange={e=>setManualForm(f=>({...f,notes:e.target.value}))}/>
-            <div>
-              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>🍽 {lang==="tr"?"MENÜ KALEMLERİ (her satıra bir kalem)":"MENU ITEMS (one per line)"}</div>
-              <textarea style={{...iSt(t),minHeight:120,resize:"vertical",fontFamily:"monospace",fontSize:13}} placeholder={lang==="tr"?"Domates çorbası\nLevrek ızgara\nCrème brûlée":"Tomato soup\nGrilled sea bass\nCrème brûlée"} value={manualForm.items} onChange={e=>setManualForm(f=>({...f,items:e.target.value}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>📷 {lang==="tr"?"FOTOĞRAFLAR (opsiyonel, max 5)":"PHOTOS (optional, max 5)"}</div>
-              {manualForm.photos.length>0&&<div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
-                {manualForm.photos.map((p,i)=><div key={i} style={{position:"relative",width:60,height:60}}>
-                  <img src={p} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8,border:`1px solid ${t.border}`}}/>
-                  <button onClick={()=>setManualForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:10,background:t.danger||"#dc2626",color:"#fff",border:"none",fontSize:11,cursor:"pointer"}}>✕</button>
-                </div>)}
-              </div>}
-              {manualForm.photos.length<5&&<label style={{...bSt("g",t),fontSize:12,padding:"8px 12px",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
-                + {lang==="tr"?"Foto Ekle":"Add Photo"}
-                <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)handleManualPhoto(f);e.target.value="";}}/>
-              </label>}
-            </div>
-          </div>
-          <button onClick={aiDistributeManual} disabled={manualBusy} style={{...bSt("p",t),width:"100%",padding:"12px",fontSize:14,fontWeight:700,opacity:manualBusy?0.6:1}}>
-            {manualBusy?"🤖 "+(lang==="tr"?"AI Dağıtıyor...":"AI Distributing..."):"🤖 "+(lang==="tr"?"AI ile Departmanlara Ata":"AI Distribute to Departments")}
-          </button>
-        </>:<>
-          <div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.acB,borderColor:t.accent}}>
-            <div style={{fontSize:14,fontWeight:700,color:t.text}}>{manualPreview.name}</div>
-            <div style={{fontSize:11,color:t.tm,marginTop:2}}>
-              {manualPreview.event_date&&<>📅 {manualPreview.event_date} </>}
-              {manualPreview.start_time&&<>🕐 {manualPreview.start_time} </>}
-              {manualPreview.pax&&<>👥 {manualPreview.pax} pax </>}
-              {manualPreview.location&&<>📍 {manualPreview.location}</>}
-            </div>
-          </div>
-          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🏢 {lang==="tr"?"DEPARTMAN ATAMASI (yanlışsa düzenle)":"DEPARTMENT ASSIGNMENT (edit if wrong)"}</div>
-          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
-            {Object.entries(manualPreview.departments).map(([deptId,items])=>{
-              const dept=DEPARTMENTS.find(d=>d.id===deptId);
-              return (items||[]).map((item,idx)=><div key={`${deptId}-${idx}`} style={{display:"flex",gap:6,alignItems:"center",background:t.inBg,padding:"6px 10px",borderRadius:8}}>
-                <span style={{flex:1,fontSize:12,color:t.text}}>{item}</span>
-                <select value={deptId} onChange={e=>{
-                  const newDept=e.target.value;
-                  if(newDept===deptId)return;
-                  setManualPreview(p=>{
-                    const newDepts={...p.departments};
-                    newDepts[deptId]=(newDepts[deptId]||[]).filter((_,i)=>i!==idx);
-                    if(!newDepts[deptId].length)delete newDepts[deptId];
-                    newDepts[newDept]=[...(newDepts[newDept]||[]),item];
-                    return{...p,departments:newDepts};
-                  });
-                }} style={{...iSt(t),fontSize:11,padding:"4px 8px",width:130}}>
-                  {DEPARTMENTS.map(d=><option key={d.id} value={d.id}>{d.icon} {lang==="tr"?d.tr:d.en}</option>)}
-                </select>
-                <button onClick={()=>setManualPreview(p=>{
-                  const newDepts={...p.departments};
-                  newDepts[deptId]=(newDepts[deptId]||[]).filter((_,i)=>i!==idx);
-                  if(!newDepts[deptId].length)delete newDepts[deptId];
-                  return{...p,departments:newDepts};
-                })} style={{background:"none",border:"none",color:t.danger||"#dc2626",cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
-              </div>);
-            })}
-          </div>
-          <div style={{display:"flex",gap:6}}>
-            <button onClick={()=>setManualPreview(null)} style={{...bSt("g",t),flex:1,fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
-            <button onClick={saveManualEvent} style={{...bSt("p",t),flex:2,fontSize:13,fontWeight:700}}>✓ {lang==="tr"?"Kaydet":"Save"}</button>
-          </div>
-        </>}
-      </div>
-    </div>}
-  </div>;
-};
-// ═══ SHIFT TAB ═══
-// ═══ TATİL HELPERS (date-holidays paketi) ═══
+// ═══ TATİL HELPERS ═══
 const _hdCache={};
 const getHolidaysForCountry=(country="TR",year)=>{
   const key=`${country}-${year}`;
@@ -7721,10 +7476,8 @@ const getHolidaysForCountry=(country="TR",year)=>{
     const result={};
     list.forEach(h=>{
       if(h.type==="public"){
-        // date-holidays "YYYY-MM-DD HH:MM:SS" formatında veriyor, ilk 10 karakteri al (saat dilimi dönüşümü olmasın)
         const dStr=String(h.date).slice(0,10);
         result[dStr]=h.name||"Holiday";
-        // Ramazan Bayramı sadece 1. günü veriyor, +2 gün ekleyelim (toplam 3 gün)
         const nm=(h.name||"").toLowerCase();
         if(nm.includes("ramazan")||nm.includes("eid al-fitr")||nm.includes("ramadan")){
           for(let i=1;i<=2;i++){
@@ -7734,7 +7487,6 @@ const getHolidaysForCountry=(country="TR",year)=>{
             result[next]=(h.name||"Eid")+` (${i+1}. gün)`;
           }
         }
-        // Kurban Bayramı sadece 1. günü veriyor, +3 gün ekleyelim (toplam 4 gün)
         if(nm.includes("kurban")||nm.includes("eid al-adha")||nm.includes("eid al adha")){
           for(let i=1;i<=3;i++){
             const d=new Date(dStr+"T12:00:00");
@@ -7747,72 +7499,41 @@ const getHolidaysForCountry=(country="TR",year)=>{
     });
     _hdCache[key]=result;
     return result;
-  }catch(e){
-    console.warn("Tatil verisi alınamadı:",country,e.message);
-    return {};
-  }
+  }catch(e){return {};}
 };
-// Geri uyumluluk için (eski kod hala kullanıyor olabilir)
 const getTurkishHolidays=(year)=>getHolidaysForCountry("TR",year);
-
-// Ülkeye göre hafta sonu günleri (0=Paz, 6=Cmt)
 const getWeekendDays=(country="TR")=>{
-  const fridayCountries=["SA","AE","BH","KW","OM","QA","YE","DZ","EG","IQ","JO","LY","SY","SD"];
   const israelLike=["IL"];
-  if(israelLike.includes(country))return[5,6]; // Cuma, Cumartesi
-  if(fridayCountries.includes(country))return[5,6]; // Cuma, Cumartesi
-  return[0,6]; // Pazar, Cumartesi (varsayılan)
+  const fridayCountries=["SA","AE","BH","KW","OM","QA","YE","DZ","EG","IQ","JO","LY","SY","SD"];
+  if(israelLike.includes(country))return[5,6];
+  if(fridayCountries.includes(country))return[5,6];
+  return[0,6];
 };
-
-// Ülkeye göre default yıllık izin
 const getDefaultAnnualLeave=(country="TR")=>{
   const map={TR:14,DE:20,FR:25,GB:28,US:10,IT:20,ES:22,NL:20,BE:20,AT:25,CH:20,PL:20,AU:20,JP:10,CA:10,SE:25,NO:25,DK:25,FI:25};
   return map[country]||14;
 };
-
-// Yaygın ülke listesi (dropdown için)
 const COMMON_COUNTRIES=[
-  {code:"TR",name:"Türkiye",flag:"🇹🇷"},
-  {code:"DE",name:"Deutschland",flag:"🇩🇪"},
-  {code:"FR",name:"France",flag:"🇫🇷"},
-  {code:"GB",name:"United Kingdom",flag:"🇬🇧"},
-  {code:"US",name:"United States",flag:"🇺🇸"},
-  {code:"IT",name:"Italia",flag:"🇮🇹"},
-  {code:"ES",name:"España",flag:"🇪🇸"},
-  {code:"NL",name:"Nederland",flag:"🇳🇱"},
-  {code:"BE",name:"België",flag:"🇧🇪"},
-  {code:"AT",name:"Österreich",flag:"🇦🇹"},
-  {code:"CH",name:"Schweiz",flag:"🇨🇭"},
-  {code:"PL",name:"Polska",flag:"🇵🇱"},
-  {code:"SE",name:"Sverige",flag:"🇸🇪"},
-  {code:"NO",name:"Norge",flag:"🇳🇴"},
-  {code:"DK",name:"Danmark",flag:"🇩🇰"},
-  {code:"FI",name:"Suomi",flag:"🇫🇮"},
-  {code:"GR",name:"Ελλάδα",flag:"🇬🇷"},
-  {code:"PT",name:"Portugal",flag:"🇵🇹"},
-  {code:"IE",name:"Ireland",flag:"🇮🇪"},
-  {code:"CZ",name:"Česko",flag:"🇨🇿"},
-  {code:"HU",name:"Magyarország",flag:"🇭🇺"},
-  {code:"RO",name:"România",flag:"🇷🇴"},
-  {code:"RU",name:"Россия",flag:"🇷🇺"},
-  {code:"UA",name:"Україна",flag:"🇺🇦"},
-  {code:"US",name:"United States",flag:"🇺🇸"},
-  {code:"CA",name:"Canada",flag:"🇨🇦"},
-  {code:"MX",name:"México",flag:"🇲🇽"},
-  {code:"BR",name:"Brasil",flag:"🇧🇷"},
-  {code:"AR",name:"Argentina",flag:"🇦🇷"},
-  {code:"AU",name:"Australia",flag:"🇦🇺"},
-  {code:"NZ",name:"New Zealand",flag:"🇳🇿"},
-  {code:"JP",name:"日本",flag:"🇯🇵"},
-  {code:"KR",name:"한국",flag:"🇰🇷"},
-  {code:"CN",name:"中国",flag:"🇨🇳"},
-  {code:"IN",name:"भारत",flag:"🇮🇳"},
-  {code:"AE",name:"الإمارات",flag:"🇦🇪"},
-  {code:"SA",name:"السعودية",flag:"🇸🇦"},
-  {code:"IL",name:"ישראל",flag:"🇮🇱"},
-  {code:"EG",name:"مصر",flag:"🇪🇬"},
-  {code:"ZA",name:"South Africa",flag:"🇿🇦"},
-  {code:"NG",name:"Nigeria",flag:"🇳🇬"}
+  {code:"TR",name:"Türkiye",flag:"🇹🇷"},{code:"DE",name:"Deutschland",flag:"🇩🇪"},
+  {code:"FR",name:"France",flag:"🇫🇷"},{code:"GB",name:"United Kingdom",flag:"🇬🇧"},
+  {code:"US",name:"United States",flag:"🇺🇸"},{code:"IT",name:"Italia",flag:"🇮🇹"},
+  {code:"ES",name:"España",flag:"🇪🇸"},{code:"NL",name:"Nederland",flag:"🇳🇱"},
+  {code:"BE",name:"België",flag:"🇧🇪"},{code:"AT",name:"Österreich",flag:"🇦🇹"},
+  {code:"CH",name:"Schweiz",flag:"🇨🇭"},{code:"PL",name:"Polska",flag:"🇵🇱"},
+  {code:"SE",name:"Sverige",flag:"🇸🇪"},{code:"NO",name:"Norge",flag:"🇳🇴"},
+  {code:"DK",name:"Danmark",flag:"🇩🇰"},{code:"FI",name:"Suomi",flag:"🇫🇮"},
+  {code:"GR",name:"Ελλάδα",flag:"🇬🇷"},{code:"PT",name:"Portugal",flag:"🇵🇹"},
+  {code:"IE",name:"Ireland",flag:"🇮🇪"},{code:"CZ",name:"Česko",flag:"🇨🇿"},
+  {code:"HU",name:"Magyarország",flag:"🇭🇺"},{code:"RO",name:"România",flag:"🇷🇴"},
+  {code:"RU",name:"Россия",flag:"🇷🇺"},{code:"UA",name:"Україна",flag:"🇺🇦"},
+  {code:"CA",name:"Canada",flag:"🇨🇦"},{code:"MX",name:"México",flag:"🇲🇽"},
+  {code:"BR",name:"Brasil",flag:"🇧🇷"},{code:"AR",name:"Argentina",flag:"🇦🇷"},
+  {code:"AU",name:"Australia",flag:"🇦🇺"},{code:"NZ",name:"New Zealand",flag:"🇳🇿"},
+  {code:"JP",name:"日本",flag:"🇯🇵"},{code:"KR",name:"한국",flag:"🇰🇷"},
+  {code:"CN",name:"中国",flag:"🇨🇳"},{code:"IN",name:"भारत",flag:"🇮🇳"},
+  {code:"AE",name:"الإمارات",flag:"🇦🇪"},{code:"SA",name:"السعودية",flag:"🇸🇦"},
+  {code:"IL",name:"ישראל",flag:"🇮🇱"},{code:"EG",name:"مصر",flag:"🇪🇬"},
+  {code:"ZA",name:"South Africa",flag:"🇿🇦"}
 ];
 
 // ═══ SHIFT TAB v2 (Sıfırdan, AI tabanlı) ═══
@@ -7974,7 +7695,7 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
     if(memberType==="real")delQ=delQ.eq("created_by",memberId);
     else delQ=delQ.eq("phantom_member_id",memberId);
     await delQ;
-    // type "delete" ise sadece sil, kayıt ekleme (hücre tamamen boş kalır)
+    // type "delete" ise sadece sil, kayıt ekleme
     if(type==="delete"){
       const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
       if(data)setShifts(data);
@@ -7994,7 +7715,6 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
     };
     const{error}=await sb.from("shifts").insert(payload);
     if(error){window.toast.error(error.message);return false;}
-    // Refresh
     const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
     if(data)setShifts(data);
     return true;
@@ -8097,7 +7817,7 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
     }
     if(newPhantoms.length>0&&setPhantomMembers){
       setPhantomMembers(prev=>[...prev,...newPhantoms]);
-      LS.set("kmp_phantom_members",[...phantomMembers,...newPhantoms]);
+      LS.set("kmc_phantom_members",[...phantomMembers,...newPhantoms]);
     }
     const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
     if(data)setShifts(data);
@@ -8457,7 +8177,7 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
           </div>
         </>:<button onClick={()=>setCellEdit({...cellEdit,showMore:true})} style={{...bSt("s",t),width:"100%",fontSize:11,padding:"6px",marginBottom:8,color:t.tm}}>+ {lang==="tr"?"Diğer izin tipleri":"More leave types"}</button>}
         
-        {/* En altta: Sil (sadece mevcut vardiya varsa) ve İptal */}
+        {/* En altta: Sil ve İptal */}
         <div style={{display:"flex",gap:8}}>
           {cellEdit.existing&&<button onClick={async()=>{
             const ok=await saveCell({...cellEdit,type:"delete",name:cellEdit.memberName});
@@ -8482,7 +8202,7 @@ const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>
 };
 
 
-// ═══ KANBAN TAB ═══
+
 // ═══ HIZLI VARDİYA ŞABLONLARI ═══
 const JoinRequestsCard=({team,user,t})=>{
   const lang=t.lang;
@@ -8510,7 +8230,6 @@ const JoinRequestsCard=({team,user,t})=>{
   
   const approve=async(req)=>{
     const sb=initSupabase();if(!sb)return;
-    // 1. team_members'a ekle
     const{error:me}=await sb.from("team_members").insert({
       team_id:team.id,
       user_id:req.user_id,
@@ -8519,7 +8238,6 @@ const JoinRequestsCard=({team,user,t})=>{
       position:req.user_name
     });
     if(me){window.toast?.error(me.message);return;}
-    // 2. İsteği approved yap
     await sb.from("team_join_requests").update({
       status:"approved",
       decided_by:user?.userId,
@@ -8583,7 +8301,7 @@ const ShiftPresetsCard=({team,setTeam,t,lang})=>{
     if(error){window.toast.error(error.message);return;}
     setPresets(list);
     setTeam({...team,shift_presets:list});
-    LS.set("kmp_team",{...team,shift_presets:list});
+    LS.set("kmc_team",{...team,shift_presets:list});
   };
 
   return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
@@ -8648,7 +8366,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
     }).select().single();
     if(error){window.toast.error(error.message);return;}
     setPhantomMembers(prev=>[...prev,data]);
-    LS.set("kmp_phantom_members",[...phantomMembers,data]);
+    LS.set("kmc_phantom_members",[...phantomMembers,data]);
     setNewPhantom({name:"",position:"",department:"",email:"",phone:""});
     setShowAdd(false);
     window.toast.success(lang==="tr"?"✓ Üye eklendi":"✓ Member added");
@@ -8660,7 +8378,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
     const{error}=await sb.from("team_phantom_members").delete().eq("id",p.id);
     if(error){window.toast.error(error.message);return;}
     setPhantomMembers(prev=>prev.filter(x=>x.id!==p.id));
-    LS.set("kmp_phantom_members",phantomMembers.filter(x=>x.id!==p.id));
+    LS.set("kmc_phantom_members",phantomMembers.filter(x=>x.id!==p.id));
     window.toast.success(lang==="tr"?"Silindi":"Deleted");
   };
 
@@ -8672,7 +8390,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
       const{error}=await sb.from("team_phantom_members").update({annual_leave_total:val}).eq("id",m._id);
       if(error){window.toast.error(error.message);return;}
       setPhantomMembers(prev=>prev.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
-      LS.set("kmp_phantom_members",phantomMembers.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
+      LS.set("kmc_phantom_members",phantomMembers.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
     }else{
       const{error}=await sb.from("team_members").update({annual_leave_total:val}).eq("team_id",team.id).eq("user_id",m._id);
       if(error){window.toast.error(error.message);return;}
@@ -8690,7 +8408,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
     const{data,error}=await sb.from("team_phantom_members").update({invite_token:token,invite_created_at:new Date().toISOString()}).eq("id",p.id).select().single();
     if(error){window.toast.error(error.message);return;}
     setPhantomMembers(prev=>prev.map(x=>x.id===p.id?data:x));
-    LS.set("kmp_phantom_members",phantomMembers.map(x=>x.id===p.id?data:x));
+    LS.set("kmc_phantom_members",phantomMembers.map(x=>x.id===p.id?data:x));
     setInviteFor(data);
   };
 
@@ -8804,6 +8522,7 @@ const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,
   </div>;
 };
 
+// ═══ KANBAN TAB ═══
 const ChildTeamsSection=({teamId,t,lang})=>{
   const[children,setChildren]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -8820,8 +8539,8 @@ const ChildTeamsSection=({teamId,t,lang})=>{
       const newStats={};
       await Promise.all(list.map(async(child)=>{
         const[stockRes,prodRes,membersRes]=await Promise.all([
-          sb.from("stock").select("*").eq("team_id",child.id),
-          sb.from("productions").select("*").eq("team_id",child.id),
+          sb.from("team_stock").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_productions").select("data").eq("team_id",child.id).maybeSingle(),
           sb.from("team_members").select("id").eq("team_id",child.id),
         ]);
         const stock=Array.isArray(stockRes?.data?.data)?stockRes.data.data:[];
@@ -8906,21 +8625,14 @@ const HubTab=({team,user,t})=>{
       const data={};
       await Promise.all(teams.map(async(child)=>{
         const[stockRes,prodRes,membersRes]=await Promise.all([
-          sb.from("stock").select("*").eq("team_id",child.id),
-          sb.from("productions").select("*").eq("team_id",child.id),
-          sb.from("team_members").select("user_id,position,role").eq("team_id",child.id),
+          sb.from("team_stock").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_productions").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_members").select("user_id,name,role").eq("team_id",child.id),
         ]);
-        const memberData=membersRes?.data||[];
-        const uids=memberData.map(m=>m.user_id);
-        let profileMap={};
-        if(uids.length>0){
-          const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
-          (profs||[]).forEach(p=>{profileMap[p.id]=p.full_name||p.email?.split("@")[0]||p.id;});
-        }
         data[child.id]={
-          stock:stockRes?.data||[],
-          productions:prodRes?.data||[],
-          members:memberData.map(m=>({...m,name:profileMap[m.user_id]||m.position||m.user_id})),
+          stock:Array.isArray(stockRes?.data?.data)?stockRes.data.data:[],
+          productions:Array.isArray(prodRes?.data?.data)?prodRes.data.data:[],
+          members:membersRes?.data||[],
         };
       }));
       setAllData(data);
@@ -9353,7 +9065,6 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
             <button onClick={()=>toggleCheckItem(card,i)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${item.done?t.accent:t.inBo}`,background:item.done?t.accent:"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11}}>{item.done?"✓":""}</button>
             <span style={{flex:1,fontSize:13,color:t.text,textDecoration:item.done?"line-through":"none",opacity:item.done?0.6:1}}>{item.text}</span>
             {canEdit&&<button onClick={()=>deleteCheckItem(card,i)} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:14}}>×</button>}
-            {isAssigned&&!item.done&&<button onClick={()=>toggleCheckItem(card,i)} style={{fontSize:10,background:t.accent+"22",color:t.accent,border:"none",borderRadius:4,padding:"2px 6px",cursor:"pointer"}}>✓</button>}
           </div>)}
           {canEdit&&<div style={{display:"flex",gap:6,marginTop:8}}>
             <input style={{...iSt(t),flex:1,fontSize:13}} placeholder={lang==="tr"?"Madde ekle...":"Add item..."} value={checkInput} onChange={e=>setCheckInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){addCheckItem(card,checkInput);setCheckInput("");}}}/>
@@ -9372,16 +9083,7 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
                 {(c.by===myUid||canManage)&&<button onClick={()=>deleteComment(card,i)} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:12}}>×</button>}
               </div>
             </div>
-            {c.isProgress&&<span style={{fontSize:10,background:t.accent+"22",color:t.accent,padding:"2px 6px",borderRadius:4,marginBottom:4,display:"inline-block"}}>📝 {lang==="tr"?"İlerleme":"Progress"}</span>}
-            {c.text&&<div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{c.text}</div>}
-            {c.attachment&&<div style={{marginTop:6}}>
-              {isImage(c.attachment.ext)?
-                <img src={c.attachment.url} style={{maxWidth:"100%",maxHeight:200,borderRadius:8,display:"block"}} alt={c.attachment.name} onClick={()=>window.open(c.attachment.url,"_blank")}/>:
-                <a href={c.attachment.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",background:t.bg,borderRadius:6,fontSize:12,color:t.accent,textDecoration:"none"}}>
-                  {isPDF(c.attachment.ext)?"📄":"📎"} {c.attachment.name}
-                </a>
-              }
-            </div>}
+            <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{c.text}</div>
           </div>)}
           <div style={{display:"flex",gap:6,marginTop:8}}>
             <input style={{...iSt(t),flex:1,fontSize:13}} placeholder={lang==="tr"?"Yorum yaz...":"Add comment..."} value={newComment} onChange={e=>setNewComment(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){addComment(card);}}}/>
@@ -9392,7 +9094,6 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
         {/* Aksiyonlar */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {canEdit&&<button onClick={()=>{setEditCard(card);onClose();}} style={{...bSt("s",t),flex:1,fontSize:13}}>✏️ {lang==="tr"?"Düzenle":"Edit"}</button>}
-          {isAssigned&&!canEdit&&<button onClick={()=>{setProgressCard(card);setShowProgress(true);onClose();}} style={{...bSt("p",t),flex:1,fontSize:13}}>📝 {lang==="tr"?"İlerleme Ekle":"Add Progress"}</button>}
           {COLS.filter(c=>c.id!==card.col).map(c=><button key={c.id} onClick={()=>{moveCard(card.id,c.id);onClose();}} style={{...bSt("s",t),flex:1,fontSize:12}}>{c.icon} {colLabel(c)}</button>)}
           {(canManage||card.created_by===myUid)&&<button onClick={()=>deleteCard(card.id,card)} style={{...bSt("s",t),flex:1,fontSize:13,color:t.danger}}>🗑</button>}
         </div>
@@ -9400,89 +9101,7 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
     </div>;
   };
 
-  // İlerleme modalı
-  const ProgressModal=()=>{
-    if(!showProgress||!progressCard)return null;
-    const fileRef=React.useRef(null);
-    const addProgress=async()=>{
-      if(!progressNote.trim()&&!progressCard._pendingFile)return;
-      setProgressUploading(true);
-      try{
-        let attachment=null;
-        if(progressCard._pendingFile){
-          const f=progressCard._pendingFile;
-          const uploaded=await uploadFile(f,team.id,"kanban");
-          attachment={url:uploaded.url,path:uploaded.path,name:uploaded.name,type:uploaded.type,ext:uploaded.ext};
-        }
-        const comment={
-          id:Date.now().toString(),
-          by:myUid,
-          name:myName,
-          text:progressNote.trim()||"",
-          at:new Date().toISOString(),
-          isProgress:true,
-          attachment
-        };
-        const updated={...progressCard,comments:[...(progressCard.comments||[]),comment]};
-        await updateCard(progressCard.id,{comments:updated.comments});
-        setCards(p=>p.map(c=>c.id===progressCard.id?updated:c));
-        setProgressNote("");
-        setProgressCard(c=>({...c,_pendingFile:null}));
-        setShowProgress(false);
-        window.toast.success(lang==="tr"?"İlerleme eklendi":"Progress added");
-      }catch(e){window.toast.error(e.message);}
-      setProgressUploading(false);
-    };
-    return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:400,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget){setShowProgress(false);}}}>
-      <div style={{...cSt(t),width:"100%",maxWidth:520,borderRadius:"20px 20px 0 0",padding:"20px 18px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <strong style={{fontSize:16,color:t.text}}>📝 {lang==="tr"?"İlerleme Ekle":"Add Progress"}</strong>
-          <button onClick={()=>setShowProgress(false)} style={{background:"none",border:"none",fontSize:22,color:t.tm,cursor:"pointer"}}>×</button>
-        </div>
-        <div style={{fontSize:13,color:t.tm,marginBottom:12,padding:"8px 12px",background:t.inBg,borderRadius:8}}>
-          📋 {progressCard.text}
-        </div>
-        <textarea
-          style={{...iSt(t),minHeight:80,resize:"none",marginBottom:10}}
-          placeholder={lang==="tr"?"Not yaz... (fotoğraf veya dosya da ekleyebilirsin)":"Add note... (you can also attach photo or file)"}
-          value={progressNote}
-          onChange={e=>setProgressNote(e.target.value)}
-        />
-        {progressCard._pendingFile&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:t.inBg,borderRadius:8,marginBottom:10}}>
-          {isImage(progressCard._pendingFile.name.split(".").pop())?
-            <img src={URL.createObjectURL(progressCard._pendingFile)} style={{width:48,height:48,objectFit:"cover",borderRadius:6}} alt=""/>:
-            <span style={{fontSize:24}}>{isPDF(progressCard._pendingFile.name.split(".").pop())?"📄":"📎"}</span>
-          }
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:12,fontWeight:600,color:t.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{progressCard._pendingFile.name}</div>
-            <div style={{fontSize:10,color:t.tm}}>{(progressCard._pendingFile.size/1024).toFixed(0)}KB</div>
-          </div>
-          <button onClick={()=>setProgressCard(c=>({...c,_pendingFile:null}))} style={{background:"none",border:"none",color:t.danger,cursor:"pointer",fontSize:16}}>×</button>
-        </div>}
-        <input ref={fileRef} type="file" accept="image/*,video/*,.pdf,.xlsx,.xls,.docx,.txt" style={{display:"none"}} onChange={e=>{
-          const f=e.target.files?.[0];
-          if(f){
-            if(f.size>50*1024*1024){window.toast.error(lang==="tr"?"Dosya 50MB'dan büyük":"File too large (50MB max)");return;}
-            setProgressCard(c=>({...c,_pendingFile:f}));
-          }
-          e.target.value="";
-        }}/>
-        <div style={{display:"flex",gap:8,marginBottom:12}}>
-          <button onClick={()=>fileRef.current?.click()} style={{...bSt("s",t),flex:1,fontSize:13}}>📷 {lang==="tr"?"Fotoğraf/Dosya":"Photo/File"}</button>
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>setShowProgress(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-          <button onClick={addProgress} disabled={progressUploading||(!progressNote.trim()&&!progressCard._pendingFile)} style={{...bSt("p",t),flex:2,opacity:(progressUploading||(!progressNote.trim()&&!progressCard._pendingFile))?0.5:1}}>
-            {progressUploading?"⏳ ":""}
-            {lang==="tr"?"Kaydet":"Save"}
-          </button>
-        </div>
-      </div>
-    </div>;
-  };
-
   return <div style={{maxWidth:"100%"}}>
-    {showProgress&&<ProgressModal/>}
     {/* Başlık */}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
       <h2 style={{fontSize:20,color:t.text,fontFamily:"'Fraunces',serif",margin:0}}>📋 {lang==="tr"?"Görevler":"Tasks"}</h2>
@@ -10069,24 +9688,18 @@ export default function App(){
   const[notifSettings,setNotifSettings]=useState(LS.get(SK.notifSettings,{enabled:true,storageCheck:true,expiredSKT:true,lowStock:true,lotReminder:true}));
   const[calorieDB,setCalorieDB]=useState(LS.get(SK.calorieDB,{}));
   const[printers,setPrinters]=useState(LS.get(SK.printers,[]));
-  const[todos,setTodos]=useState(LS.get("kmp_todos",[]));
-  const[team,setTeam]=useState(LS.get("kmp_team",null));
-  const[teamMembers,setTeamMembers]=useState(()=>{
-    // Eski cache'te UUID varsa temizle, Supabase'den yeniden çekecek
-    const cached=LS.get("kmp_team_members",[]);
-    if(cached.some(m=>m.name&&m.name.length===36&&m.name.includes("-")))return[];
-    return cached;
-  });
+  const[todos,setTodos]=useState(LS.get("kmc_todos",[]));
+  const[team,setTeam]=useState(LS.get("kmc_team",null));
+  const[teamMembers,setTeamMembers]=useState(LS.get("kmc_team_members",[]));
   // Phantom üyeler — uygulamaya kayıtlı olmayan ekip üyeleri
-  const[phantomMembers,setPhantomMembers]=useState(LS.get("kmp_phantom_members",[]));
-  // Phantom üyeleri Supabase'den yükle
+  const[phantomMembers,setPhantomMembers]=useState(LS.get("kmc_phantom_members",[]));
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
     sb.from("team_phantom_members").select("*").eq("team_id",team.id).order("created_at",{ascending:true}).then(({data,error})=>{
       if(!error&&data){
         setPhantomMembers(data);
-        LS.set("kmp_phantom_members",data);
+        LS.set("kmc_phantom_members",data);
       }
     });
   },[team?.id]);
@@ -10109,52 +9722,37 @@ export default function App(){
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
-    // Tüm üyeleri yükle: kendi ekibi + alt ekipler
-    (async()=>{
-      try{
-        // 1. Kendi ekibinin üyeleri
-        const{data:ownMembers}=await sb.from("team_members").select("user_id,role,position").eq("team_id",team.id);
-        // 2. Alt ekiplerin üyeleri
-        const{data:childTeams}=await sb.from("teams").select("id,name").eq("parent_team_id",team.id);
-        let childMembers=[];
-        if(childTeams&&childTeams.length>0){
-          const childIds=childTeams.map(t=>t.id);
-          const{data:cm}=await sb.from("team_members").select("user_id,role,position,team_id").in("team_id",childIds);
-          if(cm)childMembers=cm.map(m=>({...m,teamName:(childTeams.find(t=>t.id===m.team_id)||{}).name||""}));
-        }
-        // 3. Tüm user_id'leri topla, profiles'dan isim çek
-        const allRaw=[...(ownMembers||[]),...childMembers];
-        const allUids=[...new Set(allRaw.map(m=>m.user_id))];
-        const{data:profiles}=await sb.from("profiles").select("id,full_name,email").in("id",allUids);
-        const getName=(uid)=>{const p=(profiles||[]).find(p=>p.id===uid);return p?.full_name||p?.email?.split("@")[0]||uid;};
-        const mapped=allRaw.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position,teamName:m.teamName||""}));
-        setTeamMembers(mapped);
-        LS.set("kmp_team_members",mapped);
-      }catch(e){console.warn("Üye yüklenemedi:",e.message);}
-    })();
-    // Team'in kendisini de doğrula
+    // Team_members'ı yükle
+    sb.from("team_members").select("*").eq("team_id",team.id).then(({data,error})=>{
+      if(error){console.warn("team_members fetch error:",error.message);return;}
+      if(data&&data.length>0)setTeamMembers(data.map(m=>({userId:m.user_id,name:m.position||m.user_id,role:m.role})));
+    });
+    // Team'in kendisini de doğrula — Supabase'den varsa fresh data alalım
     sb.from("teams").select("*").eq("id",team.id).single().then(({data,error})=>{
       if(error){console.warn("team fetch error:",error.message);return;}
       if(data){
+        // Eğer team değişmişse update et
         const updated={...data,role:team.role,inviteCode:data.invite_code};
-        if(JSON.stringify(updated)!==JSON.stringify(team)){setTeam(updated);}
+        if(JSON.stringify(updated)!==JSON.stringify(team)){
+          setTeam(updated);
+        }
       }
     });
   },[team?.id]);
   useEffect(()=>{
-    if(team)LS.set("kmp_team",team);
-    else localStorage.removeItem("kmp_team");
+    if(team)LS.set("kmc_team",team);
+    else localStorage.removeItem("kmc_team");
   },[team]);
   useEffect(()=>{
-    if(teamMembers?.length>0)LS.set("kmp_team_members",teamMembers);
+    if(teamMembers?.length>0)LS.set("kmc_team_members",teamMembers);
   },[teamMembers]);
-  useEffect(()=>{LS.set("kmp_todos",todos)},[todos]);
+  useEffect(()=>{LS.set("kmc_todos",todos)},[todos]);
   // Etiket takip numarası: YYYYMMDD-XXXX formatı, günlük sıfırlanır
   const getLabelSeq=()=>{
     const today=new Date().toISOString().slice(0,10).replace(/-/g,"");
-    const stored=LS.get("kmp_labelseq",{date:"",seq:0});
+    const stored=LS.get("kmc_labelseq",{date:"",seq:0});
     let seq=stored.date===today?stored.seq+1:1;
-    LS.set("kmp_labelseq",{date:today,seq});
+    LS.set("kmc_labelseq",{date:today,seq});
     return `${today}-${String(seq).padStart(4,"0")}`;
   };
   // AUTH
@@ -10172,11 +9770,11 @@ export default function App(){
       try{
         const sb=initSupabase();if(!sb)return;
         // Önce owner olduğu team'i ara
-        let{data:ownTeams}=await sb.from("teams").select("*").eq("owner_id",user.userId).eq("app_type","pro");
+        let{data:ownTeams}=await sb.from("teams").select("*").eq("owner_id",user.userId).eq("app_type","manager");
         let myTeam=null,myRole=null;
         if(ownTeams&&ownTeams.length>0){
           myTeam=ownTeams[0];
-          myRole="pro";
+          myRole="manager";
         }else{
           // Member olduğu team'i ara
           const{data:memberships}=await sb.from("team_members").select("team_id,role,position,department").eq("user_id",user.userId);
@@ -10192,13 +9790,13 @@ export default function App(){
         if(myTeam){
           const teamObj={...myTeam,role:myRole==="manager"||myRole==="pro"?"chef":myRole,inviteCode:myTeam.invite_code};
           setTeam(teamObj);
-          LS.set("kmp_team",teamObj);
+          LS.set("kmc_team",teamObj);
           // Üyeleri yükle
           const{data:members}=await sb.from("team_members").select("user_id,role,position,department").eq("team_id",myTeam.id);
           if(members){
             const memberList=members.map(m=>({userId:m.user_id,name:m.position||"",role:m.role,department:m.department}));
             setTeamMembers(memberList);
-            LS.set("kmp_team_members",memberList);
+            LS.set("kmc_team_members",memberList);
           }
         }
       }catch(e){console.warn("team load:",e.message);}
@@ -10215,7 +9813,7 @@ export default function App(){
       const currentMinutes=now.getHours()*60+now.getMinutes();
       const DAY_MAP={0:"SU",1:"MO",2:"TU",3:"WE",4:"TH",5:"FR",6:"SA"};
       const todayKey=DAY_MAP[now.getDay()];
-      const lastRunKey=`kmp_bot_lastrun_${team.id}`;
+      const lastRunKey=`kmc_bot_lastrun_${team.id}`;
       const lastRun=JSON.parse(localStorage.getItem(lastRunKey)||"{}");
       const currentStock=stockRef.current||[];
       const currentUser=userRef.current;
@@ -10259,8 +9857,8 @@ export default function App(){
     return()=>clearInterval(interval);
   },[team?.id]);
 
-  const[wallpaper,setWallpaper]=useState(localStorage.getItem("kmp_wallpaper")||"default");
-  const[customWP,setCustomWP]=useState(localStorage.getItem("kmp_customwp")||"");
+  const[wallpaper,setWallpaper]=useState(localStorage.getItem("kmc_wallpaper")||"default");
+  const[customWP,setCustomWP]=useState(localStorage.getItem("kmc_customwp")||"");
   // Kullanıcı adı güncelleme — session'dan gerçek isim al
   useEffect(()=>{
     if(!user?.userId)return;
@@ -10270,7 +9868,7 @@ export default function App(){
       const realName=session.user.user_metadata?.name||session.user.user_metadata?.full_name||session.user.email?.split("@")[0];
       if(realName&&realName!==user.name){
         setUser(u=>u?{...u,name:realName}:u);
-        LS.set("kmp_user",{...user,name:realName});
+        LS.set("kmc_user",{...user,name:realName});
       }
     });
   },[user?.userId]);
@@ -10287,62 +9885,8 @@ export default function App(){
       setShowAuth(true);
     }
   },[]);
-  const[authRequired,setAuthRequired]=useState(LS.get("kmp_authrequired",true));
-  useEffect(()=>{LS.set("kmp_authrequired",authRequired)},[authRequired]);
-
-  // ═══ DAVET TOKEN İŞLEME (?invite=xxx&team=yyy) ═══
-  useEffect(()=>{
-    if(!user?.userId)return; // Önce giriş yapması lazım
-    const p=new URLSearchParams(window.location.search);
-    const token=p.get("invite");
-    const inviteTeamId=p.get("team");
-    if(!token||!inviteTeamId)return;
-    
-    (async()=>{
-      const sb=initSupabase();if(!sb)return;
-      try{
-        // Token'la phantom bul
-        const{data:phantom,error}=await sb.from("team_phantom_members").select("*").eq("invite_token",token).eq("team_id",inviteTeamId).maybeSingle();
-        if(error||!phantom){
-          window.toast.error(lang==="tr"?"Geçersiz davet linki":"Invalid invite link");
-          return;
-        }
-        if(phantom.linked_user_id){
-          window.toast.info(lang==="tr"?"Bu davet zaten kullanılmış":"Invite already used");
-          return;
-        }
-        // Phantom'u user'a bağla
-        const{error:upErr}=await sb.from("team_phantom_members").update({
-          linked_user_id:user.userId,
-          linked_at:new Date().toISOString()
-        }).eq("id",phantom.id);
-        if(upErr){window.toast.error(upErr.message);return;}
-        
-        // team_members'a ekle
-        const{data:teamData}=await sb.from("teams").select("*").eq("id",inviteTeamId).maybeSingle();
-        if(teamData){
-          await sb.from("team_members").upsert({
-            team_id:inviteTeamId,
-            user_id:user.userId,
-            role:"member",
-            position:phantom.position||null
-          },{onConflict:"team_id,user_id"});
-          setTeam({...teamData,role:"member",inviteCode:teamData.invite_code});
-          LS.set("kmp_team",{...teamData,role:"member",inviteCode:teamData.invite_code});
-        }
-        // Phantom'un yerini gerçek üye alıyor → vardiyalarını da güncelle
-        await sb.from("shifts").update({created_by:user.userId,phantom_member_id:null}).eq("phantom_member_id",phantom.id);
-        
-        // URL'den token'ı temizle
-        const newUrl=window.location.pathname;
-        window.history.replaceState({},"",newUrl);
-        window.toast.success(lang==="tr"?`✓ ${teamData?.name||"Ekibe"} katıldın!`:`✓ Joined ${teamData?.name||"team"}!`);
-      }catch(e){
-        console.error("Davet işleme hatası:",e);
-        window.toast.error(e.message);
-      }
-    })();
-  },[user?.userId]);
+  const[authRequired,setAuthRequired]=useState(LS.get("kmc_authrequired",true));
+  useEffect(()=>{LS.set("kmc_authrequired",authRequired)},[authRequired]);
 
   // Supabase oturum kontrolü - sayfa açıldığında mevcut oturumu yükle
   useEffect(()=>{
@@ -10362,10 +9906,10 @@ export default function App(){
             const _mTiers=(_memberCheck||[]).map(m=>m.role);
             const _aTiers=[..._mTiers];
             if(_metaT&&!_aTiers.includes(_metaT))_aTiers.push(_metaT);
-            if(_aTiers.length>0&&!_aTiers.includes("pro")){
+            if(_aTiers.length>0&&!_aTiers.includes("manager")){
               await sb.auth.signOut();
-              LS.set("kmp_user",null);
-              LS.set("kmp_team",null);
+              LS.set("kmc_user",null);
+              LS.set("kmc_team",null);
               setUser(null);
               setAuthChecked(true);
               const _other=_aTiers.includes("pro")?"Pro":_aTiers.includes("manager")?"Manager":(_aTiers.includes("worker")?"Çalışan":"");
@@ -10381,40 +9925,12 @@ export default function App(){
             accessToken:data.session.access_token
           };
           setUser(u);
-          LS.set("kmp_user",u);
-          // localStorage'da team yoksa Supabase'den otomatik yükle
-          if(!LS.get("kmp_team",null)){
-            (async()=>{try{
-              const uid=data.session.user.id;
-              let teamData=null;let memberRole="pro";
-              const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).eq("app_type","pro").order("created_at",{ascending:false}).limit(1).single();
-              if(ownedTeam){teamData=ownedTeam;memberRole="pro";}
-              else{
-                const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",uid).order("joined_at",{ascending:false}).limit(1);
-                const membership=members_raw?.[0]||null;
-                if(membership?.team_id){
-                  const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).eq("app_type","pro").single();
-                  if(td){teamData=td;memberRole=membership.role||"pro";}
-                }
-              }
-              if(teamData){
-                const loadedTeam={...teamData,role:memberRole,inviteCode:teamData.invite_code};
-                setTeam(loadedTeam);LS.set("kmp_team",loadedTeam);
-                const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
-                if(members){
-                  const uids=members.map(m=>m.user_id);
-                  const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
-                  const getName=(uid2)=>{const p=(profs||[]).find(p=>p.id===uid2);return p?.full_name||p?.email?.split("@")[0]||uid2;};
-                  setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
-                }
-              }
-            }catch(e){console.warn("Ekip yüklenemedi (session):",e.message);}})();
-          }
+          LS.set("kmc_user",u);
         }
         setAuthChecked(true);
       }).catch(()=>{clearTimeout(_authTimeout);setAuthChecked(true);});
       const{data:listener}=sb.auth.onAuthStateChange((event,session)=>{
-        if(event==="SIGNED_OUT"){setUser(null);LS.set("kmp_user",null);}
+        if(event==="SIGNED_OUT"){setUser(null);LS.set("kmc_user",null);}
         else if(event==="PASSWORD_RECOVERY"){
           // Şifre sıfırlama linki tıklandı — yeni şifre ekranını göster, giriş yapma
           localStorage.setItem("km_password_recovery","true");
@@ -10431,32 +9947,23 @@ export default function App(){
             userId:session.user.id,
             accessToken:session.access_token
           };
-          setUser(u);LS.set("kmp_user",u);
-          // Ekibi Supabase'den yükle (owner VEYA member)
+          setUser(u);LS.set("kmc_user",u);
+          // Ekibi Supabase'den yükle
           (async()=>{try{
-            const uid=session.user.id;
-            // Önce kendi oluşturduğu team'e bak (owner)
-            let teamData=null;let memberRole="pro";
-            const{data:ownedTeam}=await sb.from("teams").select("*").eq("owner_id",uid).eq("app_type","pro").order("created_at",{ascending:false}).limit(1).single();
-            if(ownedTeam){teamData=ownedTeam;memberRole="pro";}
-            else{
-              // Üye olduğu team'e bak (herhangi role)
-              const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",uid).order("joined_at",{ascending:false}).limit(1);
-              const membership=members_raw?.[0]||null;
-              if(membership?.team_id){
-                const{data:td}=await sb.from("teams").select("*").eq("id",membership.team_id).eq("app_type","pro").single();
-                if(td){teamData=td;memberRole=membership.role||"pro";}
-              }
-            }
-            if(teamData){
-              const loadedTeam={...teamData,role:memberRole,inviteCode:teamData.invite_code};
-              setTeam(loadedTeam);LS.set("kmp_team",loadedTeam);
-              const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
-              if(members){
-                const uids=members.map(m=>m.user_id);
-                const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
-                const getName=(uid2)=>{const p=(profs||[]).find(p=>p.id===uid2);return p?.full_name||p?.email?.split("@")[0]||uid2;};
-                setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
+            const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",session.user.id).eq("role","chef").order("joined_at",{ascending:false}).limit(1);
+            const membership=members_raw?.[0]||null;
+            if(membership?.team_id){
+              const{data:teamData}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
+              if(teamData){
+                const loadedTeam={...teamData,role:membership.role,inviteCode:teamData.invite_code};
+                setTeam(loadedTeam);LS.set("kmc_team",loadedTeam);
+                const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
+                if(members){
+                  const uids=members.map(m=>m.user_id);
+                  const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
+                  const getName=(uid)=>{const p=(profs||[]).find(p=>p.id===uid);return p?.full_name||p?.email?.split("@")[0]||uid;};
+                  setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
+                }
               }
             }
           }catch(e){console.warn("Ekip yüklenemedi:",e.message);}})();
@@ -10655,7 +10162,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
-    const channel=sb.channel(`kmp-sync-${team.id}`)
+    const channel=sb.channel(`kmc-sync-${team.id}`)
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"team_stock",filter:`team_id=eq.${team.id}`},
         (payload)=>{
           if(payload.new?.updated_by===user?.userId)return;
@@ -10753,12 +10260,12 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   useEffect(()=>{
     const checkReset=()=>{
       const now=new Date();
-      const lastReset=LS.get("kmp_lastreset",null);
+      const lastReset=LS.get("kmc_lastreset",null);
       const today=`${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
       if(now.getHours()>=resetHour&&lastReset!==today){
         // Tüm parti no'ları sıfırla
         setLots({});
-        LS.set("kmp_lastreset",today);
+        LS.set("kmc_lastreset",today);
       }
     };
     checkReset();
@@ -10848,12 +10355,12 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   const baseTabs=[{id:"recipes",l:t.L.tabRecipes,i:"🍽",icon:"recipes"},{id:"stock",l:t.L.tabStock,i:"📦",icon:"stock"},{id:"production",l:t.L.tabProduction,i:"🍱",icon:"production"}];
   const traceTabs=traceability?[{id:"reports",l:t.L.tabReports,i:"📊",icon:"reports"}]:[];
   const endTabs=[
+    {id:"events",l:lang==="tr"?"Etkinlikler":"Events",i:"🎉",icon:"events"},
     {id:"menus",l:t.L.tabMenus,i:"📋",icon:"menus"},
     {id:"kanban",l:"Kanban",i:"📋",icon:"kanban"},
     {id:"chat",l:lang==="tr"?"Sohbet":"Chats",i:"💬",icon:"chat"},
     ...(team?[
-      {id:"hub",l:lang==="tr"?"Departmanlar":"Departments",i:"🏢",icon:"hub"},
-      {id:"events",l:lang==="tr"?"Etkinlikler":"Events",i:"🎉",icon:"events"},
+
       {id:"shift",l:lang==="tr"?"Vardiya":"Shifts",i:"🕐",icon:"shift"},
       {id:"botrules",l:lang==="tr"?"Otomasyon":"Automation",i:"⚙️",icon:"automation"},
     ]:[])
@@ -10880,13 +10387,8 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       <div className="app" style={{display:"flex",alignItems:"center",justifyContent:"space-between",height:54}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <Logo size={32} c={t.accent}/>
-          <div>
-            <div style={{fontSize:18,fontFamily:"'Fraunces',serif",color:t.text,fontWeight:700,lineHeight:1}}>Kitchen</div>
-            <div style={{display:"flex",alignItems:"center",gap:5}}>
-              <div style={{fontSize:9,color:t.accent,letterSpacing:"0.15em",fontWeight:600}}>MANAGER</div>
-              <div style={{fontSize:8,color:"#fff",background:`linear-gradient(135deg,${t.accent} 0%,#8b6332 100%)`,padding:"1px 5px",borderRadius:3,letterSpacing:"0.1em",fontWeight:800}}>PRO</div>
-            </div>
-          </div>
+          <div><div style={{fontSize:18,fontFamily:"'Fraunces',serif",color:t.text,fontWeight:700,lineHeight:1}}>Kitchen</div>
+          <div style={{fontSize:9,color:t.accent,letterSpacing:"0.15em",fontWeight:600}}>MANAGER</div></div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {tab==="recipes"&&<button onClick={()=>setSAdd(true)} style={{...bSt("p",t),padding:"7px 14px",fontSize:13}}>{t.L.stockAddBtn}</button>}
@@ -10969,15 +10471,15 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       {tab==="stock"&&<StockTab stock={stock} setStock={setStock} invoices={invoices} setInvoices={setInvoices} apiKey={apiKey} traceability={traceability} lots={lots} setLots={setLots} trackedIngs={trackedIngs} profile={profile} calorieDB={calorieDB} setCalorieDB={setCalorieDB} t={t}/>}
       {tab==="production"&&<ProductionTab productions={productions} setProductions={setProductions} storageAreas={storageAreas} reportCats={reportCats} setReportCats={setReportCats} profile={profile} traceability={traceability} setTab={setTab} storageChecks={storageChecks} setStorageChecks={setStorageChecks} recipes={recipes} getLabelSeq={getLabelSeq} t={t}/>}
       {tab==="reports"&&<ProductionTab productions={productions} setProductions={setProductions} storageAreas={storageAreas} reportCats={reportCats} setReportCats={setReportCats} profile={profile} traceability={traceability} setTab={setTab} storageChecks={storageChecks} setStorageChecks={setStorageChecks} recipes={recipes} getLabelSeq={getLabelSeq} initialShowReports={true} t={t}/>}
-      {tab==="menus"&&<MenuTab menus={menus} setMenus={setMenus} recipes={recipes} menuTemplates={menuTemplates} setMenuTemplates={setMenuTemplates} t={t}/>}
+      {tab==="events"&&<EventsTab team={team} user={user} t={t} lang={lang} bSt={bSt} cSt={cSt} iSt={iSt} lSt={lSt}/>}
+            {tab==="menus"&&<MenuTab menus={menus} setMenus={setMenus} recipes={recipes} menuTemplates={menuTemplates} setMenuTemplates={setMenuTemplates} t={t} team={team}/>}
       {tab==="todo"&&<TodoTab todos={todos} setTodos={setTodos} t={t}/>}
-      {tab==="hub"&&<HubTab team={team} user={user} t={t}/>}
-      {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile} isPro={true}/>}
-      {tab==="events"&&<EventsTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t}/>}
+
+      {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile} isManager={true}/>}
       {tab==="shift"&&<ShiftTab team={team} teamMembers={teamMembers} phantomMembers={phantomMembers} setPhantomMembers={setPhantomMembers} user={user} t={t}/>}
       {tab==="botrules"&&<BotRulesTab team={team} teamMembers={teamMembers} user={user} stock={stock} setBotMessages={setBotMessages} t={t}/>}
-      {tab==="chat"&&<WAChatTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t} tier="pro"/>}
-      {tab==="settings"&&<SettingsTab apiKey={apiKey} setApiKey={setApiKey} dark={dark} setDark={setDark} lang={lang} setLang={setLang} recipes={recipes} stock={stock} invoices={invoices} setRecipes={setRecipes} setStock={setStock} setInvoices={setInvoices} expenses={expenses} setExpenses={setExpenses} storageAreas={storageAreas} setStorageAreas={setStorageAreas} profile={profile} setProfile={setProfile} traceability={traceability} setTraceability={setTraceability} trackedIngs={trackedIngs} setTrackedIngs={setTrackedIngs} resetHour={resetHour} setResetHour={setResetHour} organizations={organizations} setOrganizations={setOrganizations} notifSettings={notifSettings} setNotifSettings={setNotifSettings} printers={printers} setPrinters={setPrinters} setBotMessages={setBotMessages} calorieDB={calorieDB} setCalorieDB={setCalorieDB} user={user} setUser={setUser} authRequired={authRequired} setAuthRequired={setAuthRequired} setShowAuth={setShowAuth} handleLogout={handleLogout} team={team} setTeam={setTeam} teamMembers={teamMembers} setTeamMembers={setTeamMembers} phantomMembers={phantomMembers} setPhantomMembers={setPhantomMembers} wallpaper={wallpaper} setWallpaper={setWallpaper} customWP={customWP} setCustomWP={setCustomWP} t={t}/>}
+      {tab==="chat"&&<WAChatTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t} tier="manager"/>}
+      {tab==="settings"&&<SettingsTab apiKey={apiKey} setApiKey={setApiKey} dark={dark} setDark={setDark} lang={lang} setLang={setLang} recipes={recipes} stock={stock} invoices={invoices} setRecipes={setRecipes} setStock={setStock} setInvoices={setInvoices} expenses={expenses} setExpenses={setExpenses} storageAreas={storageAreas} setStorageAreas={setStorageAreas} profile={profile} setProfile={setProfile} traceability={traceability} setTraceability={setTraceability} trackedIngs={trackedIngs} setTrackedIngs={setTrackedIngs} resetHour={resetHour} setResetHour={setResetHour} organizations={organizations} setOrganizations={setOrganizations} notifSettings={notifSettings} setNotifSettings={setNotifSettings} printers={printers} setPrinters={setPrinters} setBotMessages={setBotMessages} calorieDB={calorieDB} setCalorieDB={setCalorieDB} user={user} setUser={setUser} authRequired={authRequired} setAuthRequired={setAuthRequired} setShowAuth={setShowAuth} handleLogout={handleLogout} team={team} setTeam={setTeam} teamMembers={teamMembers} setTeamMembers={setTeamMembers} wallpaper={wallpaper} setWallpaper={setWallpaper} customWP={customWP} setCustomWP={setCustomWP} t={t}/>}
     </div>
 
     <DockTabBar tabs={tabs} tab={tab} setTab={setTab} t={t} ICONS={ICONS} lowCount={lowCount}/>
@@ -11107,7 +10609,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
           sb.auth.getSession().then(({data:{session}})=>{
             const uid=session?.user?.id;
             const uname=session?.user?.user_metadata?.name||session?.user?.email?.split("@")[0]||"?";
-            const profile2=JSON.parse(localStorage.getItem("kmp_profile")||"{}");
+            const profile2=JSON.parse(localStorage.getItem("kmc_profile")||"{}");
             sb.from("team_messages").insert({
               team_id:team.id,user_id:uid,user_name:uname,
               user_role:profile2.role||"",
@@ -11149,7 +10651,7 @@ class ErrorBoundary extends React.Component{
           React.createElement("pre",{style:{fontSize:11,background:"#fff",padding:10,marginTop:8,borderRadius:6,overflow:"auto",maxHeight:200}},String(this.state.error?.message||this.state.error||"Bilinmeyen hata")+"\n\n"+(this.state.info?.componentStack||""))
         ),
         React.createElement("button",{
-          onClick:()=>{LS.set("kmp_user",null);location.reload()},
+          onClick:()=>{LS.set("kmc_user",null);location.reload()},
           style:{marginTop:14,padding:"10px 16px",background:"#c00",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600}
         },"Yenile (oturumu temizle)")
       );
