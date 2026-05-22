@@ -5734,13 +5734,15 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
           <input style={iSt(t)} placeholder={lang==="tr"?"Ekip adı (örn: Pastane Ekibi)":"Team name (e.g. Pastry Team)"} id="chefTeamNameInput"/>
           <button onClick={async(e)=>{
             if(window._createTeamLoading)return;
-            window._createTeamLoading=true;
             const _btn=e.currentTarget;
+            const name=document.getElementById("chefTeamNameInput")?.value?.trim();
+            if(!name){window.toast.error(lang==="tr"?"Ekip adı girin":"Enter team name");return;}
+            if(name.length<2){window.toast.error(lang==="tr"?"Ekip adı en az 2 karakter olmalı":"Team name must be at least 2 characters");return;}
+            if(name.length>50){window.toast.error(lang==="tr"?"Ekip adı çok uzun (max 50 karakter)":"Team name too long (max 50 chars)");return;}
+            if(!user?.userId){window.toast.error(lang==="tr"?"Önce giriş yapın":"Login first");return;}
+            window._createTeamLoading=true;
             _btn.style.opacity='0.5';
             _btn.style.pointerEvents='none';
-            const name=document.getElementById("chefTeamNameInput")?.value?.trim();
-            if(!name){window.toast.info(lang==="tr"?"Ekip adı girin":"Enter team name");return;}
-            if(!user?.userId){window.toast.info(lang==="tr"?"Önce giriş yapın":"Login first");return;}
             try{
               const sb2=initSupabase();
               let realName=user.name||user.email;
@@ -5761,7 +5763,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
               if(navigator.share){navigator.share({title:"Kitchen Manager",text:shareText}).catch(()=>{});}
               else{const ta=document.createElement("textarea");ta.value=shareText;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand("copy");}catch{}document.body.removeChild(ta);}
               flash(lang==="tr"?`✓ Ekip oluşturuldu! Davet kodu: ${code} (kopyalandı)`:`✓ Team created! Invite code: ${code} (copied)`);
-            }catch(e){window.toast.info(e.message);}finally{window._createTeamLoading=false;if(_btn){_btn.style.opacity="1";_btn.style.pointerEvents="auto";}}
+            }catch(e){console.error("[createTeam]",e);window.toast.error(friendlyError(e,lang));}finally{window._createTeamLoading=false;if(_btn){_btn.style.opacity="1";_btn.style.pointerEvents="auto";}}
           }} style={{...bSt("p",t),width:"100%",marginTop:10,padding:12}}>
             ✦ {lang==="tr"?"Oluştur":"Create"}
           </button>
@@ -5833,7 +5835,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
                   setTeam({...team,parent_team_id:parent.id,parent_team_name:parent.name});
                   window.toast.success(lang==="tr"?`✓ ${parent.name} ekibine bağlandı`:`✓ Linked to ${parent.name}`);
                   document.getElementById("parentCodeInput").value="";
-                }catch(e){window.toast.error(e.message);}
+                }catch(e){console.error("[linkParent]",e);window.toast.error(friendlyError(e,lang));}
               }} style={{...bSt("p",t),fontSize:12,padding:"8px 14px"}}>↑</button>
             </div>
           </div>}
@@ -5890,7 +5892,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             if(syncTodos&&syncTodos.length>0)setTodos(syncTodos);
             LS.set("kmc_last_sync",new Date().toISOString());
             flash(lang==="tr"?"✓ Senkronize edildi":"✓ Synced");
-          }catch(e){window.toast.info(e.message);}
+          }catch(e){console.error("[sync]",e);window.toast.error(friendlyError(e,lang));}
         }} style={{...bSt("s",t),width:"100%",marginBottom:10}}>
           🔄 {lang==="tr"?"Şimdi Senkronize Et":"Sync Now"}
         </button>
@@ -7377,6 +7379,51 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
 
 // ═══ KM: EKİP KATILMA SİSTEMİ ═══
 const generateInviteCode=()=>Math.random().toString(36).substring(2,8).toUpperCase();
+// ═══ Supabase hatalarını insan diline çevir ═══
+const friendlyError=(e,lang="tr")=>{
+  const tr=lang==="tr";
+  if(!e)return tr?"Bilinmeyen hata":"Unknown error";
+  const msg=(e.message||e.toString()||"").toLowerCase();
+  const code=e.code||"";
+  // Unique constraint - duplicate
+  if(code==="23505"||msg.includes("duplicate key")||msg.includes("already exists")){
+    if(msg.includes("invite_code"))return tr?"Davet kodu çakıştı, tekrar deneyin":"Invite code conflict, try again";
+    if(msg.includes("team_members"))return tr?"Bu kullanıcı zaten ekibe üye":"User already in team";
+    if(msg.includes("teams"))return tr?"Bu isimde bir ekip zaten var":"A team with this name already exists";
+    return tr?"Zaten kayıtlı":"Already exists";
+  }
+  // Foreign key
+  if(code==="23503"||msg.includes("foreign key")){
+    return tr?"Geçersiz referans (ekip veya kullanıcı bulunamadı)":"Invalid reference (team or user not found)";
+  }
+  // Not null
+  if(code==="23502"||msg.includes("null value")||msg.includes("not-null")){
+    return tr?"Zorunlu alan boş bırakılamaz":"Required field cannot be empty";
+  }
+  // Check constraint - role gibi
+  if(code==="23514"||msg.includes("check constraint")){
+    if(msg.includes("role"))return tr?"Geçersiz rol — sadece worker/chef/pro/manager":"Invalid role";
+    return tr?"Geçersiz veri formatı":"Invalid data format";
+  }
+  // RLS
+  if(msg.includes("row-level security")||msg.includes("permission denied")||msg.includes("rls")){
+    return tr?"Bu işlem için yetkiniz yok":"You don't have permission for this action";
+  }
+  // Auth
+  if(msg.includes("jwt")||msg.includes("not authenticated")||msg.includes("invalid token")){
+    return tr?"Oturum süresi doldu, lütfen yeniden giriş yapın":"Session expired, please login again";
+  }
+  // Network
+  if(msg.includes("network")||msg.includes("fetch failed")||msg.includes("failed to fetch")){
+    return tr?"İnternet bağlantısı sorunu":"Network connection issue";
+  }
+  // Bilinen Türkçe mesajlar zaten geliyorsa direkt göster (createTeam'in kendi throw'ları gibi)
+  if(e.message&&!msg.includes("postgrest")&&!msg.includes("relation")&&e.message.length<150){
+    return e.message;
+  }
+  return tr?"Bir hata oluştu — tekrar deneyin":"An error occurred — please try again";
+};
+
 const createTeam=async(teamName,userId,userName,parentTeamId=null)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
   // ═══ Bu kullanıcı zaten team kurmuş mu? ═══
