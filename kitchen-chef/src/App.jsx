@@ -3995,17 +3995,24 @@ const EventsTab=({team,user,t,lang,bSt,cSt,iSt,lSt})=>{
   const[loading,setLoading]=useState(true);
   const[selEvent,setSelEvent]=useState(null);
   const[deptFilter,setDeptFilter]=useState("all");
+  const[detailTab,setDetailTab]=useState("timeline");
+  const[expandedSessions,setExpandedSessions]=useState({});
+  // Fotoğraf state'leri
+  const[uploadingPhoto,setUploadingPhoto]=useState(null);
+  const[lightboxPhoto,setLightboxPhoto]=useState(null);
+
   const DEPARTMENTS=[
-    {id:"kitchen",tr:"Sıcak Mutfak",en:"Hot Kitchen",icon:"🔥",color:"#dc2626"},
-    {id:"cold",tr:"Soğuk Mutfak",en:"Cold Kitchen",icon:"🥗",color:"#0891b2"},
-    {id:"pastry",tr:"Pastane",en:"Pastry",icon:"🥐",color:"#d97706"},
-    {id:"butcher",tr:"Kasap",en:"Butcher",icon:"🥩",color:"#7c2d12"},
-    {id:"service",tr:"Servis",en:"Service",icon:"🍽",color:"#16a34a"},
-    {id:"bar",tr:"Bar",en:"Bar",icon:"🍷",color:"#9333ea"},
-    {id:"setup",tr:"Kurulum",en:"Setup",icon:"🪑",color:"#525252"},
-    {id:"accounting",tr:"Muhasebe",en:"Accounting",icon:"💰",color:"#ca8a04"},
-    {id:"general",tr:"Genel",en:"General",icon:"📋",color:"#64748b"}
+    {id:"kitchen",icon:"🍳",tr:"Sıcak Mutfak",en:"Hot Kitchen",color:"#dc2626"},
+    {id:"cold",icon:"🥗",tr:"Soğuk Mutfak",en:"Cold Kitchen",color:"#0891b2"},
+    {id:"pastry",icon:"🥐",tr:"Pastane",en:"Pastry",color:"#c8965a"},
+    {id:"butcher",icon:"🥩",tr:"Kasap",en:"Butchery",color:"#7f1d1d"},
+    {id:"service",icon:"🍽",tr:"Servis",en:"Banquet Service",color:"#7c3aed"},
+    {id:"bar",icon:"🍷",tr:"Bar",en:"Bar",color:"#059669"},
+    {id:"setup",icon:"🪑",tr:"Kurulum",en:"Setup",color:"#525252"},
+    {id:"accounting",icon:"💰",tr:"Muhasebe",en:"Accounting",color:"#1e40af"},
+    {id:"general",icon:"📋",tr:"Genel",en:"General",color:"#6b7280"}
   ];
+
   const userDept=user?.department||"";
 
   useEffect(()=>{
@@ -4013,7 +4020,6 @@ const EventsTab=({team,user,t,lang,bSt,cSt,iSt,lSt})=>{
     (async()=>{
       try{
         const sb=initSupabase();if(!sb)return;
-        // Hem kendi team'inin hem parent team'in event'lerini çek
         const tids=[team.id];
         if(team.parent_team_id)tids.push(team.parent_team_id);
         const{data,error}=await sb.from("events").select("*").in("team_id",tids).order("event_date",{ascending:false});
@@ -4031,70 +4037,398 @@ const EventsTab=({team,user,t,lang,bSt,cSt,iSt,lSt})=>{
     return data?.signedUrl||null;
   };
 
-  // Detay görünümü
+  // ── Session fotoğraf yükle ──
+  const uploadSessionPhoto=async(file,sessionIdx,eventId)=>{
+    if(!file||!team?.id)return;
+    if(file.size>8*1024*1024){window.toast.error(lang==="tr"?"Fotoğraf 8MB'dan büyük olamaz":"Photo must be under 8MB");return;}
+    setUploadingPhoto({sessionIdx,progress:0});
+    try{
+      const resized=await new Promise((res,rej)=>{
+        const reader=new FileReader();
+        reader.onload=ev=>{
+          const img=new Image();
+          img.onload=()=>{
+            const MAX=1200;
+            let w=img.width,h=img.height;
+            if(w>MAX||h>MAX){
+              if(w>h){h=Math.round(h*MAX/w);w=MAX;}
+              else{w=Math.round(w*MAX/h);h=MAX;}
+            }
+            const cv=document.createElement("canvas");
+            cv.width=w;cv.height=h;
+            cv.getContext("2d").drawImage(img,0,0,w,h);
+            cv.toBlob(blob=>{
+              if(!blob){rej(new Error("Resize failed"));return;}
+              res(new File([blob],file.name,{type:"image/jpeg"}));
+            },"image/jpeg",0.82);
+          };
+          img.onerror=()=>rej(new Error("Image load failed"));
+          img.src=ev.target.result;
+        };
+        reader.onerror=()=>rej(new Error("File read failed"));
+        reader.readAsDataURL(file);
+      });
+
+      const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
+      const ts=Date.now();
+      const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+      const path=`event-photos/${team.id}/${eventId||"new"}/${ts}_s${sessionIdx}_${safeName}`;
+      const{error:upErr}=await sb.storage.from("tulpar-storage").upload(path,resized,{
+        contentType:"image/jpeg",upsert:false
+      });
+      if(upErr)throw upErr;
+      const{data:{publicUrl}}=sb.storage.from("tulpar-storage").getPublicUrl(path);
+
+      const newPhotos={...(selEvent.session_photos||{})};
+      const key=String(sessionIdx);
+      newPhotos[key]=[...(newPhotos[key]||[]),publicUrl];
+
+      const updatedEvent={...selEvent,session_photos:newPhotos};
+      setSelEvent(updatedEvent);
+
+      if(eventId&&eventId!=="new"){
+        const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
+        if(!dbErr)setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
+      }
+      window.toast.success(lang==="tr"?"✓ Fotoğraf eklendi":"✓ Photo added");
+    }catch(e){
+      window.toast.error((lang==="tr"?"Fotoğraf yüklenemedi: ":"Upload failed: ")+e.message);
+    }finally{
+      setUploadingPhoto(null);
+    }
+  };
+
+  // ── Session fotoğraf sil ──
+  const deleteSessionPhoto=async(sessionIdx,photoIdx,eventId)=>{
+    const newPhotos={...(selEvent.session_photos||{})};
+    const key=String(sessionIdx);
+    if(!newPhotos[key])return;
+    newPhotos[key]=newPhotos[key].filter((_,i)=>i!==photoIdx);
+    if(!newPhotos[key].length)delete newPhotos[key];
+    const updatedEvent={...selEvent,session_photos:newPhotos};
+    setSelEvent(updatedEvent);
+    setLightboxPhoto(null);
+    if(eventId&&eventId!=="new"){
+      const sb=initSupabase();if(!sb)return;
+      const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
+      if(!dbErr)setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
+    }
+  };
+
+  // ── Detay modu ──
   if(selEvent){
     const totalItems=Object.values(selEvent.departments||{}).reduce((s,a)=>s+(a?.length||0),0);
+    const subEvents=selEvent.sub_events||[];
+    const guestAllergies=selEvent.guest_allergies||[];
+    const sessionPhotos=selEvent.session_photos||{};
+
+    const SESSION_TYPES={
+      coffee_break:{icon:"☕",color:"#d97706",bg:"#fef3c7",tr:"Coffee Break",en:"Coffee Break"},
+      lunch:{icon:"🍽",color:"#16a34a",bg:"#dcfce7",tr:"Öğlen",en:"Lunch"},
+      dinner:{icon:"🍷",color:"#9333ea",bg:"#f3e8ff",tr:"Akşam",en:"Dinner"},
+      dessert:{icon:"🍰",color:"#ec4899",bg:"#fce7f3",tr:"Tatlı",en:"Dessert"},
+      cocktail:{icon:"🥂",color:"#0891b2",bg:"#cffafe",tr:"Kokteyl",en:"Cocktail"},
+      tea_service:{icon:"🫖",color:"#d97706",bg:"#fef3c7",tr:"Çay Servisi",en:"Tea Service"},
+      meeting:{icon:"📋",color:"#64748b",bg:"#f1f5f9",tr:"Toplantı",en:"Meeting"},
+      setup:{icon:"🪑",color:"#525252",bg:"#f5f5f5",tr:"Kurulum",en:"Setup"},
+      other:{icon:"📅",color:"#64748b",bg:"#f1f5f9",tr:"Diğer",en:"Other"}
+    };
+    const sessionMeta=(s)=>SESSION_TYPES[s.type]||SESSION_TYPES.other;
+    const isKitchenSession=(s)=>(s.items||[]).length>0;
+    const ALLERGEN_ICONS={gluten:"🌾",dairy:"🥛",egg:"🥚",nut:"🌰",peanut:"🥜",shellfish:"🦐",fish:"🐟",soy:"🫘",sesame:"🌻",sulphite:"🍷",celery:"🌿",mustard:"🌶",lupin:"🌱",mollusc:"🦪"};
+    const allergenLabel=(a)=>ALLERGEN_ICONS[a]||"⚠";
+
+    const byDate={};
+    subEvents.forEach((s,idx)=>{
+      const d=s.date||selEvent.event_date||"unknown";
+      if(!byDate[d])byDate[d]=[];
+      byDate[d].push({...s,_idx:idx});
+    });
+
+    const deptTasks={};
+    subEvents.forEach(s=>{
+      (s.items||[]).forEach(item=>{
+        (item.departments||[]).forEach(did=>{
+          if(!deptTasks[did])deptTasks[did]=[];
+          deptTasks[did].push({name:item.name,allergens:item.allergens||[],session:s.name,date:s.date,time:s.timeStart});
+        });
+      });
+    });
+
     return <div style={{padding:"12px 14px",paddingBottom:80}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-        <h3 style={{fontSize:22,color:t.text,margin:0,fontFamily:"'Fraunces',serif",flex:1,marginRight:8}}>{selEvent.name}</h3>
-        <button onClick={()=>setSelEvent(null)} style={{...bSt("s",t),fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
-      </div>
-      <div style={{...cSt(t),padding:"12px 16px",marginBottom:12}}>
-        <div style={{display:"flex",flexWrap:"wrap",gap:10,fontSize:13,color:t.ts}}>
-          {selEvent.event_date&&<span>📅 {new Date(selEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}</span>}
-          {selEvent.start_time&&<span>🕐 {selEvent.start_time}{selEvent.end_time&&" – "+selEvent.end_time}</span>}
-          {selEvent.pax&&<span>👥 {selEvent.pax} pax</span>}
-          {selEvent.location&&<span>📍 {selEvent.location}</span>}
-          {selEvent.contract_no&&<span>📄 {selEvent.contract_no}</span>}
+
+      {/* Lightbox */}
+      {lightboxPhoto&&<div onClick={()=>setLightboxPhoto(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,padding:20}}>
+        <img src={lightboxPhoto.url} style={{maxWidth:"100%",maxHeight:"75vh",borderRadius:12,objectFit:"contain"}} onClick={e=>e.stopPropagation()}/>
+        <div style={{display:"flex",gap:10}} onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setLightboxPhoto(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>✕ {lang==="tr"?"Kapat":"Close"}</button>
+          <button onClick={()=>deleteSessionPhoto(lightboxPhoto.sessionIdx,lightboxPhoto.photoIdx,selEvent.id)} style={{background:"#dc2626",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>🗑 {lang==="tr"?"Sil":"Delete"}</button>
+        </div>
+      </div>}
+
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <button onClick={()=>{setSelEvent(null);setDetailTab("timeline");setExpandedSessions({});}} style={{...bSt("g",t),fontSize:12,padding:"6px 10px"}}>← {lang==="tr"?"Etkinlikler":"Events"}</button>
+        <div style={{display:"flex",gap:6}}>
+          {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>📄 PDF</button>}
+          <button onClick={async()=>{if(!window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?"))return;const sb=initSupabase();if(!sb)return;await sb.from("events").delete().eq("id",selEvent.id);setEvents(p=>p.filter(e=>e.id!==selEvent.id));setSelEvent(null);}} style={{...bSt("d",t),fontSize:12,padding:"6px 10px"}}>🗑</button>
         </div>
       </div>
-      {selEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 14px",marginBottom:12,background:t.accent+"15",border:`1px solid ${t.accent}40`}}>
-        <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.1em",marginBottom:4}}>🤖 AI ÖZET</div>
-        <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selEvent.ai_summary}</div>
-      </div>}
-      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-        {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),flex:"1 1 100px",fontSize:13}}>
-          📄 {lang==="tr"?"PDF'i Aç":"Open PDF"}
-        </button>}
-        <button onClick={async()=>{if(!window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?"))return;const sb=initSupabase();if(!sb)return;await sb.from("events").delete().eq("id",selEvent.id);setEvents(p=>p.filter(e=>e.id!==selEvent.id));setSelEvent(null);}} style={{...bSt("d",t),flex:"1 1 100px",fontSize:13}}>
-          🗑 {lang==="tr"?"Sil":"Delete"}
-        </button>
+
+      <h3 style={{fontSize:20,color:t.text,margin:"0 0 6px 0",fontFamily:"'Fraunces',serif",lineHeight:1.25}}>{selEvent.name}</h3>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,fontSize:11,color:t.tm,marginBottom:14}}>
+        {selEvent.event_date&&<span>📅 {new Date(selEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}{selEvent.end_date&&selEvent.end_date!==selEvent.event_date?" – "+new Date(selEvent.end_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long"}):""}</span>}
+        {selEvent.pax&&<span>👥 {selEvent.pax} pax</span>}
+        {selEvent.location&&<span>📍 {selEvent.location}</span>}
+        {selEvent.contract_no&&<span>📄 #{selEvent.contract_no}</span>}
       </div>
-      <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:8,textTransform:"uppercase"}}>{lang==="tr"?"Departman Görevleri":"Department Tasks"}</div>
-      {DEPARTMENTS.filter(d=>(selEvent.departments?.[d.id]||[]).length>0).map(d=>{
-        const items=selEvent.departments[d.id]||[];
-        const isMine=userDept===d.id;
-        return<div key={d.id} style={{...cSt(t),padding:"10px 14px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":t.cardBg}}>
-          <div style={{fontSize:12,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
-          {items.map((item,i)=><div key={i} style={{fontSize:13,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
-        </div>;
-      })}
+
+      {/* 3 Tab */}
+      <div style={{display:"flex",borderBottom:`1px solid ${t.border}`,marginBottom:14}}>
+        {[
+          {id:"timeline",icon:"⏱",tr:"Timeline",en:"Timeline"},
+          {id:"depts",icon:"🍽",tr:"Departmanlar",en:"Departments"},
+          {id:"beo",icon:"📄",tr:"BEO",en:"BEO"}
+        ].map(tab=>(
+          <div key={tab.id} onClick={()=>setDetailTab(tab.id)} style={{flex:1,textAlign:"center",padding:"10px 4px",fontSize:12,fontWeight:detailTab===tab.id?700:400,color:detailTab===tab.id?t.text:t.tm,borderBottom:`2px solid ${detailTab===tab.id?t.text:"transparent"}`,cursor:"pointer",transition:"all 0.15s"}}>
+            {tab.icon} {lang==="tr"?tab.tr:tab.en}
+          </div>
+        ))}
+      </div>
+
+      {/* ─── TIMELINE TAB ─── */}
+      {detailTab==="timeline"&&<div>
+        {selEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"12",border:`1px solid ${t.accent}30`}}>
+          <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.08em",marginBottom:4}}>🤖 AI ÖZET</div>
+          <div style={{fontSize:12,color:t.text,lineHeight:1.55}}>{selEvent.ai_summary}</div>
+        </div>}
+
+        {guestAllergies.length>0&&<div style={{background:"#fef3c7",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 12px",marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#92400e",letterSpacing:"0.08em",marginBottom:6,textTransform:"uppercase"}}>⚠ {lang==="tr"?"Misafir Alerjen Uyarıları":"Guest Allergy Warnings"}</div>
+          {guestAllergies.map((a,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#78350f",padding:"3px 0",borderBottom:i<guestAllergies.length-1?"1px solid #fde68a":"none"}}>
+              <span style={{background:"#fde68a",color:"#92400e",fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap"}}>{a.count} {lang==="tr"?"misafir":"guest"}</span>
+              <span>{a.type}{a.note?" — "+a.note:""}</span>
+            </div>
+          ))}
+        </div>}
+
+        {subEvents.length===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
+          {lang==="tr"?"Bu etkinlik için saat bazlı oturum bilgisi yok.":"No timeline sessions for this event."}
+        </div>}
+
+        {/* Eski format: sub_events yok ama departments var */}
+        {subEvents.length===0&&totalItems>0&&<div>
+          <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:8,textTransform:"uppercase"}}>{lang==="tr"?"Departman Görevleri":"Department Tasks"}</div>
+          {DEPARTMENTS.filter(d=>(selEvent.departments?.[d.id]||[]).length>0).map(d=>{
+            const items=selEvent.departments[d.id]||[];
+            const isMine=userDept===d.id;
+            return <div key={d.id} style={{...cSt(t),padding:"10px 14px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":undefined}}>
+              <div style={{fontSize:12,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
+              {items.map((item,i)=><div key={i} style={{fontSize:13,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
+            </div>;
+          })}
+        </div>}
+
+        {Object.keys(byDate).sort().map(date=>(
+          <div key={date}>
+            {Object.keys(byDate).length>1&&<div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",margin:"4px 0 10px",display:"flex",alignItems:"center",gap:8}}>
+              {date!=="unknown"?new Date(date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"—"}
+              <span style={{flex:1,height:1,background:t.border}}/>
+            </div>}
+            {byDate[date].map(s=>{
+              const meta=sessionMeta(s);
+              const isOpen=expandedSessions[s._idx];
+              const isKitchen=isKitchenSession(s);
+              const sPhotos=sessionPhotos[String(s._idx)]||[];
+              const isUploading=uploadingPhoto?.sessionIdx===s._idx;
+              return <div key={s._idx} style={{border:`1px solid ${t.border}`,borderRadius:8,marginBottom:8,overflow:"hidden",borderStyle:isKitchen?"solid":"dashed",opacity:isKitchen?1:0.65}}>
+                <div onClick={isKitchen?()=>setExpandedSessions(p=>({...p,[s._idx]:!p[s._idx]})):undefined} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:isKitchen?"pointer":"default",background:t.card}}>
+                  <div style={{width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,background:meta.bg,flexShrink:0}}>{meta.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:t.text}}>{s.name||meta[lang==="tr"?"tr":"en"]}</div>
+                    <div style={{fontSize:11,color:t.tm,marginTop:1,display:"flex",gap:8,flexWrap:"wrap"}}>
+                      {s.timeStart&&<span>🕐 {s.timeStart}{s.timeEnd&&"–"+s.timeEnd}</span>}
+                      {s.room&&<span>📍 {s.room}</span>}
+                      {s.pax!=null&&<span>👥 {s.pax}</span>}
+                      {!isKitchen&&<span style={{fontStyle:"italic"}}>{lang==="tr"?"mutfak görevi yok":"no kitchen task"}</span>}
+                    </div>
+                  </div>
+                  {/* Fotoğraf butonu */}
+                  <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,background:sPhotos.length>0?t.accent+"20":t.bg,border:`1px solid ${sPhotos.length>0?t.accent:t.border}`,borderRadius:8,padding:"5px 8px",cursor:isUploading?"wait":"pointer",flexShrink:0}}>
+                    {isUploading?<span style={{fontSize:11,color:t.accent}}>⏳</span>:<span style={{fontSize:13}}>📷</span>}
+                    {sPhotos.length>0&&<span style={{fontSize:10,fontWeight:700,color:t.accent}}>{sPhotos.length}</span>}
+                    <input type="file" accept="image/*" style={{display:"none"}} disabled={isUploading} onChange={async e=>{
+                      const f=e.target.files?.[0];
+                      if(f)await uploadSessionPhoto(f,s._idx,selEvent.id);
+                      e.target.value="";
+                    }}/>
+                  </label>
+                  {isKitchen&&<span style={{fontSize:14,color:t.tm,transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>▶</span>}
+                </div>
+
+                {/* Fotoğraf şeridi */}
+                {sPhotos.length>0&&<div style={{display:"flex",gap:6,padding:"6px 12px",overflowX:"auto",background:t.bg,borderTop:`1px solid ${t.border}`,scrollbarWidth:"none"}}>
+                  {sPhotos.map((url,pi)=>(
+                    <img key={pi} src={url} onClick={()=>setLightboxPhoto({url,sessionIdx:s._idx,photoIdx:pi})}
+                      style={{width:52,height:52,objectFit:"cover",borderRadius:6,cursor:"pointer",flexShrink:0,border:`1px solid ${t.border}`}}/>
+                  ))}
+                </div>}
+
+                {isKitchen&&isOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${t.border}`}}>
+                  {(()=>{
+                    const AL={gluten:"🌾",dairy:"🥛",egg:"🥚",nut:"🌰",peanut:"🥜",shellfish:"🦐",fish:"🐟",soy:"🫘",sesame:"🌻",sulphite:"🍷",celery:"🌿",mustard:"🌶",lupin:"🌱",mollusc:"🦪"};
+                    const grouped={};
+                    (s.items||[]).forEach(item=>{
+                      (item.departments||["general"]).forEach(did=>{
+                        if(!grouped[did])grouped[did]=[];
+                        grouped[did].push(item);
+                      });
+                    });
+                    return Object.keys(grouped).map(did=>{
+                      const d=DEPARTMENTS.find(x=>x.id===did)||{icon:"📋",tr:"Diğer",en:"Other",color:"#64748b"};
+                      const isMine=userDept===did;
+                      return <div key={did} style={{marginTop:10}}>
+                        <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,background:isMine?d.color+"25":d.color+"15",color:d.color,marginBottom:5,border:isMine?`1px solid ${d.color}40`:"none"}}>
+                          {d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}
+                        </div>
+                        {grouped[did].map((item,i)=>(
+                          <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<grouped[did].length-1?`1px dashed ${t.border}`:"none"}}>
+                            <span style={{fontSize:12,color:t.text,lineHeight:1.4,flex:1}}>{item.name}</span>
+                            {(item.allergens||[]).length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0}}>
+                              {(item.allergens||[]).map((a,j)=>(
+                                <span key={j} title={a} style={{fontSize:10,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{AL[a]||"⚠"}</span>
+                              ))}
+                            </div>}
+                          </div>
+                        ))}
+                      </div>;
+                    });
+                  })()}
+                  {(s.notesTr||s.notesEn)&&<div style={{marginTop:10,padding:"8px 10px",background:t.bg,borderRadius:6,fontSize:11,color:t.ts,lineHeight:1.5}}>
+                    <div style={{fontWeight:600,marginBottom:3,color:t.tm,fontSize:10,letterSpacing:"0.05em",textTransform:"uppercase"}}>{lang==="tr"?"Notlar":"Notes"}</div>
+                    {lang==="tr"?(s.notesTr||s.notesEn):(s.notesEn||s.notesTr)}
+                  </div>}
+                </div>}
+              </div>;
+            })}
+          </div>
+        ))}
+      </div>}
+
+      {/* ─── DEPARTMANLAR TAB ─── */}
+      {detailTab==="depts"&&<div>
+        {Object.keys(deptTasks).length===0&&totalItems===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
+          {lang==="tr"?"Henüz departman görevi yok.":"No department tasks yet."}
+        </div>}
+
+        {Object.keys(deptTasks).length>0&&DEPARTMENTS.filter(d=>deptTasks[d.id]?.length>0).map(d=>{
+          const isMine=userDept===d.id;
+          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":undefined}}>
+            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:8}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:11}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
+            {deptTasks[d.id].map((task,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<deptTasks[d.id].length-1?`1px dashed ${t.border}`:"none"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:t.text,lineHeight:1.4}}>{task.name}</div>
+                  <div style={{fontSize:10,color:t.tm,marginTop:1}}>{task.session}{task.time?" · "+task.time:""}</div>
+                </div>
+                {task.allergens.length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0,marginTop:2}}>
+                  {task.allergens.map((a,j)=>(
+                    <span key={j} title={a} style={{fontSize:10,background:t.bg,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{allergenLabel(a)}</span>
+                  ))}
+                </div>}
+              </div>
+            ))}
+          </div>;
+        })}
+
+        {/* Eski format uyumluluk */}
+        {Object.keys(deptTasks).length===0&&totalItems>0&&DEPARTMENTS.filter(d=>(selEvent.departments?.[d.id]||[]).length>0).map(d=>{
+          const items=selEvent.departments[d.id]||[];
+          const isMine=userDept===d.id;
+          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":undefined}}>
+            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
+            {items.map((item,i)=><div key={i} style={{fontSize:12,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
+          </div>;
+        })}
+      </div>}
+
+      {/* ─── BEO TAB ─── */}
+      {detailTab==="beo"&&<div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Etkinlik Bilgileri":"Event Information"}</div>
+          {[
+            ["Contract no",selEvent.contract_no?"#"+selEvent.contract_no:""],
+            [lang==="tr"?"Müşteri":"Client",selEvent.account_name],
+            [lang==="tr"?"Yetkili":"Contact",selEvent.contact_name?selEvent.contact_name+(selEvent.contact_phone?" — "+selEvent.contact_phone:""):selEvent.contact_phone],
+            ["Conf. Manager",selEvent.conf_manager],
+            [lang==="tr"?"Statüs":"Status",selEvent.status]
+          ].filter(r=>r[1]).map((r,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${t.border}`}}>
+              <span style={{color:t.tm}}>{r[0]}</span>
+              <span style={{color:t.text,fontWeight:500,textAlign:"right",maxWidth:"65%"}}>{r[1]}</span>
+            </div>
+          ))}
+        </div>
+
+        {(selEvent.total_amount||selEvent.price_per_person)&&<div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Muhasebe":"Billing"}</div>
+          <div style={{...cSt(t),padding:"10px 12px",background:t.bg}}>
+            {selEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
+              <span>{lang==="tr"?"Kişi başı":"Per person"}</span>
+              <span>{selEvent.currency||"EUR"} {selEvent.price_per_person}</span>
+            </div>}
+            {selEvent.pax&&selEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
+              <span>{selEvent.pax} pax × {selEvent.price_per_person}</span>
+              <span>{selEvent.currency||"EUR"} {(selEvent.pax*selEvent.price_per_person).toFixed(2)}</span>
+            </div>}
+            {selEvent.total_amount&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700,color:t.text,paddingTop:8,borderTop:`1px solid ${t.border}`,marginTop:4}}>
+              <span>{lang==="tr"?"Toplam":"Total"} (+KDV %{selEvent.vat_rate||20})</span>
+              <span>{selEvent.currency||"EUR"} {selEvent.total_amount}</span>
+            </div>}
+          </div>
+        </div>}
+
+        {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
+          📄 {lang==="tr"?"Orijinal BEO PDF'ini Aç":"Open Original BEO PDF"}
+        </button>}
+
+        {selEvent.notes&&<div style={{...cSt(t),padding:"10px 12px",marginTop:8}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Notlar":"Notes"}</div>
+          <div style={{fontSize:12,color:t.text,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{selEvent.notes}</div>
+        </div>}
+      </div>}
     </div>;
   }
 
-  // Liste görünümü
-  const filtered=deptFilter==="all"?events:events.filter(ev=>(ev.departments?.[deptFilter]||[]).length>0);
+  // ── Liste görünümü ──
+  const filtered=deptFilter==="all"?events:events.filter(ev=>(ev.departments?.[deptFilter]||[]).length>0||(ev.sub_events||[]).some(s=>(s.items||[]).some(it=>(it.departments||[]).includes(deptFilter))));
   const deptCounts={};
-  events.forEach(ev=>{Object.keys(ev.departments||{}).forEach(did=>{if(ev.departments[did]?.length){deptCounts[did]=(deptCounts[did]||0)+1;}});});
+  events.forEach(ev=>{
+    Object.keys(ev.departments||{}).forEach(did=>{if(ev.departments[did]?.length){deptCounts[did]=(deptCounts[did]||0)+1;}});
+    (ev.sub_events||[]).forEach(s=>(s.items||[]).forEach(it=>(it.departments||[]).forEach(did=>{deptCounts[did]=(deptCounts[did]||0)+1;})));
+  });
 
   return <div style={{padding:"12px 14px",paddingBottom:60}}>
     <div style={{marginBottom:12}}>
       <h2 style={{fontSize:20,margin:0,color:t.text,fontFamily:"'Fraunces',serif"}}>🎉 {lang==="tr"?"Etkinlikler":"Events"}</h2>
       <div style={{fontSize:12,color:t.tm,marginTop:4}}>{lang==="tr"?"Mutfağa gelen BEO'lar":"BEOs assigned to your kitchen"}</div>
     </div>
+
     {/* Departman filtresi */}
-    <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:14,paddingBottom:4}}>
-      <button onClick={()=>setDeptFilter("all")} style={{...bSt(deptFilter==="all"?"p":"g",t),padding:"6px 12px",fontSize:11,whiteSpace:"nowrap"}}>
+    <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:14,paddingBottom:4,scrollbarWidth:"none"}}>
+      <button onClick={()=>setDeptFilter("all")} style={{...bSt(deptFilter==="all"?"p":"g",t),padding:"6px 12px",fontSize:11,whiteSpace:"nowrap",flexShrink:0}}>
         {lang==="tr"?"Tümü":"All"} ({events.length})
       </button>
       {DEPARTMENTS.filter(d=>deptCounts[d.id]).map(d=>{
         const mine=userDept===d.id;
         const active=deptFilter===d.id;
-        return<button key={d.id} onClick={()=>setDeptFilter(d.id)} style={{padding:"6px 12px",fontSize:11,whiteSpace:"nowrap",borderRadius:14,border:`1px solid ${active?d.color:t.border}`,background:active?d.color+"20":(mine?d.color+"08":t.cardBg),color:active?d.color:t.text,fontWeight:active||mine?700:500,cursor:"pointer"}}>
+        return <button key={d.id} onClick={()=>setDeptFilter(d.id)} style={{padding:"6px 12px",fontSize:11,whiteSpace:"nowrap",borderRadius:14,border:`1px solid ${active?d.color:t.border}`,background:active?d.color+"20":(mine?d.color+"08":t.cardBg||t.card),color:active?d.color:t.text,fontWeight:active||mine?700:500,cursor:"pointer",flexShrink:0}}>
           {d.icon} {lang==="tr"?d.tr:d.en} ({deptCounts[d.id]}){mine&&" ✓"}
         </button>;
       })}
     </div>
+
     {loading?<div style={{padding:30,textAlign:"center",color:t.tm}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>:
      filtered.length===0?<div style={{padding:40,textAlign:"center"}}>
       <div style={{fontSize:48,marginBottom:12,opacity:0.3}}>📭</div>
@@ -4104,31 +4438,33 @@ const EventsTab=({team,user,t,lang,bSt,cSt,iSt,lSt})=>{
       const dateStr=ev.event_date?new Date(ev.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short",year:"numeric"}):"";
       const deptCount=Object.keys(ev.departments||{}).filter(k=>ev.departments[k]?.length).length;
       const totalItems=Object.values(ev.departments||{}).reduce((sum,arr)=>sum+(arr?.length||0),0);
+      const subEvCount=(ev.sub_events||[]).length;
       const isPast=ev.event_date&&new Date(ev.event_date)<new Date(new Date().toDateString());
-      const myTasks=userDept?(ev.departments?.[userDept]||[]).length:0;
-      return<div key={ev.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,opacity:isPast?0.6:1,cursor:"pointer",borderLeft:myTasks>0?`3px solid ${t.accent}`:undefined}}
-        onClick={()=>setSelEvent(ev)}>
+      const myTasks=userDept?(ev.departments?.[userDept]||[]).length+(ev.sub_events||[]).reduce((s,se)=>s+(se.items||[]).filter(it=>(it.departments||[]).includes(userDept)).length,0):0;
+      const photoCount=Object.values(ev.session_photos||{}).reduce((s,a)=>s+(a?.length||0),0);
+      return <div key={ev.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,opacity:isPast?0.6:1,cursor:"pointer",borderLeft:myTasks>0?`3px solid ${t.accent}`:undefined}}
+        onClick={()=>{setSelEvent(ev);setDetailTab("timeline");setExpandedSessions({});}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:4}}>{ev.name}</div>
+            <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.name}</div>
             <div style={{fontSize:11,color:t.tm,display:"flex",flexWrap:"wrap",gap:8}}>
               {dateStr&&<span>📅 {dateStr}</span>}
               {ev.start_time&&<span>🕐 {ev.start_time}</span>}
               {ev.pax&&<span>👥 {ev.pax}</span>}
               {ev.location&&<span>📍 {ev.location}</span>}
             </div>
+            <div style={{display:"flex",gap:10,marginTop:6,fontSize:10,color:t.tm}}>
+              <span>{subEvCount>0?`⏱ ${subEvCount} oturum`:`🏢 ${deptCount} dept`} · {totalItems} {lang==="tr"?"görev":"tasks"}</span>
+              {photoCount>0&&<span>📷 {photoCount}</span>}
+              {ev.original_pdf_path&&<span>📎 PDF</span>}
+            </div>
           </div>
-          {myTasks>0&&<div style={{fontSize:11,fontWeight:700,color:t.accent,whiteSpace:"nowrap"}}>✓ {myTasks} {lang==="tr"?"görev":"tasks"}</div>}
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,fontSize:11,color:t.tm}}>
-          <span>{deptCount} {lang==="tr"?"departman":"depts"} · {totalItems} {lang==="tr"?"görev":"tasks"}</span>
-          {ev.original_pdf_path&&<span>📎 PDF</span>}
+          {myTasks>0&&<div style={{fontSize:11,fontWeight:700,color:t.accent,whiteSpace:"nowrap",flexShrink:0}}>✓ {myTasks} {lang==="tr"?"görev":"tasks"}</div>}
         </div>
       </div>;
     })}
   </div>;
 };
-
 const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>{
   const[showCreate,setSC]=useState(false);
   const[editMenu,setEM]=useState(null);
