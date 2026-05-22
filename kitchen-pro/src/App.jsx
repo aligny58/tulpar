@@ -6731,6 +6731,9 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
   const[manualForm,setManualForm]=useState({name:"",event_date:"",start_time:"",pax:"",location:"",notes:"",items:"",photos:[]});
   const[manualBusy,setManualBusy]=useState(false);
   const[manualPreview,setManualPreview]=useState(null);
+  // Yeni detay view state'leri
+  const[detailTab,setDetailTab]=useState("timeline"); // timeline | depts | beo
+  const[expandedSessions,setExpandedSessions]=useState({}); // {sessionIdx: true/false}
 
   // Departman tanımları
   const DEPARTMENTS=[
@@ -6812,19 +6815,28 @@ Output VALID JSON ONLY (no markdown, no explanation), matching this schema:
   "totalAmount": number or null,
   "pricePerPerson": number or null,
   "vatRate": number (default 20),
+  "guestAllergies": [
+    {
+      "count": number,
+      "type": "Allergy/diet type (gluten free, lactose free, vegetarian, vegan, nut allergy, halal, kosher)",
+      "note": "Optional extra context if BEO mentions specific guests/sessions"
+    }
+  ],
   "subEvents": [
     {
       "date": "YYYY-MM-DD",
       "timeStart": "HH:MM",
       "timeEnd": "HH:MM",
-      "name": "Sub-event name (Meeting, AM Coffee Break, Lunch, PM Coffee Break, Tea & Coffee)",
+      "name": "Sub-event name (Meeting, AM Coffee Break, Lunch, PM Coffee Break, Tea & Coffee, Dessert Service)",
+      "type": "Type code: coffee_break | lunch | dinner | dessert | cocktail | meeting | tea_service | setup | other",
       "room": "Room/venue (Kaftan, Tugra Lobby, Tugra Restaurant)",
       "setUp": "Set-up type (Lounge, Theater, Coffee Break, Existing Setup)",
       "pax": number,
       "items": [
         {
           "name": "Menu item exact name (e.g. 'Mekik çeşitleri', 'Grilled lamb loin')",
-          "departments": ["pastry"]
+          "departments": ["pastry"],
+          "allergens": ["gluten","dairy","egg","nut","shellfish","fish","soy","sesame","sulphite","celery","mustard","peanut","lupin","mollusc"]
         }
       ],
       "notesTr": "Turkish notes/instructions from ATT TO X sections (if any)",
@@ -6846,14 +6858,41 @@ Department codes (each item can have MULTIPLE departments):
 - "general" = Other notes
 
 Rules:
-- ALWAYS extract every sub-event separately (Meeting, AM Break, Lunch, PM Break, Tea Service).
+- ALWAYS extract every sub-event separately (Meeting, AM Break, Lunch, PM Break, Tea Service, Dessert Service).
 - Each menu item is one entry with departments array (can be multi: "Tahini buns" = ["pastry"]).
+- Each menu item MUST have an "allergens" array — list ALL allergens likely present based on the dish name and common ingredients. Use exactly these codes: gluten, dairy, egg, nut, shellfish, fish, soy, sesame, sulphite, celery, mustard, peanut, lupin, mollusc.
 - Notes (ATT TO ...) belong to the sub-event they're under. Split TR and EN if both languages present.
 - Setup instructions (podium, chair, skirt) → "setup" department + put in notes.
-- If a sub-event has no menu items (e.g. pure meeting), items can be empty array.
+- If a sub-event has no menu items (e.g. pure meeting), items can be empty array AND set "type": "meeting".
 - For meat dishes, also add "butcher" if prep cuts are needed.
 - Convert dates: "27. February 2026" → "2026-02-27".
 - Extract exact pax from "Exp/Gtd: 12 / 12" or "for 40 pax".
+
+GUEST ALLERGY EXTRACTION:
+- Scan the ENTIRE BEO for any mention of guest allergies, diets, intolerances or dietary restrictions.
+- Look for phrases: "X guests vegetarian", "1 misafir gluten free", "2 vegan", "lactose intolerant", "halal option", "no nuts", "celiac", "1 kişi laktoz intoleransı", "vejetaryen", "vegan menü" etc.
+- Each unique allergy/diet → one entry in guestAllergies array with count and type.
+- If no allergies mentioned anywhere, return empty array [].
+
+ALLERGEN ASSIGNMENT FOR EACH ITEM:
+- gluten: wheat flour, bread, pasta, cake, cookies, biscuits, pastry, breaded items, beer
+- dairy: milk, cheese, cream, butter, yogurt, panna cotta, tiramisu, cream sauces
+- egg: eggs, mayonnaise, meringue, brioche, custard, fresh pasta
+- nut: walnut, almond, hazelnut, pistachio, pecan (NOT peanut — that's separate)
+- peanut: peanuts specifically
+- shellfish: shrimp/karides, prawn, crab, lobster
+- fish: salmon, tuna, anchovies, sardine
+- soy: soy sauce, tofu, edamame
+- sesame: tahini, sesame seeds, simit (has sesame)
+- sulphite: wine, vinegar (in significant amounts)
+- Examples:
+  * "Vanilla panna cotta" → ["dairy","egg"]
+  * "Tahinli çörek" → ["gluten","sesame"]
+  * "Mini brioche, yumurta" → ["gluten","egg","dairy"]
+  * "Goat cheese arancini" → ["dairy","gluten","egg"]
+  * "Kuşkonmaz karidesli sandviç" → ["shellfish","gluten","egg"]
+  * "Grilled lamb loin" → []
+  * "Focaccia, emmental, incir" → ["gluten","dairy"]
 
 CRITICAL — BILINGUAL MENU HANDLING:
 - BEO often shows the same dish in English AND Turkish on consecutive lines or separated by "/" or "**".
@@ -7054,6 +7093,7 @@ Output minified JSON if possible (no extra whitespace between properties).`;
         original_pdf_path:pdfPath,
         original_pdf_size:file.size,
         ai_summary:parsed.summary||"",
+        guest_allergies:parsed.guestAllergies||[],
         raw_text:rawText,
         pdf_name:file.name,
         status:"draft",
@@ -7094,6 +7134,7 @@ Output minified JSON if possible (no extra whitespace between properties).`;
       original_pdf_path:selectedEvent.original_pdf_path||null,
       original_pdf_size:selectedEvent.original_pdf_size||null,
       ai_summary:selectedEvent.ai_summary||null,
+      guest_allergies:selectedEvent.guest_allergies||[],
       raw_text:selectedEvent.raw_text||null,
       pdf_name:selectedEvent.pdf_name||null,
       status:selectedEvent.status||"draft",
@@ -7366,7 +7407,7 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       </div>;
     }
 
-    // ── Detay modu (read-only) ──
+    // ── Detay modu (read-only) — 3 tab'lı yeni tasarım ──
     const getPdfUrl=async(path)=>{
       if(!path)return null;
       const sb=initSupabase();if(!sb)return null;
@@ -7375,51 +7416,268 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       return data?.signedUrl||null;
     };
     const totalItems=Object.values(selectedEvent.departments||{}).reduce((s,a)=>s+(a?.length||0),0);
+    const subEvents=selectedEvent.sub_events||[];
+    const guestAllergies=selectedEvent.guest_allergies||[];
+
+    // Session tipine göre ikon ve renk
+    const SESSION_TYPES={
+      coffee_break:{icon:"☕",color:"#d97706",bg:"#fef3c7",tr:"Coffee Break",en:"Coffee Break"},
+      lunch:{icon:"🍽",color:"#16a34a",bg:"#dcfce7",tr:"Öğlen",en:"Lunch"},
+      dinner:{icon:"🍷",color:"#9333ea",bg:"#f3e8ff",tr:"Akşam",en:"Dinner"},
+      dessert:{icon:"🍰",color:"#ec4899",bg:"#fce7f3",tr:"Tatlı",en:"Dessert"},
+      cocktail:{icon:"🥂",color:"#0891b2",bg:"#cffafe",tr:"Kokteyl",en:"Cocktail"},
+      tea_service:{icon:"🫖",color:"#d97706",bg:"#fef3c7",tr:"Çay Servisi",en:"Tea Service"},
+      meeting:{icon:"📋",color:"#64748b",bg:"#f1f5f9",tr:"Toplantı",en:"Meeting"},
+      setup:{icon:"🪑",color:"#525252",bg:"#f5f5f5",tr:"Kurulum",en:"Setup"},
+      other:{icon:"📅",color:"#64748b",bg:"#f1f5f9",tr:"Diğer",en:"Other"}
+    };
+    const sessionMeta=(s)=>SESSION_TYPES[s.type]||SESSION_TYPES.other;
+    const isKitchenSession=(s)=>(s.items||[]).length>0;
+
+    // Alerjen ikonları
+    const ALLERGEN_ICONS={gluten:"🌾",dairy:"🥛",egg:"🥚",nut:"🌰",peanut:"🥜",shellfish:"🦐",fish:"🐟",soy:"🫘",sesame:"🌻",sulphite:"🍷",celery:"🌿",mustard:"🌶",lupin:"🌱",mollusc:"🦪"};
+    const allergenLabel=(a)=>ALLERGEN_ICONS[a]||"⚠";
+
+    // Tarihe göre grupla (multi-day desteği)
+    const byDate={};
+    subEvents.forEach((s,idx)=>{
+      const d=s.date||selectedEvent.event_date||"unknown";
+      if(!byDate[d])byDate[d]=[];
+      byDate[d].push({...s,_idx:idx});
+    });
+
+    // Departmanlar tab için: tüm sub_events'lerden departman bazlı görev topla
+    const deptTasks={};
+    subEvents.forEach(s=>{
+      (s.items||[]).forEach(item=>{
+        (item.departments||[]).forEach(did=>{
+          if(!deptTasks[did])deptTasks[did]=[];
+          deptTasks[did].push({
+            name:item.name,
+            allergens:item.allergens||[],
+            session:s.name,
+            date:s.date,
+            time:s.timeStart
+          });
+        });
+      });
+    });
+
     return <div style={{padding:"12px 14px",paddingBottom:80}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-        <h3 style={{fontSize:22,color:t.text,margin:0,fontFamily:"'Fraunces',serif",flex:1,marginRight:8}}>{selectedEvent.name}</h3>
-        <button onClick={()=>{setSelectedEvent(null);setShowEdit(false);}} style={{...bSt("s",t),fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
-      </div>
-      <div style={{...cSt(t),padding:"12px 16px",marginBottom:12}}>
-        <div style={{display:"flex",flexWrap:"wrap",gap:10,fontSize:13,color:t.ts}}>
-          {selectedEvent.event_date&&<span>📅 {new Date(selectedEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}</span>}
-          {selectedEvent.start_time&&<span>🕐 {selectedEvent.start_time}{selectedEvent.end_time&&" – "+selectedEvent.end_time}</span>}
-          {selectedEvent.pax&&<span>👥 {selectedEvent.pax} pax</span>}
-          {selectedEvent.location&&<span>📍 {selectedEvent.location}</span>}
-          {selectedEvent.contract_no&&<span>📄 {selectedEvent.contract_no}</span>}
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <button onClick={()=>{setSelectedEvent(null);setShowEdit(false);setDetailTab("timeline");setExpandedSessions({});}} style={{...bSt("g",t),fontSize:12,padding:"6px 10px"}}>← {lang==="tr"?"Etkinlikler":"Events"}</button>
+        <div style={{display:"flex",gap:6}}>
+          {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>📄 PDF</button>}
+          <button onClick={()=>setShowEdit(true)} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>✏️</button>
+          <button onClick={async()=>{if(window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?")){await deleteEvent(selectedEvent.id);}}} style={{...bSt("d",t),fontSize:12,padding:"6px 10px"}}>🗑</button>
         </div>
       </div>
-      {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 14px",marginBottom:12,background:t.accent+"15",border:`1px solid ${t.accent}40`}}>
-        <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.1em",marginBottom:4}}>🤖 AI ÖZET</div>
-        <div style={{fontSize:13,color:t.text,lineHeight:1.5}}>{selectedEvent.ai_summary}</div>
-      </div>}
-      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-        {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),flex:"1 1 100px",fontSize:13}}>
-          📄 {lang==="tr"?"PDF'i Aç":"Open PDF"}
-        </button>}
-        <button onClick={()=>setShowEdit(true)} style={{...bSt("s",t),flex:"1 1 100px",fontSize:13}}>
-          ✏️ {lang==="tr"?"Düzenle":"Edit"}
-        </button>
-        <button onClick={async()=>{if(window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?")){await deleteEvent(selectedEvent.id);}}} style={{...bSt("d",t),flex:"1 1 100px",fontSize:13}}>
-          🗑 {lang==="tr"?"Sil":"Delete"}
-        </button>
+
+      <h3 style={{fontSize:20,color:t.text,margin:"0 0 6px 0",fontFamily:"'Fraunces',serif",lineHeight:1.25}}>{selectedEvent.name}</h3>
+
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,fontSize:11,color:t.tm,marginBottom:14}}>
+        {selectedEvent.event_date&&<span>📅 {new Date(selectedEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}{selectedEvent.end_date&&selectedEvent.end_date!==selectedEvent.event_date?" – "+new Date(selectedEvent.end_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long"}):""}</span>}
+        {selectedEvent.pax&&<span>👥 {selectedEvent.pax} pax</span>}
+        {selectedEvent.location&&<span>📍 {selectedEvent.location}</span>}
+        {selectedEvent.contract_no&&<span>📄 #{selectedEvent.contract_no}</span>}
       </div>
-      {totalItems===0&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("p",t),width:"100%",marginBottom:12,fontSize:13,fontWeight:700}}>
-        📤 {lang==="tr"?"Departmanlara Dağıt":"Distribute to Departments"}
-      </button>}
-      {totalItems>0&&<>
-        <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:8,marginTop:8,textTransform:"uppercase"}}>{lang==="tr"?"Departman Görevleri":"Department Tasks"}</div>
-        {DEPARTMENTS.filter(d=>(selectedEvent.departments?.[d.id]||[]).length>0).map(d=>{
+
+      {/* Tabs */}
+      <div style={{display:"flex",borderBottom:`1px solid ${t.border}`,marginBottom:14}}>
+        {[
+          {id:"timeline",icon:"⏱",tr:"Timeline",en:"Timeline"},
+          {id:"depts",icon:"🍽",tr:"Departmanlar",en:"Departments"},
+          {id:"beo",icon:"📄",tr:"BEO",en:"BEO"}
+        ].map(tab=>(
+          <div key={tab.id} onClick={()=>setDetailTab(tab.id)} style={{flex:1,textAlign:"center",padding:"10px 4px",fontSize:12,fontWeight:detailTab===tab.id?700:400,color:detailTab===tab.id?t.text:t.tm,borderBottom:`2px solid ${detailTab===tab.id?t.text:"transparent"}`,cursor:"pointer",transition:"all 0.15s"}}>
+            {tab.icon} {lang==="tr"?tab.tr:tab.en}
+          </div>
+        ))}
+      </div>
+
+      {/* ─── TIMELINE TAB ─── */}
+      {detailTab==="timeline"&&<div>
+        {/* AI Özet */}
+        {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"12",border:`1px solid ${t.accent}30`}}>
+          <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.08em",marginBottom:4}}>🤖 AI ÖZET</div>
+          <div style={{fontSize:12,color:t.text,lineHeight:1.55}}>{selectedEvent.ai_summary}</div>
+        </div>}
+
+        {/* Misafir Alerjen Uyarıları */}
+        {guestAllergies.length>0&&<div style={{background:"#fef3c7",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 12px",marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#92400e",letterSpacing:"0.08em",marginBottom:6,textTransform:"uppercase"}}>⚠ {lang==="tr"?"Misafir Alerjen Uyarıları":"Guest Allergy Warnings"}</div>
+          {guestAllergies.map((a,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#78350f",padding:"3px 0",borderBottom:i<guestAllergies.length-1?"1px solid #fde68a":"none"}}>
+              <span style={{background:"#fde68a",color:"#92400e",fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap"}}>{a.count} {lang==="tr"?"misafir":"guest"}</span>
+              <span>{a.type}{a.note?" — "+a.note:""}</span>
+            </div>
+          ))}
+        </div>}
+
+        {/* Sub-events boş ise eski format göster */}
+        {subEvents.length===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
+          {lang==="tr"?"Bu etkinlik için saat bazlı oturum bilgisi yok. PDF yeniden yüklenirse AI yeni formatta çıkaracak.":"No timeline sessions for this event. Re-upload the PDF to extract structured timeline."}
+        </div>}
+
+        {/* Gün gün session listesi */}
+        {Object.keys(byDate).sort().map(date=>(
+          <div key={date}>
+            {Object.keys(byDate).length>1&&<div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",margin:"4px 0 10px",display:"flex",alignItems:"center",gap:8}}>
+              {date!=="unknown"?new Date(date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"—"}
+              <span style={{flex:1,height:1,background:t.border}}/>
+            </div>}
+            {byDate[date].map(s=>{
+              const meta=sessionMeta(s);
+              const isOpen=expandedSessions[s._idx];
+              const isKitchen=isKitchenSession(s);
+              return <div key={s._idx} style={{border:`1px solid ${t.border}`,borderRadius:8,marginBottom:8,overflow:"hidden",borderStyle:isKitchen?"solid":"dashed",opacity:isKitchen?1:0.65}}>
+                <div onClick={isKitchen?()=>setExpandedSessions(p=>({...p,[s._idx]:!p[s._idx]})):undefined} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:isKitchen?"pointer":"default",background:t.card}}>
+                  <div style={{width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,background:meta.bg,flexShrink:0}}>{meta.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:t.text}}>{s.name||meta[lang==="tr"?"tr":"en"]}</div>
+                    <div style={{fontSize:11,color:t.tm,marginTop:1,display:"flex",gap:8,flexWrap:"wrap"}}>
+                      {s.timeStart&&<span>🕐 {s.timeStart}{s.timeEnd&&"–"+s.timeEnd}</span>}
+                      {s.room&&<span>📍 {s.room}</span>}
+                      {s.pax!=null&&<span>👥 {s.pax}</span>}
+                      {!isKitchen&&<span style={{fontStyle:"italic"}}>{lang==="tr"?"mutfak görevi yok":"no kitchen task"}</span>}
+                    </div>
+                  </div>
+                  {isKitchen&&<span style={{fontSize:14,color:t.tm,transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>▶</span>}
+                </div>
+                {isKitchen&&isOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${t.border}`}}>
+                  {/* Departmana göre menü itemlerini grupla */}
+                  {(()=>{
+                    const grouped={};
+                    (s.items||[]).forEach(item=>{
+                      (item.departments||["general"]).forEach(did=>{
+                        if(!grouped[did])grouped[did]=[];
+                        grouped[did].push(item);
+                      });
+                    });
+                    return Object.keys(grouped).map(did=>{
+                      const d=DEPARTMENTS.find(x=>x.id===did)||{icon:"📋",tr:"Diğer",en:"Other",color:"#64748b"};
+                      return <div key={did} style={{marginTop:10}}>
+                        <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,background:d.color+"15",color:d.color,marginBottom:5}}>
+                          {d.icon} {lang==="tr"?d.tr:d.en}
+                        </div>
+                        {grouped[did].map((item,i)=>(
+                          <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<grouped[did].length-1?`1px dashed ${t.border}`:"none"}}>
+                            <span style={{fontSize:12,color:t.text,lineHeight:1.4,flex:1}}>{item.name}</span>
+                            {(item.allergens||[]).length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0}}>
+                              {(item.allergens||[]).map((a,j)=>(
+                                <span key={j} title={a} style={{fontSize:10,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{allergenLabel(a)}</span>
+                              ))}
+                            </div>}
+                          </div>
+                        ))}
+                      </div>;
+                    });
+                  })()}
+                  {(s.notesTr||s.notesEn)&&<div style={{marginTop:10,padding:"8px 10px",background:t.bg,borderRadius:6,fontSize:11,color:t.ts,lineHeight:1.5}}>
+                    <div style={{fontWeight:600,marginBottom:3,color:t.tm,fontSize:10,letterSpacing:"0.05em",textTransform:"uppercase"}}>{lang==="tr"?"Notlar":"Notes"}</div>
+                    {lang==="tr"?(s.notesTr||s.notesEn):(s.notesEn||s.notesTr)}
+                  </div>}
+                </div>}
+              </div>;
+            })}
+          </div>
+        ))}
+
+        {totalItems===0&&subEvents.length===0&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("p",t),width:"100%",marginTop:12,fontSize:13,fontWeight:700}}>
+          📤 {lang==="tr"?"Departmanlara Dağıt":"Distribute to Departments"}
+        </button>}
+      </div>}
+
+      {/* ─── DEPARTMANLAR TAB ─── */}
+      {detailTab==="depts"&&<div>
+        {Object.keys(deptTasks).length===0&&totalItems===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
+          {lang==="tr"?"Henüz departman görevi yok.":"No department tasks yet."}
+        </div>}
+
+        {/* Yeni sub_events bazlı departman görevleri */}
+        {Object.keys(deptTasks).length>0&&DEPARTMENTS.filter(d=>deptTasks[d.id]?.length>0).map(d=>(
+          <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
+            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:8}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
+            {deptTasks[d.id].map((task,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<deptTasks[d.id].length-1?`1px dashed ${t.border}`:"none"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:t.text,lineHeight:1.4}}>{task.name}</div>
+                  <div style={{fontSize:10,color:t.tm,marginTop:1}}>{task.session}{task.time?" · "+task.time:""}</div>
+                </div>
+                {task.allergens.length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0,marginTop:2}}>
+                  {task.allergens.map((a,j)=>(
+                    <span key={j} title={a} style={{fontSize:10,background:t.bg,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{allergenLabel(a)}</span>
+                  ))}
+                </div>}
+              </div>
+            ))}
+          </div>
+        ))}
+
+        {/* Eski uyumluluk: sub_events boş ama departments dolu ise */}
+        {Object.keys(deptTasks).length===0&&totalItems>0&&DEPARTMENTS.filter(d=>(selectedEvent.departments?.[d.id]||[]).length>0).map(d=>{
           const items=selectedEvent.departments[d.id]||[];
-          return<div key={d.id} style={{...cSt(t),padding:"10px 14px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
-            <div style={{fontSize:12,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
-            {items.map((item,i)=><div key={i} style={{fontSize:13,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
+          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
+            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
+            {items.map((item,i)=><div key={i} style={{fontSize:12,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
           </div>;
         })}
-        <button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("s",t),width:"100%",marginTop:4,fontSize:13}}>
+
+        {totalItems>0&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("s",t),width:"100%",marginTop:6,fontSize:13}}>
           📤 {lang==="tr"?"Yeniden Dağıt":"Redistribute"}
-        </button>
-      </>}
+        </button>}
+      </div>}
+
+      {/* ─── BEO TAB ─── */}
+      {detailTab==="beo"&&<div>
+        {/* Etkinlik bilgileri */}
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Etkinlik Bilgileri":"Event Information"}</div>
+          {[
+            ["Contract no",selectedEvent.contract_no?"#"+selectedEvent.contract_no:""],
+            [lang==="tr"?"Müşteri":"Client",selectedEvent.account_name],
+            [lang==="tr"?"Yetkili":"Contact",selectedEvent.contact_name?selectedEvent.contact_name+(selectedEvent.contact_phone?" — "+selectedEvent.contact_phone:""):selectedEvent.contact_phone],
+            ["Conf. Manager",selectedEvent.conf_manager],
+            [lang==="tr"?"Statüs":"Status",selectedEvent.status]
+          ].filter(r=>r[1]).map((r,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${t.border}`}}>
+              <span style={{color:t.tm}}>{r[0]}</span>
+              <span style={{color:t.text,fontWeight:500,textAlign:"right",maxWidth:"65%"}}>{r[1]}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Muhasebe */}
+        {(selectedEvent.total_amount||selectedEvent.price_per_person)&&<div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Muhasebe":"Billing"}</div>
+          <div style={{...cSt(t),padding:"10px 12px",background:t.bg}}>
+            {selectedEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
+              <span>{lang==="tr"?"Kişi başı":"Per person"}</span>
+              <span>{selectedEvent.currency||"EUR"} {selectedEvent.price_per_person}</span>
+            </div>}
+            {selectedEvent.pax&&selectedEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
+              <span>{selectedEvent.pax} pax × {selectedEvent.price_per_person}</span>
+              <span>{selectedEvent.currency||"EUR"} {(selectedEvent.pax*selectedEvent.price_per_person).toFixed(2)}</span>
+            </div>}
+            {selectedEvent.total_amount&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700,color:t.text,paddingTop:8,borderTop:`1px solid ${t.border}`,marginTop:4}}>
+              <span>{lang==="tr"?"Toplam":"Total"} (+KDV %{selectedEvent.vat_rate||20})</span>
+              <span>{selectedEvent.currency||"EUR"} {selectedEvent.total_amount}</span>
+            </div>}
+          </div>
+        </div>}
+
+        {/* PDF butonu */}
+        {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
+          📄 {lang==="tr"?"Orijinal BEO PDF'ini Aç":"Open Original BEO PDF"}
+        </button>}
+
+        {/* Notlar */}
+        {selectedEvent.notes&&<div style={{...cSt(t),padding:"10px 12px",marginTop:8}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Notlar":"Notes"}</div>
+          <div style={{fontSize:12,color:t.text,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{selectedEvent.notes}</div>
+        </div>}
+      </div>}
     </div>;
   }
 
