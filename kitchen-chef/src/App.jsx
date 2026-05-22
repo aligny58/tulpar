@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import * as XLSX from 'xlsx'
+import Holidays from 'date-holidays'
 
 
 // ═══ TOAST SİSTEMİ ═══
@@ -36,10 +38,9 @@ const ToastContainer=()=>{
 
 // ═══ STORAGE ═══
 const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-// ═══ STORAGE PREFIX MIGRATION ═══
+// ═══ CHEF STORAGE PREFIX ═══
 (()=>{
-  // Sadece eski tk_ key'leri km_'ye taşı
-  // sb- ile başlayan Supabase auth key'lerine DOKUNMA
+  // Eski tk_ key'leri kmc_'ye taşı
   const toMigrate=["tk_recipes","tk_stock","tk_invoices","tk_lang","tk_dark",
     "tk_menus","tk_expenses","tk_storage","tk_productions","tk_reportcats",
     "tk_profile","tk_traceability","tk_lots","tk_trackedings","tk_resethour",
@@ -48,30 +49,32 @@ const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v)
   for(const k of toMigrate){
     const val=localStorage.getItem(k);
     if(val!==null){
-      const newKey="km_"+k.slice(3);
+      const newKey="kmc_"+k.slice(3);
       if(!localStorage.getItem(newKey))localStorage.setItem(newKey,val);
       localStorage.removeItem(k);
     }
   }
-  // Chef kmc_ verilerini temizle (KM ile karışmasın)
-  const toRemove=[];
+  // KM'nin km_ verilerini temizle — ama kmc_ ve sb- verilerine dokunma
+  const allKeys=[];
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
-    if(k&&k.startsWith("kmc_"))toRemove.push(k);
+    if(k)allKeys.push(k);
   }
-  toRemove.forEach(k=>localStorage.removeItem(k));
+  allKeys.forEach(k=>{
+    if(k.startsWith("km_")&&!k.startsWith("kmc_"))localStorage.removeItem(k);
+  });
 })();
 
 const SK={
-  key:"km_apikey",recipes:"km_recipes",stock:"km_stock",invoices:"km_invoices",
-  lang:"km_lang",dark:"km_dark",logs:"km_logs",menus:"km_menus",
-  expenses:"km_expenses",storage:"km_storage",productions:"km_productions",
-  reportCats:"km_reportcats",profile:"km_profile",traceability:"km_traceability",
-  lots:"km_lots",trackedIngs:"km_trackedings",resetHour:"km_resethour",
-  organizations:"km_organizations",storageChecks:"km_storagechecks",
-  menuTemplates:"km_menutemplates",conversations:"km_conversations",
-  activeConvId:"km_activeconv",notifSettings:"km_notifsettings",
-  botMessages:"km_botmessages",calorieDB:"km_caloriedb",printers:"km_printers"
+  key:"kmc_apikey",recipes:"kmc_recipes",stock:"kmc_stock",invoices:"kmc_invoices",
+  lang:"kmc_lang",dark:"kmc_dark",logs:"kmc_logs",menus:"kmc_menus",
+  expenses:"kmc_expenses",storage:"kmc_storage",productions:"kmc_productions",
+  reportCats:"kmc_reportcats",profile:"kmc_profile",traceability:"kmc_traceability",
+  lots:"kmc_lots",trackedIngs:"kmc_trackedings",resetHour:"kmc_resethour",
+  organizations:"kmc_organizations",storageChecks:"kmc_storagechecks",
+  menuTemplates:"kmc_menutemplates",conversations:"kmc_conversations",
+  activeConvId:"kmc_activeconv",notifSettings:"kmc_notifsettings",
+  botMessages:"kmc_botmessages",calorieDB:"kmc_caloriedb",printers:"kmc_printers"
 };
 
 // Default organizasyonlar (numune etiketi için)
@@ -79,6 +82,7 @@ const DEF_ORGANIZATIONS=["Restoran","Ballroom","Bellini","Gazebo","Personel Yeme
 
 const DEF_PROFILE={fullName:"",workplace:"",department:"",role:"",country:"",sector:"",unitSystem:"metric"};
 
+// Sektör ve ülke listeleri (Pro modülünde de kullanılır)
 const SECTORS=[
   {id:"hotel",emoji:"🏨",tr:"Otel",en:"Hotel",ru:"Отель",es:"Hotel",de:"Hotel",fr:"Hôtel",zh:"酒店",ar:"فندق"},
   {id:"restaurant",emoji:"🍽",tr:"Restoran",en:"Restaurant",ru:"Ресторан",es:"Restaurante",de:"Restaurant",fr:"Restaurant",zh:"餐厅",ar:"مطعم"},
@@ -150,12 +154,196 @@ const log=(type,detail,raw)=>{LOGS.push({ts:new Date().toISOString(),type,detail
 // ═══ SUPABASE CONFIG ═══
 const SUPABASE_URL="https://tbacctbscojfknqttfly.supabase.co";
 const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRiYWNjdGJzY29qZmtucXR0Zmx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MjQ0NTIsImV4cCI6MjA5NDEwMDQ1Mn0.HqqMzmJICuso2ZAdotRho0Jgn36yR_nVxdej-teGru0";
+
+// ═══ INLINE QR ENCODER (CDN bağımsız) ═══
+// Minimal QR Code generator - no external dependencies
+const QREncoder=(()=>{
+  const ALPHANUMERIC="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+  const isAlphanumeric=s=>s.split("").every(c=>ALPHANUMERIC.includes(c));
+  
+  // Galois field multiplication
+  const gfMul=(a,b)=>{
+    let r=0;
+    for(let i=0;i<8;i++){
+      if(b&1)r^=a;
+      const hbs=a&0x80;
+      a=(a<<1)&0xff;
+      if(hbs)a^=0x1d;
+      b>>=1;
+    }
+    return r;
+  };
+  
+  // Reed-Solomon error correction
+  const rsEC=(data,ecCount)=>{
+    const gen=Array(ecCount).fill(0);
+    gen[0]=1;
+    for(let i=0;i<ecCount;i++){
+      const a=1<<i; // 2^i in GF
+      let pw=1;
+      for(let j=0;j<i;j++)pw=gfMul(pw,2);
+      for(let j=ecCount-1;j>=0;j--){
+        gen[j]=gfMul(gen[j],pw);
+        if(j>0)gen[j]^=gen[j-1];
+      }
+    }
+    const msg=data.slice();
+    for(let i=0;i<ecCount;i++)msg.push(0);
+    for(let i=0;i<data.length;i++){
+      const c=msg[i];
+      if(c!==0)for(let j=0;j<ecCount;j++)msg[i+j+1]^=gfMul(gen[ecCount-1-j],c);
+    }
+    return msg.slice(data.length);
+  };
+
+  // Encode text to QR matrix (Version 2, ECC M)
+  // Returns 2D boolean array
+  const encode=(text)=>{
+    // Use URL-safe approach: force numeric/alphanumeric if possible
+    const upper=text.toUpperCase();
+    const useAlpha=isAlphanumeric(upper)&&upper.length<=47;
+    
+    // For complex URLs we use byte mode
+    const bytes=[];
+    for(let i=0;i<text.length;i++)bytes.push(text.charCodeAt(i)&0xff);
+    
+    // Version 2 (25x25), ECC M: 28 data codewords, 16 EC codewords
+    const size=25;
+    const dataCapacity=28;
+    const ecCount=16;
+    
+    // Build data bits
+    const bits=[];
+    const pushBits=(val,len)=>{for(let i=len-1;i>=0;i--)bits.push((val>>i)&1)};
+    
+    // Mode: byte (4 bits = 0100)
+    pushBits(4,4);
+    // Character count (8 bits for byte mode v2)
+    const len=Math.min(bytes.length,dataCapacity-2);
+    pushBits(len,8);
+    // Data
+    for(let i=0;i<len;i++)pushBits(bytes[i],8);
+    // Terminator
+    while(bits.length<dataCapacity*8&&bits.length%8!==0||bits.length<dataCapacity*8-4)bits.push(0);
+    // Padding
+    const pads=[0xEC,0x11];
+    let pi=0;
+    while(bits.length<dataCapacity*8){const p=pads[pi%2];pi++;pushBits(p,8);}
+    
+    // Convert to codewords
+    const codewords=[];
+    for(let i=0;i<dataCapacity;i++){
+      let b=0;
+      for(let j=0;j<8;j++)b=(b<<1)|(bits[i*8+j]||0);
+      codewords.push(b);
+    }
+    
+    // Error correction
+    const ec=rsEC(codewords,ecCount);
+    const allCW=[...codewords,...ec];
+    
+    // Build matrix
+    const mat=Array(size).fill(null).map(()=>Array(size).fill(null));
+    const func=Array(size).fill(null).map(()=>Array(size).fill(false));
+    
+    const setFunc=(r,c,v)=>{if(r>=0&&r<size&&c>=0&&c<size){mat[r][c]=v?1:0;func[r][c]=true;}};
+    
+    // Finder patterns
+    const finder=(r,c)=>{
+      for(let i=-1;i<=7;i++)for(let j=-1;j<=7;j++){
+        if(i<0||i>6||j<0||j>6)setFunc(r+i,c+j,0);
+        else if(i===0||i===6||j===0||j===6)setFunc(r+i,c+j,1);
+        else if(i>=2&&i<=4&&j>=2&&j<=4)setFunc(r+i,c+j,1);
+        else setFunc(r+i,c+j,0);
+      }
+    };
+    finder(0,0);finder(0,size-7);finder(size-7,0);
+    
+    // Timing patterns
+    for(let i=8;i<size-8;i++){setFunc(6,i,i%2===0);setFunc(i,6,i%2===0);}
+    
+    // Dark module
+    setFunc(size-8,8,1);
+    
+    // Alignment pattern (v2: one at 18,18)
+    const ap=(r,c)=>{
+      for(let i=-2;i<=2;i++)for(let j=-2;j<=2;j++){
+        if(Math.abs(i)===2||Math.abs(j)===2)setFunc(r+i,c+j,1);
+        else if(i===0&&j===0)setFunc(r+i,c+j,1);
+        else setFunc(r+i,c+j,0);
+      }
+    };
+    ap(18,18);
+    
+    // Format info (mask 0, ECC M = 00)
+    const fmt=[1,1,1,0,1,1,1,1,1,0,0,0,1,0,0];
+    const fmtPos=[[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];
+    fmtPos.forEach(([r,c],i)=>setFunc(r,c,fmt[i]));
+    setFunc(size-7,8,fmt[6]);
+    for(let i=0;i<7;i++)setFunc(size-1-i,8,fmt[i]);
+    for(let i=0;i<8;i++)setFunc(8,size-8+i,fmt[14-i]);
+    
+    // Data placement
+    let bi=0;
+    const allBits=[];
+    for(const cw of allCW)for(let i=7;i>=0;i--)allBits.push((cw>>i)&1);
+    
+    let up=true;
+    for(let col=size-1;col>0;col-=2){
+      if(col===6)col=5;
+      for(let row=0;row<size;row++){
+        const r=up?size-1-row:row;
+        for(let dc=0;dc<2;dc++){
+          const c=col-dc;
+          if(!func[r][c]){
+            mat[r][c]=bi<allBits.length?allBits[bi]^0:0; // mask 0: (i+j)%2==0
+            if((r+c)%2===0)mat[r][c]^=1;
+            bi++;
+          }
+        }
+      }
+      up=!up;
+    }
+    
+    // Fill unfilled
+    for(let r=0;r<size;r++)for(let c=0;c<size;c++)if(mat[r][c]===null)mat[r][c]=0;
+    
+    return mat;
+  };
+  
+  // Draw QR to canvas
+  const draw=(canvas,text,fg="#000",bg="#fff")=>{
+    try{
+      const mat=encode(text);
+      const size=mat.length;
+      const scale=Math.floor(canvas.width/( size+8));
+      const off=Math.floor((canvas.width-scale*(size+8))/2)+scale*4;
+      const ctx=canvas.getContext("2d");
+      ctx.fillStyle=bg;ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle=fg;
+      for(let r=0;r<size;r++)for(let c=0;c<size;c++)
+        if(mat[r][c])ctx.fillRect(off+c*scale,off+r*scale,scale,scale);
+      return true;
+    }catch(e){
+      // Fallback: takip no yaz
+      const ctx=canvas.getContext("2d");
+      ctx.fillStyle=bg;ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle=fg;ctx.font=`bold ${Math.floor(canvas.width/12)}px monospace`;
+      ctx.textAlign="center";
+      const parts=text.split("?prod=");
+      ctx.fillText(parts[1]||text.slice(-12),canvas.width/2,canvas.height/2);
+      return false;
+    }
+  };
+  
+  return{draw};
+})();
 let supabase=null;
 const initSupabase=()=>{
   if(supabase)return supabase;
   if(true){
     supabase=createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
-      auth:{storageKey:"km-auth",storage:window.localStorage}
+      auth:{storageKey:"kmc-auth",storage:window.localStorage}
     });
     return supabase;
   }
@@ -450,18 +638,6 @@ const CAT_KEYWORDS={
   packaging:["folyo","streç","poşet","torba","kutu","naylon","ambalaj","etiket","tek kullanımlık","peçete","havlu","kürdan","pipet","karton","stretch","alüminyum folyo","pişirme kağıdı","parşömen","pastry bag","sıkma torbası"]
 };
 
-function guessStockCat(name){
-  const n=name.toLowerCase();
-  for(const[cat,kws]of Object.entries(CAT_KEYWORDS)){
-    if(kws.some(k=>n.includes(k)))return cat;
-  }
-  return "other";
-}
-
-// Ürün adından miktar ve birim çıkar
-// "Pınar Süt 1 lt" → {cleanName:"Pınar Süt", qty:1000, unit:"ml"}
-// "Tikveşli Krema 200ml" → {cleanName:"Tikveşli Krema", qty:200, unit:"ml"}
-// "Un 5 kg" → {cleanName:"Un", qty:5000, unit:"g"}
 // Bilinen Türk gıda markaları
 const TR_BRANDS=["Pınar","Sek","İçim","Ülker","Eti","Bim","Migros","Dost","Tikveşli","Monea",
   "Torku","Sütas","Gönen","Yörsan","Yörem","Altınkılıç","Algida","Carte D'Or","Nestlé","Nestle",
@@ -506,6 +682,15 @@ function parseProductName(name){
     }
   }
   return{cleanName:workName||name,brand,qty:0,unit:"g"};
+}
+
+
+function guessStockCat(name){
+  const n=name.toLowerCase();
+  for(const[cat,kws]of Object.entries(CAT_KEYWORDS)){
+    if(kws.some(k=>n.includes(k)))return cat;
+  }
+  return "other";
 }
 
 // Migration: eski kategorileri yeni kategorilere taşı (v1.8.0 → v1.8.0)
@@ -587,7 +772,7 @@ const LANGS=[
 const I18N={
   tr:{
     // Sekmeler
-    tabRecipes:"Reçeteler",tabStock:"Stok",tabProduction:"Üretim",tabReports:"Raporlar",tabMenus:"Menüler",tabAssistant:"Asistan",tabSettings:"Ayarlar",tabTodo:"Görevler",tabTeamChat:"Ekip",
+    tabRecipes:"Reçeteler",tabStock:"Stok",tabProduction:"Üretim",tabReports:"Raporlar",tabMenus:"Menüler",tabAssistant:"Asistan",tabSettings:"Ayarlar",tabTodo:"Görevler",tabTeam:"Ekip",tabTeamChat:"Ekip Chat",
     // Genel
     save:"Kaydet",cancel:"İptal",delete:"Sil",edit:"Düzenle",close:"Kapat",add:"Ekle",back:"Geri",next:"İleri",search:"Ara",filter:"Filtrele",all:"Tümü",yes:"Evet",no:"Hayır",confirm:"Onayla",remove:"Kaldır",update:"Güncelle",name:"Ad",amount:"Miktar",unit:"Birim",price:"Fiyat",date:"Tarih",time:"Saat",note:"Not",optional:"opsiyonel",required:"zorunlu",loading:"Yükleniyor...",error:"Hata",success:"Başarılı",warning:"Uyarı",
     // Reçeteler
@@ -659,7 +844,7 @@ const I18N={
     methodOven:"Fırın",methodBoil:"Kaynat / Haşla",methodFry:"Kızart",methodGrill:"Izgara",methodBainMarie:"Benmari",methodFridge:"Buzdolabı",methodFreeze:"Dondurma",methodCool:"Soğutma",methodNone:"Pişirme yok"
   },
   en:{
-    tabRecipes:"Recipes",tabStock:"Stock",tabProduction:"Production",tabReports:"Reports",tabMenus:"Menus",tabAssistant:"Assistant",tabSettings:"Settings",tabTodo:"Tasks",tabTeamChat:"Team",
+    tabRecipes:"Recipes",tabStock:"Stock",tabProduction:"Production",tabReports:"Reports",tabMenus:"Menus",tabAssistant:"Assistant",tabSettings:"Settings",tabTodo:"Tasks",tabTeam:"Team",tabTeamChat:"Team Chat",
     save:"Save",cancel:"Cancel",delete:"Delete",edit:"Edit",close:"Close",add:"Add",back:"Back",next:"Next",search:"Search",filter:"Filter",all:"All",yes:"Yes",no:"No",confirm:"Confirm",remove:"Remove",update:"Update",name:"Name",amount:"Amount",unit:"Unit",price:"Price",date:"Date",time:"Time",note:"Note",optional:"optional",required:"required",loading:"Loading...",error:"Error",success:"Success",warning:"Warning",
     recipes:"Recipes",newRecipe:"+ New Recipe",recipePhoto:"📷 Recipe (AI)",recipeManual:"+ Manual",recipeDetail:"Recipe Detail",ingredients:"Ingredients",allergens:"Allergens",cookMethod:"Cooking",cookTemp:"Temperature",cookTime:"Time",servings:"Servings",totalWeight:"Total Weight",portionG:"Portion Grams",calories:"Calories",yieldL:"Yield",recipeName:"Recipe Name",deductStock:"📦 Deduct Stock & Produce",sampleLabel:"🧪 Sample Witness Label",editPhoto:"📷 Change Photo",addPhoto:"📷 Add Photo",costAnalysis:"COST ANALYSIS",material:"Materials",overhead:"Fixed+Personnel share",realCost:"Real Cost",perPortion:"portion",costHint:"💡 Add fixed expenses and personnel costs in Settings to see the real cost.",
     stock:"Stock",stockMaterial:"📦 Materials",stockLots:"🏷 Lot Numbers",invoice:"📄 Invoice (AI)",manualAdd:"+ Manual",lowStock:"⚠ Low Stock",products:"items",currentLots:"Current Lot Numbers",noTrackedIngs:"No tracked ingredients",noTrackedIngsHint:"Settings → Traceability → Add Tracked Ingredients",lotMissing:"Lot not entered",lotToday:"today",lotDaysAgo:"days ago",lotEntered:"entered",lotHint:"💡 Scan lot numbers from packages each morning. 🔴 missing · 🔵 current · 🟡 old (3+ days).",
@@ -889,7 +1074,7 @@ const lSt=(t)=>({fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.1em",dis
 const bSt=(v,t)=>({padding:"11px 20px",borderRadius:12,cursor:"pointer",fontSize:14,fontWeight:600,border:"none",transition:"all .2s",background:v==="p"?t.accent:v==="d"?t.danBg:t.pBg,color:v==="p"?(t.bg==="#1a1612"?"#1a1612":"#fff"):v==="d"?t.danger:t.ts,...(v==="d"?{border:`1px solid ${t.danBo}`}:{})});
 const cSt=(t)=>({background:t.card,borderRadius:18,border:`1px solid ${t.cardB}`,boxShadow:t.cardS,transition:"all .25s"});
 const mOv=(t)=>({position:"fixed",inset:0,background:t.overlay,backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px 8px",overflowX:"hidden"});
-const mPn=(t)=>({...cSt(t),padding:20,maxWidth:480,width:"100%",maxHeight:"92vh",overflowY:"auto",overflowX:"hidden",background:t.glass,backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)"});
+const mPn=(t)=>({...cSt(t),padding:20,maxWidth:480,width:"100%",maxHeight:"92vh",overflowY:"auto",overflowX:"hidden",boxSizing:"border-box",background:t.glass,backdropFilter:"blur(28px)",WebkitBackdropFilter:"blur(28px)"});
 
 // ═══ LOGO — İki kavisli hançer (Osmanlı stili), ince daire çerçeve (madde 11) ═══
 const Logo=({size=28,c="#c8965a"})=><svg width={size} height={size} viewBox="0 0 48 48" fill="none">
@@ -2995,15 +3180,11 @@ html,body{width:8cm;height:4cm;overflow:hidden;background:${bg};color:${tc};font
       document.body.appendChild(overlay);
       overlay.addEventListener("click",(e)=>{if(e.target===overlay||e.target.id==="kmCloseQR")overlay.remove();});
 
-      document.body.appendChild(overlay);
-      overlay.addEventListener("click",(e)=>{if(e.target===overlay||e.target.id==="kmCloseQR")overlay.remove();});
-
       const renderQR=()=>{
         const target=overlay.querySelector("#qrcode");
         if(!target||!window.QRCode){target&&(target.innerHTML='<span style="font-size:11px;color:#888">QR kütüphanesi yüklenemedi</span>');return;}
         try{
           target.innerHTML="";
-          // URL ~50 byte — CorrectLevel.M yeterli, tarama güvenilirliği artar
           new window.QRCode(target,{text:qrContent,width:220,height:220,correctLevel:window.QRCode.CorrectLevel.M});
         }catch(e){target.innerHTML='<span style="font-size:11px;color:#c00">QR oluşturulamadı: '+e.message+'</span>';}
       };
@@ -3799,11 +3980,577 @@ const ImageCropModal=({image,targetRatio,onClose,onCrop,t})=>{
   </div>;
 };
 
-const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t})=>{
+const DEPT_LIST=[
+  {id:"pastry",tr:"Pastry",en:"Pastry",icon:"🍰"},
+  {id:"hot",tr:"Sıcak Mutfak",en:"Hot Kitchen",icon:"🔥"},
+  {id:"cold",tr:"Soğuk Mutfak",en:"Cold Kitchen",icon:"🥗"},
+  {id:"breakfast",tr:"Kahvaltı",en:"Breakfast",icon:"🍳"},
+  {id:"bar",tr:"Bar",en:"Bar",icon:"🍹"},
+  {id:"service",tr:"Servis",en:"Service",icon:"🍽"},
+  {id:"butcher",tr:"Kasap",en:"Butcher",icon:"🥩"},
+];
+
+const EventsTab=({team,user,t,lang,bSt,cSt,iSt,lSt})=>{
+  const[events,setEvents]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[selEvent,setSelEvent]=useState(null);
+  const[deptFilter,setDeptFilter]=useState("all");
+  const[detailTab,setDetailTab]=useState("timeline");
+  const[expandedSessions,setExpandedSessions]=useState({});
+  // Fotoğraf state'leri
+  const[uploadingPhoto,setUploadingPhoto]=useState(null);
+  const[lightboxPhoto,setLightboxPhoto]=useState(null);
+
+  const DEPARTMENTS=[
+    {id:"kitchen",icon:"🍳",tr:"Sıcak Mutfak",en:"Hot Kitchen",color:"#dc2626"},
+    {id:"cold",icon:"🥗",tr:"Soğuk Mutfak",en:"Cold Kitchen",color:"#0891b2"},
+    {id:"pastry",icon:"🥐",tr:"Pastane",en:"Pastry",color:"#c8965a"},
+    {id:"butcher",icon:"🥩",tr:"Kasap",en:"Butchery",color:"#7f1d1d"},
+    {id:"service",icon:"🍽",tr:"Servis",en:"Banquet Service",color:"#7c3aed"},
+    {id:"bar",icon:"🍷",tr:"Bar",en:"Bar",color:"#059669"},
+    {id:"setup",icon:"🪑",tr:"Kurulum",en:"Setup",color:"#525252"},
+    {id:"accounting",icon:"💰",tr:"Muhasebe",en:"Accounting",color:"#1e40af"},
+    {id:"general",icon:"📋",tr:"Genel",en:"General",color:"#6b7280"}
+  ];
+
+  const userDept=user?.department||"";
+
+  useEffect(()=>{
+    if(!team?.id){setLoading(false);return;}
+    (async()=>{
+      try{
+        const sb=initSupabase();if(!sb)return;
+        const tids=[team.id];
+        if(team.parent_team_id)tids.push(team.parent_team_id);
+        const{data,error}=await sb.from("events").select("*").in("team_id",tids).order("event_date",{ascending:false});
+        if(!error&&data)setEvents(data);
+      }catch(e){console.warn("events:",e.message);}
+      setLoading(false);
+    })();
+  },[team?.id,team?.parent_team_id]);
+
+  const getPdfUrl=async(path)=>{
+    if(!path)return null;
+    const sb=initSupabase();if(!sb)return null;
+    const{data,error}=await sb.storage.from("event-pdfs").createSignedUrl(path,300);
+    if(error){console.warn("PDF URL:",error.message);return null;}
+    return data?.signedUrl||null;
+  };
+
+  // ── Session fotoğraf yükle ──
+  const uploadSessionPhoto=async(file,sessionIdx,eventId)=>{
+    if(!file||!team?.id)return;
+    if(file.size>8*1024*1024){window.toast.error(lang==="tr"?"Fotoğraf 8MB'dan büyük olamaz":"Photo must be under 8MB");return;}
+    setUploadingPhoto({sessionIdx,progress:0});
+    try{
+      const resized=await new Promise((res,rej)=>{
+        const reader=new FileReader();
+        reader.onload=ev=>{
+          const img=new Image();
+          img.onload=()=>{
+            const MAX=1200;
+            let w=img.width,h=img.height;
+            if(w>MAX||h>MAX){
+              if(w>h){h=Math.round(h*MAX/w);w=MAX;}
+              else{w=Math.round(w*MAX/h);h=MAX;}
+            }
+            const cv=document.createElement("canvas");
+            cv.width=w;cv.height=h;
+            cv.getContext("2d").drawImage(img,0,0,w,h);
+            cv.toBlob(blob=>{
+              if(!blob){rej(new Error("Resize failed"));return;}
+              res(new File([blob],file.name,{type:"image/jpeg"}));
+            },"image/jpeg",0.82);
+          };
+          img.onerror=()=>rej(new Error("Image load failed"));
+          img.src=ev.target.result;
+        };
+        reader.onerror=()=>rej(new Error("File read failed"));
+        reader.readAsDataURL(file);
+      });
+
+      const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
+      const ts=Date.now();
+      const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+      const path=`event-photos/${team.id}/${eventId||"new"}/${ts}_s${sessionIdx}_${safeName}`;
+      const{error:upErr}=await sb.storage.from("tulpar-storage").upload(path,resized,{
+        contentType:"image/jpeg",upsert:false
+      });
+      if(upErr)throw upErr;
+      const{data:{publicUrl}}=sb.storage.from("tulpar-storage").getPublicUrl(path);
+
+      const newPhotos={...(selEvent.session_photos||{})};
+      const key=String(sessionIdx);
+      newPhotos[key]=[...(newPhotos[key]||[]),publicUrl];
+
+      const updatedEvent={...selEvent,session_photos:newPhotos};
+      setSelEvent(updatedEvent);
+
+      if(eventId&&eventId!=="new"){
+        const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
+        if(!dbErr)setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
+      }
+      window.toast.success(lang==="tr"?"✓ Fotoğraf eklendi":"✓ Photo added");
+    }catch(e){
+      window.toast.error((lang==="tr"?"Fotoğraf yüklenemedi: ":"Upload failed: ")+e.message);
+    }finally{
+      setUploadingPhoto(null);
+    }
+  };
+
+  // ── Session fotoğraf sil ──
+  const deleteSessionPhoto=async(sessionIdx,photoIdx,eventId)=>{
+    const newPhotos={...(selEvent.session_photos||{})};
+    const key=String(sessionIdx);
+    if(!newPhotos[key])return;
+    newPhotos[key]=newPhotos[key].filter((_,i)=>i!==photoIdx);
+    if(!newPhotos[key].length)delete newPhotos[key];
+    const updatedEvent={...selEvent,session_photos:newPhotos};
+    setSelEvent(updatedEvent);
+    setLightboxPhoto(null);
+    if(eventId&&eventId!=="new"){
+      const sb=initSupabase();if(!sb)return;
+      const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
+      if(!dbErr)setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
+    }
+  };
+
+  // ── Detay modu ──
+  if(selEvent){
+    const totalItems=Object.values(selEvent.departments||{}).reduce((s,a)=>s+(a?.length||0),0);
+    const subEvents=selEvent.sub_events||[];
+    const guestAllergies=selEvent.guest_allergies||[];
+    const sessionPhotos=selEvent.session_photos||{};
+
+    const SESSION_TYPES={
+      coffee_break:{icon:"☕",color:"#d97706",bg:"#fef3c7",tr:"Coffee Break",en:"Coffee Break"},
+      lunch:{icon:"🍽",color:"#16a34a",bg:"#dcfce7",tr:"Öğlen",en:"Lunch"},
+      dinner:{icon:"🍷",color:"#9333ea",bg:"#f3e8ff",tr:"Akşam",en:"Dinner"},
+      dessert:{icon:"🍰",color:"#ec4899",bg:"#fce7f3",tr:"Tatlı",en:"Dessert"},
+      cocktail:{icon:"🥂",color:"#0891b2",bg:"#cffafe",tr:"Kokteyl",en:"Cocktail"},
+      tea_service:{icon:"🫖",color:"#d97706",bg:"#fef3c7",tr:"Çay Servisi",en:"Tea Service"},
+      meeting:{icon:"📋",color:"#64748b",bg:"#f1f5f9",tr:"Toplantı",en:"Meeting"},
+      setup:{icon:"🪑",color:"#525252",bg:"#f5f5f5",tr:"Kurulum",en:"Setup"},
+      other:{icon:"📅",color:"#64748b",bg:"#f1f5f9",tr:"Diğer",en:"Other"}
+    };
+    const sessionMeta=(s)=>SESSION_TYPES[s.type]||SESSION_TYPES.other;
+    const isKitchenSession=(s)=>(s.items||[]).length>0;
+    const ALLERGEN_ICONS={gluten:"🌾",dairy:"🥛",egg:"🥚",nut:"🌰",peanut:"🥜",shellfish:"🦐",fish:"🐟",soy:"🫘",sesame:"🌻",sulphite:"🍷",celery:"🌿",mustard:"🌶",lupin:"🌱",mollusc:"🦪"};
+    const allergenLabel=(a)=>ALLERGEN_ICONS[a]||"⚠";
+
+    const byDate={};
+    subEvents.forEach((s,idx)=>{
+      const d=s.date||selEvent.event_date||"unknown";
+      if(!byDate[d])byDate[d]=[];
+      byDate[d].push({...s,_idx:idx});
+    });
+
+    const deptTasks={};
+    subEvents.forEach(s=>{
+      (s.items||[]).forEach(item=>{
+        (item.departments||[]).forEach(did=>{
+          if(!deptTasks[did])deptTasks[did]=[];
+          deptTasks[did].push({name:item.name,allergens:item.allergens||[],session:s.name,date:s.date,time:s.timeStart});
+        });
+      });
+    });
+
+    return <div style={{padding:"12px 14px",paddingBottom:80}}>
+
+      {/* Lightbox */}
+      {lightboxPhoto&&<div onClick={()=>setLightboxPhoto(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,padding:20}}>
+        <img src={lightboxPhoto.url} style={{maxWidth:"100%",maxHeight:"75vh",borderRadius:12,objectFit:"contain"}} onClick={e=>e.stopPropagation()}/>
+        <div style={{display:"flex",gap:10}} onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setLightboxPhoto(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>✕ {lang==="tr"?"Kapat":"Close"}</button>
+          <button onClick={()=>deleteSessionPhoto(lightboxPhoto.sessionIdx,lightboxPhoto.photoIdx,selEvent.id)} style={{background:"#dc2626",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>🗑 {lang==="tr"?"Sil":"Delete"}</button>
+        </div>
+      </div>}
+
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <button onClick={()=>{setSelEvent(null);setDetailTab("timeline");setExpandedSessions({});}} style={{...bSt("g",t),fontSize:12,padding:"6px 10px"}}>← {lang==="tr"?"Etkinlikler":"Events"}</button>
+        <div style={{display:"flex",gap:6}}>
+          {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>📄 PDF</button>}
+          <button onClick={async()=>{if(!window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?"))return;const sb=initSupabase();if(!sb)return;await sb.from("events").delete().eq("id",selEvent.id);setEvents(p=>p.filter(e=>e.id!==selEvent.id));setSelEvent(null);}} style={{...bSt("d",t),fontSize:12,padding:"6px 10px"}}>🗑</button>
+        </div>
+      </div>
+
+      <h3 style={{fontSize:20,color:t.text,margin:"0 0 6px 0",fontFamily:"'Fraunces',serif",lineHeight:1.25}}>{selEvent.name}</h3>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,fontSize:11,color:t.tm,marginBottom:14}}>
+        {selEvent.event_date&&<span>📅 {new Date(selEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}{selEvent.end_date&&selEvent.end_date!==selEvent.event_date?" – "+new Date(selEvent.end_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long"}):""}</span>}
+        {selEvent.pax&&<span>👥 {selEvent.pax} pax</span>}
+        {selEvent.location&&<span>📍 {selEvent.location}</span>}
+        {selEvent.contract_no&&<span>📄 #{selEvent.contract_no}</span>}
+      </div>
+
+      {/* 3 Tab */}
+      <div style={{display:"flex",borderBottom:`1px solid ${t.border}`,marginBottom:14}}>
+        {[
+          {id:"timeline",icon:"⏱",tr:"Timeline",en:"Timeline"},
+          {id:"depts",icon:"🍽",tr:"Departmanlar",en:"Departments"},
+          {id:"beo",icon:"📄",tr:"BEO",en:"BEO"}
+        ].map(tab=>(
+          <div key={tab.id} onClick={()=>setDetailTab(tab.id)} style={{flex:1,textAlign:"center",padding:"10px 4px",fontSize:12,fontWeight:detailTab===tab.id?700:400,color:detailTab===tab.id?t.text:t.tm,borderBottom:`2px solid ${detailTab===tab.id?t.text:"transparent"}`,cursor:"pointer",transition:"all 0.15s"}}>
+            {tab.icon} {lang==="tr"?tab.tr:tab.en}
+          </div>
+        ))}
+      </div>
+
+      {/* ─── TIMELINE TAB ─── */}
+      {detailTab==="timeline"&&<div>
+        {selEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"12",border:`1px solid ${t.accent}30`}}>
+          <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.08em",marginBottom:4}}>🤖 AI ÖZET</div>
+          <div style={{fontSize:12,color:t.text,lineHeight:1.55}}>{selEvent.ai_summary}</div>
+        </div>}
+
+        {guestAllergies.length>0&&<div style={{background:"#fef3c7",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 12px",marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#92400e",letterSpacing:"0.08em",marginBottom:6,textTransform:"uppercase"}}>⚠ {lang==="tr"?"Misafir Alerjen Uyarıları":"Guest Allergy Warnings"}</div>
+          {guestAllergies.map((a,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#78350f",padding:"3px 0",borderBottom:i<guestAllergies.length-1?"1px solid #fde68a":"none"}}>
+              <span style={{background:"#fde68a",color:"#92400e",fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap"}}>{a.count} {lang==="tr"?"misafir":"guest"}</span>
+              <span>{a.type}{a.note?" — "+a.note:""}</span>
+            </div>
+          ))}
+        </div>}
+
+        {subEvents.length===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
+          {lang==="tr"?"Bu etkinlik için saat bazlı oturum bilgisi yok.":"No timeline sessions for this event."}
+        </div>}
+
+        {/* Eski format: sub_events yok ama departments var */}
+        {subEvents.length===0&&totalItems>0&&<div>
+          <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:8,textTransform:"uppercase"}}>{lang==="tr"?"Departman Görevleri":"Department Tasks"}</div>
+          {DEPARTMENTS.filter(d=>(selEvent.departments?.[d.id]||[]).length>0).map(d=>{
+            const items=selEvent.departments[d.id]||[];
+            const isMine=userDept===d.id;
+            return <div key={d.id} style={{...cSt(t),padding:"10px 14px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":undefined}}>
+              <div style={{fontSize:12,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
+              {items.map((item,i)=><div key={i} style={{fontSize:13,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
+            </div>;
+          })}
+        </div>}
+
+        {Object.keys(byDate).sort().map(date=>(
+          <div key={date}>
+            {Object.keys(byDate).length>1&&<div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",margin:"4px 0 10px",display:"flex",alignItems:"center",gap:8}}>
+              {date!=="unknown"?new Date(date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"—"}
+              <span style={{flex:1,height:1,background:t.border}}/>
+            </div>}
+            {byDate[date].map(s=>{
+              const meta=sessionMeta(s);
+              const isOpen=expandedSessions[s._idx];
+              const isKitchen=isKitchenSession(s);
+              const sPhotos=sessionPhotos[String(s._idx)]||[];
+              const isUploading=uploadingPhoto?.sessionIdx===s._idx;
+              return <div key={s._idx} style={{border:`1px solid ${t.border}`,borderRadius:8,marginBottom:8,overflow:"hidden",borderStyle:isKitchen?"solid":"dashed",opacity:isKitchen?1:0.65}}>
+                <div onClick={isKitchen?()=>setExpandedSessions(p=>({...p,[s._idx]:!p[s._idx]})):undefined} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:isKitchen?"pointer":"default",background:t.card}}>
+                  <div style={{width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,background:meta.bg,flexShrink:0}}>{meta.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:t.text}}>{s.name||meta[lang==="tr"?"tr":"en"]}</div>
+                    <div style={{fontSize:11,color:t.tm,marginTop:1,display:"flex",gap:8,flexWrap:"wrap"}}>
+                      {s.timeStart&&<span>🕐 {s.timeStart}{s.timeEnd&&"–"+s.timeEnd}</span>}
+                      {s.room&&<span>📍 {s.room}</span>}
+                      {s.pax!=null&&<span>👥 {s.pax}</span>}
+                      {!isKitchen&&<span style={{fontStyle:"italic"}}>{lang==="tr"?"mutfak görevi yok":"no kitchen task"}</span>}
+                    </div>
+                  </div>
+                  {/* Fotoğraf butonu */}
+                  <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,background:sPhotos.length>0?t.accent+"20":t.bg,border:`1px solid ${sPhotos.length>0?t.accent:t.border}`,borderRadius:8,padding:"5px 8px",cursor:isUploading?"wait":"pointer",flexShrink:0}}>
+                    {isUploading?<span style={{fontSize:11,color:t.accent}}>⏳</span>:<span style={{fontSize:13}}>📷</span>}
+                    {sPhotos.length>0&&<span style={{fontSize:10,fontWeight:700,color:t.accent}}>{sPhotos.length}</span>}
+                    <input type="file" accept="image/*" style={{display:"none"}} disabled={isUploading} onChange={async e=>{
+                      const f=e.target.files?.[0];
+                      if(f)await uploadSessionPhoto(f,s._idx,selEvent.id);
+                      e.target.value="";
+                    }}/>
+                  </label>
+                  {isKitchen&&<span style={{fontSize:14,color:t.tm,transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>▶</span>}
+                </div>
+
+                {/* Fotoğraf şeridi */}
+                {sPhotos.length>0&&<div style={{display:"flex",gap:6,padding:"6px 12px",overflowX:"auto",background:t.bg,borderTop:`1px solid ${t.border}`,scrollbarWidth:"none"}}>
+                  {sPhotos.map((url,pi)=>(
+                    <img key={pi} src={url} onClick={()=>setLightboxPhoto({url,sessionIdx:s._idx,photoIdx:pi})}
+                      style={{width:52,height:52,objectFit:"cover",borderRadius:6,cursor:"pointer",flexShrink:0,border:`1px solid ${t.border}`}}/>
+                  ))}
+                </div>}
+
+                {isKitchen&&isOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${t.border}`}}>
+                  {(()=>{
+                    const AL={gluten:"🌾",dairy:"🥛",egg:"🥚",nut:"🌰",peanut:"🥜",shellfish:"🦐",fish:"🐟",soy:"🫘",sesame:"🌻",sulphite:"🍷",celery:"🌿",mustard:"🌶",lupin:"🌱",mollusc:"🦪"};
+                    const grouped={};
+                    (s.items||[]).forEach(item=>{
+                      (item.departments||["general"]).forEach(did=>{
+                        if(!grouped[did])grouped[did]=[];
+                        grouped[did].push(item);
+                      });
+                    });
+                    return Object.keys(grouped).map(did=>{
+                      const d=DEPARTMENTS.find(x=>x.id===did)||{icon:"📋",tr:"Diğer",en:"Other",color:"#64748b"};
+                      const isMine=userDept===did;
+                      return <div key={did} style={{marginTop:10}}>
+                        <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,background:isMine?d.color+"25":d.color+"15",color:d.color,marginBottom:5,border:isMine?`1px solid ${d.color}40`:"none"}}>
+                          {d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}
+                        </div>
+                        {grouped[did].map((item,i)=>(
+                          <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<grouped[did].length-1?`1px dashed ${t.border}`:"none"}}>
+                            <span style={{fontSize:12,color:t.text,lineHeight:1.4,flex:1}}>{item.name}</span>
+                            {(item.allergens||[]).length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0}}>
+                              {(item.allergens||[]).map((a,j)=>(
+                                <span key={j} title={a} style={{fontSize:10,background:t.card,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{AL[a]||"⚠"}</span>
+                              ))}
+                            </div>}
+                          </div>
+                        ))}
+                      </div>;
+                    });
+                  })()}
+                  {(s.notesTr||s.notesEn)&&<div style={{marginTop:10,padding:"8px 10px",background:t.bg,borderRadius:6,fontSize:11,color:t.ts,lineHeight:1.5}}>
+                    <div style={{fontWeight:600,marginBottom:3,color:t.tm,fontSize:10,letterSpacing:"0.05em",textTransform:"uppercase"}}>{lang==="tr"?"Notlar":"Notes"}</div>
+                    {lang==="tr"?(s.notesTr||s.notesEn):(s.notesEn||s.notesTr)}
+                  </div>}
+                </div>}
+              </div>;
+            })}
+          </div>
+        ))}
+      </div>}
+
+      {/* ─── DEPARTMANLAR TAB ─── */}
+      {detailTab==="depts"&&<div>
+        {Object.keys(deptTasks).length===0&&totalItems===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
+          {lang==="tr"?"Henüz departman görevi yok.":"No department tasks yet."}
+        </div>}
+
+        {Object.keys(deptTasks).length>0&&DEPARTMENTS.filter(d=>deptTasks[d.id]?.length>0).map(d=>{
+          const isMine=userDept===d.id;
+          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":undefined}}>
+            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:8}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:11}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
+            {deptTasks[d.id].map((task,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,padding:"5px 0",borderBottom:i<deptTasks[d.id].length-1?`1px dashed ${t.border}`:"none"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:t.text,lineHeight:1.4}}>{task.name}</div>
+                  <div style={{fontSize:10,color:t.tm,marginTop:1}}>{task.session}{task.time?" · "+task.time:""}</div>
+                </div>
+                {task.allergens.length>0&&<div style={{display:"flex",gap:3,flexWrap:"wrap",flexShrink:0,marginTop:2}}>
+                  {task.allergens.map((a,j)=>(
+                    <span key={j} title={a} style={{fontSize:10,background:t.bg,border:`1px solid ${t.border}`,borderRadius:10,padding:"2px 6px",color:t.tm}}>{allergenLabel(a)}</span>
+                  ))}
+                </div>}
+              </div>
+            ))}
+          </div>;
+        })}
+
+        {/* Eski format uyumluluk */}
+        {Object.keys(deptTasks).length===0&&totalItems>0&&DEPARTMENTS.filter(d=>(selEvent.departments?.[d.id]||[]).length>0).map(d=>{
+          const items=selEvent.departments[d.id]||[];
+          const isMine=userDept===d.id;
+          return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`,background:isMine?d.color+"10":undefined}}>
+            <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:6}}>{d.icon} {lang==="tr"?d.tr:d.en} {isMine&&<span style={{color:d.color,fontSize:10}}>· {lang==="tr"?"sizin":"yours"}</span>}</div>
+            {items.map((item,i)=><div key={i} style={{fontSize:12,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
+          </div>;
+        })}
+      </div>}
+
+      {/* ─── BEO TAB ─── */}
+      {detailTab==="beo"&&<div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Etkinlik Bilgileri":"Event Information"}</div>
+          {[
+            ["Contract no",selEvent.contract_no?"#"+selEvent.contract_no:""],
+            [lang==="tr"?"Müşteri":"Client",selEvent.account_name],
+            [lang==="tr"?"Yetkili":"Contact",selEvent.contact_name?selEvent.contact_name+(selEvent.contact_phone?" — "+selEvent.contact_phone:""):selEvent.contact_phone],
+            ["Conf. Manager",selEvent.conf_manager],
+            [lang==="tr"?"Statüs":"Status",selEvent.status]
+          ].filter(r=>r[1]).map((r,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${t.border}`}}>
+              <span style={{color:t.tm}}>{r[0]}</span>
+              <span style={{color:t.text,fontWeight:500,textAlign:"right",maxWidth:"65%"}}>{r[1]}</span>
+            </div>
+          ))}
+        </div>
+
+        {(selEvent.total_amount||selEvent.price_per_person)&&<div style={{marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Muhasebe":"Billing"}</div>
+          <div style={{...cSt(t),padding:"10px 12px",background:t.bg}}>
+            {selEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
+              <span>{lang==="tr"?"Kişi başı":"Per person"}</span>
+              <span>{selEvent.currency||"EUR"} {selEvent.price_per_person}</span>
+            </div>}
+            {selEvent.pax&&selEvent.price_per_person&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:t.tm,padding:"3px 0"}}>
+              <span>{selEvent.pax} pax × {selEvent.price_per_person}</span>
+              <span>{selEvent.currency||"EUR"} {(selEvent.pax*selEvent.price_per_person).toFixed(2)}</span>
+            </div>}
+            {selEvent.total_amount&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700,color:t.text,paddingTop:8,borderTop:`1px solid ${t.border}`,marginTop:4}}>
+              <span>{lang==="tr"?"Toplam":"Total"} (+KDV %{selEvent.vat_rate||20})</span>
+              <span>{selEvent.currency||"EUR"} {selEvent.total_amount}</span>
+            </div>}
+          </div>
+        </div>}
+
+        {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
+          📄 {lang==="tr"?"Orijinal BEO PDF'ini Aç":"Open Original BEO PDF"}
+        </button>}
+
+        {selEvent.notes&&<div style={{...cSt(t),padding:"10px 12px",marginTop:8}}>
+          <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Notlar":"Notes"}</div>
+          <div style={{fontSize:12,color:t.text,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{selEvent.notes}</div>
+        </div>}
+      </div>}
+    </div>;
+  }
+
+  // ── Liste görünümü ──
+  const filtered=deptFilter==="all"?events:events.filter(ev=>(ev.departments?.[deptFilter]||[]).length>0||(ev.sub_events||[]).some(s=>(s.items||[]).some(it=>(it.departments||[]).includes(deptFilter))));
+  const deptCounts={};
+  events.forEach(ev=>{
+    Object.keys(ev.departments||{}).forEach(did=>{if(ev.departments[did]?.length){deptCounts[did]=(deptCounts[did]||0)+1;}});
+    (ev.sub_events||[]).forEach(s=>(s.items||[]).forEach(it=>(it.departments||[]).forEach(did=>{deptCounts[did]=(deptCounts[did]||0)+1;})));
+  });
+
+  return <div style={{padding:"12px 14px",paddingBottom:60}}>
+    <div style={{marginBottom:12}}>
+      <h2 style={{fontSize:20,margin:0,color:t.text,fontFamily:"'Fraunces',serif"}}>🎉 {lang==="tr"?"Etkinlikler":"Events"}</h2>
+      <div style={{fontSize:12,color:t.tm,marginTop:4}}>{lang==="tr"?"Mutfağa gelen BEO'lar":"BEOs assigned to your kitchen"}</div>
+    </div>
+
+    {/* Departman filtresi */}
+    <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:14,paddingBottom:4,scrollbarWidth:"none"}}>
+      <button onClick={()=>setDeptFilter("all")} style={{...bSt(deptFilter==="all"?"p":"g",t),padding:"6px 12px",fontSize:11,whiteSpace:"nowrap",flexShrink:0}}>
+        {lang==="tr"?"Tümü":"All"} ({events.length})
+      </button>
+      {DEPARTMENTS.filter(d=>deptCounts[d.id]).map(d=>{
+        const mine=userDept===d.id;
+        const active=deptFilter===d.id;
+        return <button key={d.id} onClick={()=>setDeptFilter(d.id)} style={{padding:"6px 12px",fontSize:11,whiteSpace:"nowrap",borderRadius:14,border:`1px solid ${active?d.color:t.border}`,background:active?d.color+"20":(mine?d.color+"08":t.cardBg||t.card),color:active?d.color:t.text,fontWeight:active||mine?700:500,cursor:"pointer",flexShrink:0}}>
+          {d.icon} {lang==="tr"?d.tr:d.en} ({deptCounts[d.id]}){mine&&" ✓"}
+        </button>;
+      })}
+    </div>
+
+    {loading?<div style={{padding:30,textAlign:"center",color:t.tm}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>:
+     filtered.length===0?<div style={{padding:40,textAlign:"center"}}>
+      <div style={{fontSize:48,marginBottom:12,opacity:0.3}}>📭</div>
+      <div style={{fontSize:13,color:t.tm}}>{lang==="tr"?"Henüz etkinlik yok":"No events yet"}</div>
+    </div>:
+    filtered.map(ev=>{
+      const dateStr=ev.event_date?new Date(ev.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short",year:"numeric"}):"";
+      const deptCount=Object.keys(ev.departments||{}).filter(k=>ev.departments[k]?.length).length;
+      const totalItems=Object.values(ev.departments||{}).reduce((sum,arr)=>sum+(arr?.length||0),0);
+      const subEvCount=(ev.sub_events||[]).length;
+      const isPast=ev.event_date&&new Date(ev.event_date)<new Date(new Date().toDateString());
+      const myTasks=userDept?(ev.departments?.[userDept]||[]).length+(ev.sub_events||[]).reduce((s,se)=>s+(se.items||[]).filter(it=>(it.departments||[]).includes(userDept)).length,0):0;
+      const photoCount=Object.values(ev.session_photos||{}).reduce((s,a)=>s+(a?.length||0),0);
+      return <div key={ev.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,opacity:isPast?0.6:1,cursor:"pointer",borderLeft:myTasks>0?`3px solid ${t.accent}`:undefined}}
+        onClick={()=>{setSelEvent(ev);setDetailTab("timeline");setExpandedSessions({});}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.name}</div>
+            <div style={{fontSize:11,color:t.tm,display:"flex",flexWrap:"wrap",gap:8}}>
+              {dateStr&&<span>📅 {dateStr}</span>}
+              {ev.start_time&&<span>🕐 {ev.start_time}</span>}
+              {ev.pax&&<span>👥 {ev.pax}</span>}
+              {ev.location&&<span>📍 {ev.location}</span>}
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:6,fontSize:10,color:t.tm}}>
+              <span>{subEvCount>0?`⏱ ${subEvCount} oturum`:`🏢 ${deptCount} dept`} · {totalItems} {lang==="tr"?"görev":"tasks"}</span>
+              {photoCount>0&&<span>📷 {photoCount}</span>}
+              {ev.original_pdf_path&&<span>📎 PDF</span>}
+            </div>
+          </div>
+          {myTasks>0&&<div style={{fontSize:11,fontWeight:700,color:t.accent,whiteSpace:"nowrap",flexShrink:0}}>✓ {myTasks} {lang==="tr"?"görev":"tasks"}</div>}
+        </div>
+      </div>;
+    })}
+  </div>;
+};
+const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t,team})=>{
   const[showCreate,setSC]=useState(false);
   const[editMenu,setEM]=useState(null);
   const[previewMenu,setPM]=useState(null);
   const[cropImage,setCropImage]=useState(null);
+  // ── Event Menüleri state ──
+  const[showEM,setShowEM]=useState(false);
+  const[emSections,setEmSections]=useState([]);
+  const[emItems,setEmItems]=useState([]);
+  const[emLoading,setEmLoading]=useState(false);
+  const[emInfoSeen,setEmInfoSeen]=useState(()=>localStorage.getItem("kmc_eventmenu_info")==="1");
+  const[emSelDept,setEmSelDept]=useState("pastry");
+  const[emShowArchive,setEmShowArchive]=useState(false);
+  const[emNewSecName,setEmNewSecName]=useState("");
+  const[emAddingSec,setEmAddingSec]=useState(false);
+  const[emAddingItemSec,setEmAddingItemSec]=useState(null);
+  const[emNewItemName,setEmNewItemName]=useState("");
+  const[emNewItemYear,setEmNewItemYear]=useState(String(new Date().getFullYear()));
+  const[emConfirmDel,setEmConfirmDel]=useState(null);
+
+  const sb=()=>initSupabase();
+  const lang=t?.lang||"tr";
+
+  // ── Event Menü yükle ──
+  useEffect(()=>{
+    if(showEM&&team?.id&&emSections.length===0)emLoadAll();
+  },[showEM,team?.id]);
+
+  const emLoadAll=async()=>{
+    if(!team?.id)return;
+    setEmLoading(true);
+    try{
+      const s=sb();
+      const[secRes,itemRes]=await Promise.all([
+        s.from("event_menu_sections").select("*").eq("team_id",team.id).order("sort_order",{ascending:true}),
+        s.from("event_menu_items").select("*").eq("team_id",team.id).order("created_at",{ascending:true})
+      ]);
+      if(secRes.data)setEmSections(secRes.data);
+      if(itemRes.data)setEmItems(itemRes.data);
+    }catch(e){console.error(e);}
+    setEmLoading(false);
+  };
+
+  const emAddSection=async()=>{
+    const name=emNewSecName.trim();
+    if(!name||!team?.id)return;
+    const rec={team_id:team.id,department:emSelDept,name,sort_order:emSections.filter(s=>s.department===emSelDept).length};
+    const{data,error}=await sb().from("event_menu_sections").insert(rec).select().single();
+    if(!error&&data){setEmSections(p=>[...p,data]);setEmNewSecName("");setEmAddingSec(false);}
+  };
+
+  const emDeleteSection=async(id)=>{
+    await sb().from("event_menu_sections").delete().eq("id",id);
+    setEmSections(p=>p.filter(s=>s.id!==id));
+    setEmItems(p=>p.filter(i=>i.section_id!==id));
+    setEmConfirmDel(null);
+  };
+
+  const emAddItem=async(sectionId)=>{
+    const name=emNewItemName.trim();
+    if(!name||!team?.id)return;
+    const rec={team_id:team.id,section_id:sectionId,name,year_tag:emNewItemYear||null,status:"active"};
+    const{data,error}=await sb().from("event_menu_items").insert(rec).select().single();
+    if(!error&&data){setEmItems(p=>[...p,data]);setEmNewItemName("");setEmNewItemYear(String(new Date().getFullYear()));setEmAddingItemSec(null);}
+  };
+
+  const emArchiveItem=async(id)=>{
+    const now=new Date().toISOString();
+    await sb().from("event_menu_items").update({status:"archived",archived_at:now}).eq("id",id);
+    setEmItems(p=>p.map(i=>i.id===id?{...i,status:"archived",archived_at:now}:i));
+  };
+
+  const emRestoreItem=async(id)=>{
+    await sb().from("event_menu_items").update({status:"active",archived_at:null}).eq("id",id);
+    setEmItems(p=>p.map(i=>i.id===id?{...i,status:"active",archived_at:null}:i));
+  };
+
+  const emDeleteItem=async(id)=>{
+    await sb().from("event_menu_items").delete().eq("id",id);
+    setEmItems(p=>p.filter(i=>i.id!==id));
+    setEmConfirmDel(null);
+  };
+
+  const emDeptSections=emSections.filter(s=>s.department===emSelDept);
+  const emActiveItems=(secId)=>emItems.filter(i=>i.section_id===secId&&i.status==="active");
+  const emArchivedItems=(secId)=>emItems.filter(i=>i.section_id===secId&&i.status==="archived");
 
   // Yeni menü oluştur
   const createMenu=(type)=>{
@@ -4148,11 +4895,150 @@ const MenuTab=({menus,setMenus,recipes,menuTemplates,setMenuTemplates,t})=>{
     }} style={{...bSt("s",t),width:"100%",marginTop:8,fontSize:13}}>+ {t.lang==="tr"?"Yeni Bölüm":t.lang==="en"?"New Section":"+"}</button>
   </div>;
 
+  if(showEM) return <div>{cropModalJSX}
+    {/* ── Header ── */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <h3 style={{fontSize:22,color:t.text,margin:0}}>{lang==="tr"?"Event Menüleri":"Event Menus"}</h3>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <button onClick={()=>{localStorage.removeItem("kmc_eventmenu_info");setEmInfoSeen(false);}} style={{...bSt("s",t),padding:"8px 12px",fontSize:12}}>ℹ️</button>
+        <button onClick={()=>setShowEM(false)} style={{...bSt("s",t),fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
+      </div>
+    </div>
+
+    {/* ── Info ekranı ── */}
+    {!emInfoSeen&&<div style={{...cSt(t),padding:"20px 22px",marginBottom:16}}>
+      <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:8}}>{lang==="tr"?"Event Menüleri Nedir?":"What are Event Menus?"}</div>
+      <div style={{fontSize:13,color:t.ts,lineHeight:1.7,marginBottom:12}}>{lang==="tr"?"BEO PDF'leri okunurken AI, yemekleri doğru departmana atamak için bu listeyi kullanır. Her departmanın etkinlik menüsünü buradan yönet.":"When BEO PDFs are parsed, the AI uses this list to assign dishes to the correct department. Manage each department's event menu here."}</div>
+      <div style={{padding:"10px 14px",background:t.acB,border:`1px solid ${t.acBo}`,borderRadius:10,fontSize:13,color:t.text,lineHeight:1.8,marginBottom:12}}>
+        🍰 Pastry › Baklava › Fıstıklı Baklava <span style={{color:t.tm}}>· 2025</span><br/>
+        🔥 {lang==="tr"?"Sıcak Mutfak":"Hot Kitchen"} › {lang==="tr"?"Et Yemekleri":"Meat"} › {lang==="tr"?"Kuzu Tandır":"Lamb Tandır"}
+      </div>
+      <div style={{fontSize:12,color:t.tm,marginBottom:14,lineHeight:1.6}}>{lang==="tr"?"Sezon sonu menü değiştiğinde eski kalemleri arşivleyebilirsin — silinmezler, arşivde kalırlar.":"When the menu changes at season end, archive old items — they stay in the archive, not deleted."}</div>
+      <button onClick={()=>{localStorage.setItem("kmc_eventmenu_info","1");setEmInfoSeen(true);}} style={{...bSt("p",t),width:"100%",fontSize:14}}>{lang==="tr"?"Anladım →":"Got it →"}</button>
+    </div>}
+
+    {!team?.id&&<div style={{...cSt(t),padding:"40px 20px",textAlign:"center"}}>
+      <div style={{fontSize:40,marginBottom:8,opacity:0.5}}>👥</div>
+      <div style={{fontSize:14,color:t.tm}}>{lang==="tr"?"Ekip bağlantısı gerekli":"Team connection required"}</div>
+    </div>}
+
+    {team?.id&&emInfoSeen&&<>
+      {/* ── Departman seç ── */}
+      <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:t.tm,letterSpacing:"0.08em",marginBottom:10,textTransform:"uppercase"}}>{lang==="tr"?"Departman":"Department"}</div>
+        <div style={{display:"flex",gap:6,overflowX:"auto",scrollbarWidth:"none",paddingBottom:2}}>
+          {DEPT_LIST.map(d=>{
+            const cnt=emSections.filter(s=>s.department===d.id).reduce((a,s)=>a+emActiveItems(s.id).length,0);
+            return<button key={d.id} onClick={()=>setEmSelDept(d.id)} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,fontSize:13,fontWeight:500,border:"1px solid",background:emSelDept===d.id?t.pA:"transparent",color:emSelDept===d.id?t.pAT:t.ts,borderColor:emSelDept===d.id?t.pA:t.inBo,cursor:"pointer",flexShrink:0}}>
+              {d.icon} {lang==="tr"?d.tr:d.en}{cnt>0?` (${cnt})`:""}
+            </button>;
+          })}
+        </div>
+      </div>
+
+      {/* ── Arşiv toggle + loading ── */}
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+        <button onClick={()=>setEmShowArchive(p=>!p)} style={{...bSt("s",t),padding:"6px 12px",fontSize:12,color:emShowArchive?t.accent:t.ts,fontWeight:emShowArchive?700:400}}>
+          📦 {emShowArchive?(lang==="tr"?"Arşiv Açık":"Archive Open"):(lang==="tr"?"Arşivi Göster":"Show Archive")}
+        </button>
+      </div>
+
+      {emLoading&&<div style={{...cSt(t),padding:"32px 20px",textAlign:"center",marginBottom:12}}>
+        <div style={{fontSize:22,marginBottom:6,opacity:0.5}}>⏳</div>
+        <div style={{fontSize:13,color:t.tm}}>{lang==="tr"?"Yükleniyor...":"Loading..."}</div>
+      </div>}
+
+      {/* ── Bölümler ── */}
+      {emDeptSections.map(sec=>{
+        const aItems=emActiveItems(sec.id);
+        const archItems=emArchivedItems(sec.id);
+        return<div key={sec.id} style={{...cSt(t),marginBottom:10,overflow:"hidden"}}>
+          {/* Bölüm başlık */}
+          <div style={{padding:"11px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${t.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:14}}>📁</span>
+              <span style={{fontSize:15,fontWeight:700,color:t.text}}>{sec.name}</span>
+              <span style={{fontSize:12,color:t.tm,fontWeight:400}}>({aItems.length})</span>
+            </div>
+            <button onClick={()=>setEmConfirmDel({type:"section",id:sec.id})} style={{...bSt("d",t),padding:"4px 10px",fontSize:13}}>×</button>
+          </div>
+          {/* Kalemler */}
+          <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
+            {aItems.map(item=><div key={item.id} style={{background:t.inBg,borderRadius:10,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <div style={{flex:1,minWidth:0}}>
+                <span style={{fontSize:13,color:t.text,fontWeight:600}}>{item.name}</span>
+                {item.year_tag&&<span style={{fontSize:11,color:t.tm,marginLeft:8,background:t.card,borderRadius:5,padding:"1px 7px",border:`1px solid ${t.border}`}}>{item.year_tag}</span>}
+              </div>
+              <div style={{display:"flex",gap:4,flexShrink:0}}>
+                <button onClick={()=>emArchiveItem(item.id)} title={lang==="tr"?"Arşivle":"Archive"} style={{...bSt("s",t),padding:"4px 9px",fontSize:12}}>📦</button>
+                <button onClick={()=>setEmConfirmDel({type:"item",id:item.id})} style={{...bSt("d",t),padding:"4px 9px",fontSize:12}}>×</button>
+              </div>
+            </div>)}
+
+            {/* Arşivlenenler */}
+            {emShowArchive&&archItems.length>0&&<>
+              <div style={{fontSize:11,fontWeight:700,color:t.tm,marginTop:4,paddingTop:8,borderTop:`1px dashed ${t.border}`,letterSpacing:"0.06em"}}>📦 {lang==="tr"?"ARŞİV":"ARCHIVE"}</div>
+              {archItems.map(item=><div key={item.id} style={{background:t.inBg,borderRadius:10,padding:"7px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,opacity:0.6}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <span style={{fontSize:12,color:t.text,textDecoration:"line-through"}}>{item.name}</span>
+                  {item.year_tag&&<span style={{fontSize:11,color:t.tm,marginLeft:6}}>{item.year_tag}</span>}
+                </div>
+                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  <button onClick={()=>emRestoreItem(item.id)} style={{...bSt("s",t),padding:"3px 9px",fontSize:11,color:t.accent}}>{lang==="tr"?"Geri Al":"Restore"}</button>
+                  <button onClick={()=>setEmConfirmDel({type:"item",id:item.id})} style={{...bSt("d",t),padding:"3px 8px",fontSize:11}}>×</button>
+                </div>
+              </div>)}
+            </>}
+
+            {/* Kalem ekle */}
+            {emAddingItemSec===sec.id?<div style={{background:t.inBg,borderRadius:10,padding:"10px 12px",border:`1px dashed ${t.accent}`,display:"flex",flexDirection:"column",gap:8,marginTop:2}}>
+              <input value={emNewItemName} onChange={e=>setEmNewItemName(e.target.value)} placeholder={lang==="tr"?"Yemek adı...":"Dish name..."} onKeyDown={e=>e.key==="Enter"&&emAddItem(sec.id)} autoFocus style={iSt(t)}/>
+              <div style={{display:"flex",gap:8}}>
+                <input value={emNewItemYear} onChange={e=>setEmNewItemYear(e.target.value)} placeholder={lang==="tr"?"Yıl (örn: 2026)":"Year (e.g. 2026)"} style={{...iSt(t),flex:1}}/>
+                <button onClick={()=>emAddItem(sec.id)} style={{...bSt("p",t),padding:"10px 18px",fontSize:13}}>{lang==="tr"?"Ekle":"Add"}</button>
+                <button onClick={()=>{setEmAddingItemSec(null);setEmNewItemName("");}} style={{...bSt("s",t),padding:"10px 14px",fontSize:13}}>✕</button>
+              </div>
+            </div>:<button onClick={()=>{setEmAddingItemSec(sec.id);setEmNewItemName("");setEmNewItemYear(String(new Date().getFullYear()));}} style={{...bSt("s",t),width:"100%",marginTop:2,fontSize:13}}>
+              + {lang==="tr"?"Yemek ekle":"Add dish"}
+            </button>}
+          </div>
+        </div>;
+      })}
+
+      {/* ── Bölüm ekle ── */}
+      {emAddingSec?<div style={{...cSt(t),padding:"14px 16px",marginBottom:10}}>
+        <label style={lSt(t)}>{lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} — Yeni Bölüm`:`${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} — New Section`}</label>
+        <div style={{display:"flex",gap:8}}>
+          <input value={emNewSecName} onChange={e=>setEmNewSecName(e.target.value)} placeholder={lang==="tr"?"Bölüm adı (örn: Baklava)...":"Section name (e.g. Baklava)..."} onKeyDown={e=>e.key==="Enter"&&emAddSection()} autoFocus style={{...iSt(t),flex:1}}/>
+          <button onClick={emAddSection} style={{...bSt("p",t),padding:"10px 18px",fontSize:13}}>{lang==="tr"?"Ekle":"Add"}</button>
+          <button onClick={()=>{setEmAddingSec(false);setEmNewSecName("");}} style={{...bSt("s",t),padding:"10px 14px",fontSize:13}}>✕</button>
+        </div>
+      </div>:<button onClick={()=>setEmAddingSec(true)} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:10}}>
+        + {lang==="tr"?`${DEPT_LIST.find(d=>d.id===emSelDept)?.[lang==="tr"?"tr":"en"]||""} bölümü ekle`:`Add ${DEPT_LIST.find(d=>d.id===emSelDept)?.en||""} section`}
+      </button>}
+    </>}
+
+    {/* ── Silme onay modal ── */}
+    {emConfirmDel&&<div onClick={()=>setEmConfirmDel(null)} style={{position:"fixed",inset:0,background:t.overlay,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div onClick={e=>e.stopPropagation()} style={{...cSt(t),padding:24,maxWidth:300,width:"100%"}}>
+        <div style={{fontSize:22,textAlign:"center",marginBottom:10}}>{emConfirmDel.type==="section"?"📁":"🗑"}</div>
+        <div style={{fontSize:15,fontWeight:700,color:t.text,textAlign:"center",marginBottom:6}}>{emConfirmDel.type==="section"?(lang==="tr"?"Bölümü sil?":"Delete section?"):(lang==="tr"?"Kalemi sil?":"Delete item?")}</div>
+        <div style={{fontSize:13,color:t.tm,textAlign:"center",marginBottom:18,lineHeight:1.5}}>{emConfirmDel.type==="section"?(lang==="tr"?"Bölüm ve içindeki tüm kalemler silinecek.":"Section and all its items will be deleted."):(lang==="tr"?"Bu işlem geri alınamaz.":"This cannot be undone.")}</div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>setEmConfirmDel(null)} style={{...bSt("s",t),flex:1,padding:10,fontSize:13}}>{lang==="tr"?"Vazgeç":"Cancel"}</button>
+          <button onClick={()=>emConfirmDel.type==="section"?emDeleteSection(emConfirmDel.id):emDeleteItem(emConfirmDel.id)} style={{...bSt("d",t),flex:1,padding:10,fontSize:13,fontWeight:700}}>{lang==="tr"?"Sil":"Delete"}</button>
+        </div>
+      </div>
+    </div>}
+  </div>;
   // Liste
   return <div>{cropModalJSX}
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
       <h3 style={{fontSize:22,color:t.text}}>{t.L.menus} <span style={{fontSize:14,color:t.tm,fontWeight:400}}>({menus.length})</span></h3>
-      <button onClick={()=>setSC(true)} style={{...bSt("p",t),fontSize:13}}>{t.L.newMenu}</button>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>{setShowEM(true);}} style={{...bSt("s",t),padding:"11px 16px",fontSize:13}}>📂 {lang==="tr"?"Event Menü":"Event Menu"}</button>
+        <button onClick={()=>setSC(true)} style={{...bSt("p",t),padding:"11px 16px",fontSize:13}}>{t.L.newMenu}</button>
+      </div>
     </div>
     {/* Oluşturma modal */}
     {showCreate&&<div style={{...cSt(t),padding:"18px 20px",marginBottom:16}}>
@@ -4431,7 +5317,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
   };
 
   const sections=[
-    {id:"appearance",label:lang==="tr"?"Görünüm":"Appearance",icon:"🎨",sub:lang==="tr"?"Arka plan":"Wallpaper"},
+    {id:"appearance",label:lang==="tr"?"Görünüm":lang==="en"?"Appearance":"Appearance",icon:"🎨",sub:lang==="tr"?"Arka plan, tema":"Wallpaper, theme"},
     {id:"user",label:lang==="tr"?"Hesap & Profil":lang==="en"?"Account & Profile":lang==="ru"?"Аккаунт":lang==="es"?"Cuenta":lang==="de"?"Konto":lang==="fr"?"Compte":lang==="zh"?"账户":"الحساب",icon:"👤",sub:user?user.email:(lang==="tr"?"Giriş yapılmadı":"Not signed in")},
     {id:"language",label:lang==="tr"?"Dil":lang==="en"?"Language":lang==="ru"?"Язык":lang==="es"?"Idioma":lang==="de"?"Sprache":lang==="fr"?"Langue":lang==="zh"?"语言":"اللغة",icon:"🌐",sub:LANGS.find(l=>l.code===lang)?.fullName||lang.toUpperCase()},
     {id:"storage",label:lang==="tr"?"Depolama Alanları":lang==="en"?"Storage Areas":lang==="ru"?"Хранилище":lang==="es"?"Almacenes":lang==="de"?"Lagerbereiche":lang==="fr"?"Stockage":lang==="zh"?"存储":"التخزين",icon:"🗄",sub:`${storageAreas.length} ${lang==="tr"?"alan":lang==="en"?"areas":""}`},
@@ -4496,7 +5382,9 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
       <div style={{...cSt(t),padding:16,marginBottom:12}}>
         <div style={{fontSize:13,fontWeight:600,color:t.text,marginBottom:12}}>{lang==="tr"?"Arka Plan":"Wallpaper"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:6}}>
-          {WALLPAPERS.filter(w=>w.id!=="custom").map(wp=><button key={wp.id} onClick={()=>{setWallpaper(wp.id);localStorage.setItem("km_wallpaper",wp.id);}} style={{aspectRatio:"1",borderRadius:10,border:wallpaper===wp.id?`2px solid ${t.accent}`:`2px solid ${t.border}`,cursor:"pointer",overflow:"hidden",position:"relative",...(wp.id==="default"?{background:t.bg}:wp.style),minHeight:40}}>
+          {WALLPAPERS.filter(w=>w.id!=="custom").map(wp=><button key={wp.id} onClick={()=>{
+            setWallpaper(wp.id);localStorage.setItem("kmc_wallpaper",wp.id);
+          }} style={{aspectRatio:"1",borderRadius:10,border:wallpaper===wp.id?`2px solid ${t.accent}`:`2px solid ${t.border}`,cursor:"pointer",overflow:"hidden",position:"relative",...(wp.id==="default"?{background:t.bg}:wp.style),minHeight:40}}>
             {wallpaper===wp.id&&<span style={{position:"absolute",bottom:2,right:2,fontSize:7,background:t.accent,color:"#fff",borderRadius:"50%",width:14,height:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</span>}
           </button>)}
         </div>
@@ -4505,15 +5393,43 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
         </div>
         <label style={{...bSt("s",t),display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer",width:"100%",padding:"10px 0"}}>
           📷 {lang==="tr"?"Fotoğraf Yükle":"Upload Photo"}
-          <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{const img=new Image();img.onload=()=>{const MAX=1280;let w=img.width,h=img.height;if(w>MAX||h>MAX){if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;}}const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;canvas.getContext("2d").drawImage(img,0,0,w,h);const url=canvas.toDataURL("image/jpeg",0.75);try{localStorage.setItem("km_customwp",url);localStorage.setItem("km_wallpaper","custom");setCustomWP(url);setWallpaper("custom");}catch(err){window.toast.info(lang==="tr"?"Fotoğraf çok büyük, daha küçük seçin":"Photo too large, try a smaller one");}};img.onerror=()=>window.toast.info(lang==="tr"?"Fotoğraf okunamadı":"Could not read photo");img.src=ev.target.result;};reader.readAsDataURL(file);e.target.value="";}}/>
+          <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+            const file=e.target.files?.[0];if(!file)return;
+            const reader=new FileReader();
+            reader.onload=ev=>{
+              const img=new Image();
+              img.onload=()=>{
+                // Resize: max kenar 1280px, quality 0.75 → ~200-400KB
+                const MAX=1280;
+                let w=img.width,h=img.height;
+                if(w>MAX||h>MAX){
+                  if(w>h){h=Math.round(h*MAX/w);w=MAX;}
+                  else{w=Math.round(w*MAX/h);h=MAX;}
+                }
+                const canvas=document.createElement("canvas");
+                canvas.width=w;canvas.height=h;
+                canvas.getContext("2d").drawImage(img,0,0,w,h);
+                const url=canvas.toDataURL("image/jpeg",0.75);
+                try{
+                  localStorage.setItem("kmc_customwp",url);
+                  localStorage.setItem("kmc_wallpaper","custom");
+                  setCustomWP(url);setWallpaper("custom");
+                }catch(err){
+                  window.toast.info(lang==="tr"?"Fotoğraf çok büyük, daha küçük seçin":"Photo too large, try a smaller one");
+                }
+              };
+              img.onerror=()=>window.toast.info(lang==="tr"?"Fotoğraf okunamadı":"Could not read photo");
+              img.src=ev.target.result;
+            };
+            reader.readAsDataURL(file);e.target.value="";
+          }}/>
         </label>
         {wallpaper==="custom"&&customWP&&<div style={{marginTop:8,position:"relative"}}>
           <img src={customWP} style={{width:"100%",height:80,objectFit:"cover",borderRadius:8}} alt="wallpaper"/>
-          <button onClick={()=>{setWallpaper("default");setCustomWP("");localStorage.removeItem("km_wallpaper");localStorage.removeItem("km_customwp");}} style={{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.6)",border:"none",borderRadius:"50%",width:20,height:20,color:"#fff",cursor:"pointer",fontSize:11}}>✕</button>
+          <button onClick={()=>{setWallpaper("default");setCustomWP("");localStorage.removeItem("kmc_wallpaper");localStorage.removeItem("kmc_customwp");}} style={{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.6)",border:"none",borderRadius:"50%",width:20,height:20,color:"#fff",cursor:"pointer",fontSize:11}}>✕</button>
         </div>}
       </div>
     </div>}
-
     {section==="language"&&<div>
       <SectionHeader title={lang==="tr"?"Dil":lang==="en"?"Language":"Language"}/>
       <div style={{...cSt(t),padding:0,overflow:"hidden"}}>
@@ -4583,16 +5499,16 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             </div>
           </div>
           <div><label style={lSt(t)}>{t.L.department}</label><input style={iSt(t)} placeholder={t.L.placeholderDept||t.L.settingsProfileDeptPh} value={profile.department} onChange={e=>setProfile({...profile,department:e.target.value})}/></div>
-          <div><label style={lSt(t)}>{t.L.role} <span style={{color:t.accent,fontSize:10,fontWeight:700}}>(CHEF)</span></label>
+          <div><label style={lSt(t)}>{t.L.role} <span style={{color:t.accent,fontSize:10,fontWeight:700}}>(MANAGER)</span></label>
             <select style={iSt(t)} value={ROLE_HIERARCHY[profile.role]?profile.role:""}
               onChange={e=>setProfile({...profile,role:e.target.value})}>
               <option value="">{lang==="tr"?"-- Görev Seçin --":"-- Select Role --"}</option>
-              <optgroup label={lang==="tr"?"🧑‍🍳 Çalışan Kademesi":"🧑‍🍳 Staff Level"}>
-                {CHEF_ROLES.map(r=><option key={r} value={r}>{ROLE_HIERARCHY[r].icon} {ROLE_HIERARCHY[r].label[lang]||ROLE_HIERARCHY[r].label.en}</option>)}
+              <optgroup label={lang==="tr"?"🎩 Yönetici Kademesi (Manager)":"🎩 Manager Level"}>
+                {MANAGER_ROLES.map(r=><option key={r} value={r}>{ROLE_HIERARCHY[r].icon} {ROLE_HIERARCHY[r].label[lang]||ROLE_HIERARCHY[r].label.en}</option>)}
               </optgroup>
             </select>
             <div style={{fontSize:10,color:t.tm,marginTop:6,lineHeight:1.5}}>
-              💡 {lang==="tr"?"Üst yöneticiler size görev atayabilir, kendi görevlerinizi de oluşturabilirsiniz.":"Managers can assign you tasks; you can also create your own."}
+              💡 {lang==="tr"?"Manager olarak alt kademedeki çalışanlara görev atayabilirsiniz.":"As Manager, you can assign tasks to lower-level staff."}
             </div>
           </div>
         </div>
@@ -4807,73 +5723,129 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
       </div>
     </div>}
 
-    {/* ═══ EKİP KATILMA ═══ */}
+    {/* ═══ EKİP YÖNETİMİ ═══ */}
     {section==="teamJoin"&&<div>
       <SectionHeader title={lang==="tr"?"Ekip":lang==="en"?"Team":"Team"}/>
-      {!team?<div style={{...cSt(t),padding:"16px"}}>
-        <div style={{fontSize:13,color:t.tm,marginBottom:14,lineHeight:1.5}}>
-          {lang==="tr"?"Şefinizden aldığınız davet kodunu girin ve departmanınızı seçin. Şefiniz onayladıktan sonra ekibe katılacaksınız.":
-           lang==="en"?"Enter invite code and select your department. You will join the team after approval by your chef.":
-           "Enter invite code from your chef."}
-        </div>
-        <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.05em",marginBottom:6}}>{lang==="tr"?"DAVET KODU":"INVITE CODE"}</div>
-        <input style={{...iSt(t),textTransform:"uppercase",letterSpacing:"0.2em",fontSize:20,textAlign:"center",fontWeight:700,marginBottom:12}}
-          placeholder="ABC123" maxLength={6} id="kmInviteInput"
-          onInput={e=>{e.target.value=e.target.value.toUpperCase();}}/>
-        <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.05em",marginBottom:6}}>{lang==="tr"?"DEPARTMANIM":"MY DEPARTMENT"}</div>
-        <select id="kmDeptInput" style={{...iSt(t),marginBottom:12}}>
-          <option value="">{lang==="tr"?"— Seç —":"— Select —"}</option>
-          <option value="pastry">🍰 {lang==="tr"?"Pastane":"Pastry"}</option>
-          <option value="kitchen">🔥 {lang==="tr"?"Sıcak Mutfak":"Hot Kitchen"}</option>
-          <option value="cold">🥗 {lang==="tr"?"Soğuk Mutfak":"Cold Kitchen"}</option>
-          <option value="butcher">🥩 {lang==="tr"?"Kasap":"Butcher"}</option>
-          <option value="service">🍽️ {lang==="tr"?"Servis":"Service"}</option>
-          <option value="bar">🍷 Bar</option>
-        </select>
-        <button onClick={async()=>{
-          const code=document.getElementById("kmInviteInput")?.value?.trim();
-          const dept=document.getElementById("kmDeptInput")?.value||"";
-          if(!code||code.length<6){window.toast.info(lang==="tr"?"6 haneli kodu girin":"Enter 6-digit code");return;}
-          if(!dept){window.toast.info(lang==="tr"?"Departmanınızı seçin":"Select your department");return;}
-          if(!user?.userId){window.toast.info(lang==="tr"?"Önce giriş yapın":"Login first");return;}
-          try{
-            const sb2=initSupabase();
-            let realName=user.name||user.email;
-            if(sb2){
-              const{data:{session}}=await sb2.auth.getSession();
-              if(session?.user){
-                realName=session.user.user_metadata?.name||session.user.user_metadata?.full_name||session.user.email.split("@")[0];
+      {!team?<div style={{...cSt(t),padding:16,marginBottom:12}}>
+          <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:10}}>👑 {lang==="tr"?"Ekip Oluştur":"Create Team"}</div>
+          <div style={{fontSize:12,color:t.tm,marginBottom:10,lineHeight:1.5}}>
+            {lang==="tr"?"Yeni bir ekip oluşturun. Davet koduyla çalışanlarınızı ekleyebilirsiniz.":"Create a new team and invite your staff with the invite code."}
+          </div>
+          <input style={iSt(t)} placeholder={lang==="tr"?"Ekip adı (örn: Pastane Ekibi)":"Team name (e.g. Pastry Team)"} id="chefTeamNameInput"/>
+          <button onClick={async(e)=>{
+            if(window._createTeamLoading)return;
+            window._createTeamLoading=true;
+            const _btn=e.currentTarget;
+            _btn.style.opacity='0.5';
+            _btn.style.pointerEvents='none';
+            const name=document.getElementById("chefTeamNameInput")?.value?.trim();
+            if(!name){window.toast.info(lang==="tr"?"Ekip adı girin":"Enter team name");return;}
+            if(!user?.userId){window.toast.info(lang==="tr"?"Önce giriş yapın":"Login first");return;}
+            try{
+              const sb2=initSupabase();
+              let realName=user.name||user.email;
+              if(sb2){
+                const{data:{session}}=await sb2.auth.getSession();
+                if(session?.user)realName=session.user.user_metadata?.name||session.user.user_metadata?.full_name||session.user.email.split("@")[0];
               }
-            }
-            const joinedTeam=await joinTeam(code,user.userId,realName,dept);
-            // Eğer buraya gelirse zaten üyeydi
-            const newTeam={...joinedTeam,role:"member",inviteCode:joinedTeam.invite_code};
-            setTeam(newTeam);
-            const sb=initSupabase();
-            if(sb){
-              const{data:members}=await sb.from("team_members").select("*").eq("team_id",joinedTeam.id);
-              if(members)setTeamMembers(members.map(m=>({userId:m.user_id,name:m.position||m.user_id,role:m.role})));
-            }
-            flash(lang==="tr"?"✓ Ekibe katıldınız!":"✓ Joined team!");
-          }catch(e){
-            if(e.code==="SENT"){
-              flash(lang==="tr"?"📨 İstek gönderildi. Şefinizin onayını bekliyorsunuz.":"📨 Request sent. Waiting for approval.");
-            }else if(e.code==="PENDING"){
-              flash(lang==="tr"?"⏳ İsteğiniz onay bekliyor.":"⏳ Your request is pending approval.");
-            }else{
-              window.toast.info(e.message);
-            }
-          }
-        }} style={{...bSt("p",t),width:"100%",marginTop:4,padding:14,fontSize:15,fontWeight:700}}>
-          📨 {lang==="tr"?"İstek Gönder":"Send Request"}
-        </button>
+              const newTeam=await createTeam(name,user.userId,realName);
+              const newTeam2={...newTeam,role:"chef",inviteCode:newTeam.invite_code};
+              setTeam(newTeam2);
+              LS.set("kmc_team",newTeam2);
+              const chefMember=[{userId:user.userId,name:realName,role:"chef"}];
+              setTeamMembers(chefMember);
+              LS.set("kmc_team_members",chefMember);
+              // Davet kodunu göster ve kopyala
+              const code=newTeam.invite_code;
+              const shareText=`${lang==="tr"?"Kitchen Manager'a katıl!":"Join Kitchen Manager!"}\n${lang==="tr"?"Ekip":"Team"}: ${name}\n${lang==="tr"?"Davet Kodu":"Invite Code"}: ${code}\n${window.location.origin}${window.location.pathname}`;
+              if(navigator.share){navigator.share({title:"Kitchen Manager",text:shareText}).catch(()=>{});}
+              else{const ta=document.createElement("textarea");ta.value=shareText;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand("copy");}catch{}document.body.removeChild(ta);}
+              flash(lang==="tr"?`✓ Ekip oluşturuldu! Davet kodu: ${code} (kopyalandı)`:`✓ Team created! Invite code: ${code} (copied)`);
+            }catch(e){window.toast.info(e.message);}finally{window._createTeamLoading=false;if(_btn){_btn.style.opacity="1";_btn.style.pointerEvents="auto";}}
+          }} style={{...bSt("p",t),width:"100%",marginTop:10,padding:12}}>
+            ✦ {lang==="tr"?"Oluştur":"Create"}
+          </button>
       </div>:<div style={{...cSt(t),padding:"16px"}}>
         <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:4}}>{team.name}</div>
-        <div style={{fontSize:12,color:t.tm,marginBottom:16}}>👤 {lang==="tr"?"Üye":"Member"}</div>
+        <div style={{fontSize:12,color:t.tm,marginBottom:12}}>{team.role==="chef"?"👑 Şef":"👤 Üye"}</div>
+        {/* Davet kodu — sadece şef görür */}
+        {(team.inviteCode||team.invite_code)&&<div style={{background:t.acB,border:`1px solid ${t.accent}`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,color:t.accent,fontWeight:700,marginBottom:6,letterSpacing:"0.05em"}}>{lang==="tr"?"📨 DAVETİYE KODU":"📨 INVITE CODE"}</div>
+          <div style={{fontSize:28,fontWeight:900,color:t.accent,letterSpacing:"0.3em",textAlign:"center",marginBottom:8}}>{team.inviteCode||team.invite_code}</div>
+          <button onClick={async()=>{
+            const code=team.inviteCode||team.invite_code;
+            const shareText=`${lang==="tr"?"Kitchen Manager'a katıl!":"Join Kitchen Manager!"}\n${lang==="tr"?"Ekip":"Team"}: ${team.name}\n${lang==="tr"?"Davet Kodu":"Invite Code"}: ${code}\n${window.location.origin}${window.location.pathname.replace("chef.html","index.html")}`;
+            if(navigator.share){try{await navigator.share({title:"Kitchen Manager",text:shareText});}catch{}}
+            else{const ta=document.createElement("textarea");ta.value=shareText;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand("copy");}catch{}document.body.removeChild(ta);flash(lang==="tr"?"✓ Kopyalandı":"✓ Copied");}
+          }} style={{...bSt("p",t),width:"100%",fontSize:13}}>
+            📤 {lang==="tr"?"Davet Linkini Paylaş":"Share Invite Link"}
+          </button>
+        </div>}
+        {/* Bekleyen İstekler — sadece şef görür */}
+        {team.role==="chef"&&<JoinRequestsCard team={team} user={user} t={t}/>}
+        {/* Ülke / Bölge ayarı */}
+        {team.role==="chef"&&<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🌍 {lang==="tr"?"ÜLKE / BÖLGE":"COUNTRY / REGION"}</div>
+          <div style={{fontSize:11,color:t.tm,marginBottom:8,lineHeight:1.4}}>
+            {lang==="tr"?"Resmi tatiller, hafta sonu günleri ve varsayılan yıllık izin günleri bu seçime göre belirlenir.":"Holidays, weekend days and default annual leave are determined by this selection."}
+          </div>
+          <select value={team.country||"TR"} onChange={async e=>{
+            const newCountry=e.target.value;
+            const newWeekend=getWeekendDays(newCountry);
+            const sb=initSupabase();if(!sb)return;
+            const{error}=await sb.from("teams").update({country:newCountry,weekend_days:newWeekend}).eq("id",team.id);
+            if(error){window.toast.error(error.message);return;}
+            const updated={...team,country:newCountry,weekend_days:newWeekend};
+            setTeam(updated);
+            LS.set("kmc_team",updated);
+            window.toast.success(lang==="tr"?"✓ Ülke güncellendi":"✓ Country updated");
+          }} style={{...iSt(t),width:"100%",fontSize:13}}>
+            {COMMON_COUNTRIES.map(c=><option key={c.code} value={c.code}>{c.flag} {c.name}</option>)}
+          </select>
+          <div style={{fontSize:10,color:t.tm,marginTop:6,lineHeight:1.4}}>
+            {lang==="tr"?`Varsayılan yıllık izin: ${getDefaultAnnualLeave(team.country||"TR")} gün`:`Default leave: ${getDefaultAnnualLeave(team.country||"TR")} days`}
+          </div>
+        </div>}
+        {team.role==="chef"&&<ShiftPresetsCard team={team} setTeam={setTeam} t={t} lang={lang}/>}
+        {/* Üst Ekibe Bağlan */}
+        {<div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🔗 {lang==="tr"?"ÜST EKİP":"PARENT TEAM"}</div>
+          {team.parent_team_id?<div>
+            <div style={{fontSize:13,color:t.text,marginBottom:6}}>{lang==="tr"?"Bu ekip ":"This team is linked to "}<strong>{team.parent_team_name||(lang==="tr"?"bir üst ekibe":"a parent team")}</strong>{lang==="tr"?" ekibine bağlı":""}</div>
+            <button onClick={async()=>{
+              if(!confirm(lang==="tr"?"Üst ekip bağlantısını kaldır?":"Remove parent team link?"))return;
+              try{
+                const sb=initSupabase();if(!sb)return;
+                await sb.from("teams").update({parent_team_id:null}).eq("id",team.id);
+                setTeam({...team,parent_team_id:null,parent_team_name:null});
+                window.toast.success(lang==="tr"?"✓ Bağlantı kaldırıldı":"✓ Link removed");
+              }catch(e){window.toast.error(e.message);}
+            }} style={{...bSt("s",t),fontSize:12,padding:"6px 12px"}}>{lang==="tr"?"Bağlantıyı Kaldır":"Unlink"}</button>
+          </div>:<div>
+            <div style={{fontSize:12,color:t.tm,marginBottom:8,lineHeight:1.5}}>{lang==="tr"?"Daha üst bir ekibe (Pro / Yönetim) bağlanmak için davet kodunu girin.":"Enter invite code to link to a higher team (Pro / Management)."}</div>
+            <div style={{display:"flex",gap:6}}>
+              <input style={{...iSt(t),flex:1,textTransform:"uppercase",letterSpacing:"0.15em",fontFamily:"monospace"}} placeholder="ABC123" id="parentCodeInput" maxLength={6}/>
+              <button onClick={async()=>{
+                const code=document.getElementById("parentCodeInput")?.value?.trim();
+                if(!code){window.toast.info(lang==="tr"?"Kod girin":"Enter code");return;}
+                try{
+                  const parent=await linkParentTeam(team.id,code);
+                  setTeam({...team,parent_team_id:parent.id,parent_team_name:parent.name});
+                  window.toast.success(lang==="tr"?`✓ ${parent.name} ekibine bağlandı`:`✓ Linked to ${parent.name}`);
+                  document.getElementById("parentCodeInput").value="";
+                }catch(e){window.toast.error(e.message);}
+              }} style={{...bSt("p",t),fontSize:12,padding:"8px 14px"}}>↑</button>
+            </div>
+          </div>}
+        </div>}
+
+        {/* Alt Ekipler */}
+        {<ChildTeamsSection teamId={team.id} t={t} lang={lang}/>}
+
         {/* Ekip Üyeleri Listesi */}
         {teamMembers&&teamMembers.length>0&&<div style={{...cSt(t),padding:"12px 14px",marginBottom:12,background:t.inBg}}>
-          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>
-            👥 {lang==="tr"?"EKİP ÜYELERİ":"TEAM MEMBERS"} ({teamMembers.length})
+          <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>👥 {lang==="tr"?"EKİP ÜYELERİ":"TEAM MEMBERS"} ({teamMembers.length})</span>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             {teamMembers.map((m,i)=>{
@@ -4916,14 +5888,14 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             if(syncProd&&syncProd.length>0)setProductions(syncProd);
             if(syncRecipes&&syncRecipes.length>0)setRecipes(syncRecipes);
             if(syncTodos&&syncTodos.length>0)setTodos(syncTodos);
-            LS.set("km_last_sync",new Date().toISOString());
+            LS.set("kmc_last_sync",new Date().toISOString());
             flash(lang==="tr"?"✓ Senkronize edildi":"✓ Synced");
           }catch(e){window.toast.info(e.message);}
         }} style={{...bSt("s",t),width:"100%",marginBottom:10}}>
           🔄 {lang==="tr"?"Şimdi Senkronize Et":"Sync Now"}
         </button>
-        {LS.get("km_last_sync",null)&&<div style={{fontSize:10,color:t.tm,textAlign:"center",marginBottom:12}}>
-          {lang==="tr"?"Son sync:":"Last sync:"} {new Date(LS.get("km_last_sync","")).toLocaleString()}
+        {LS.get("kmc_last_sync",null)&&<div style={{fontSize:10,color:t.tm,textAlign:"center",marginBottom:12}}>
+          {lang==="tr"?"Son sync:":"Last sync:"} {new Date(LS.get("kmc_last_sync","")).toLocaleString()}
         </div>}
         <button onClick={()=>{
           if(window.confirm(lang==="tr"?"Ekipten ayrılmak istediğinize emin misiniz?":"Leave team?")){
@@ -5186,7 +6158,7 @@ const AuthModal=({onClose,onLogin,t})=>{
       const _memberTiers=(_memberCheck||[]).map(m=>m.role);
       const _allTiers=[..._memberTiers];
       if(_metaTier&&!_allTiers.includes(_metaTier))_allTiers.push(_metaTier);
-      const _expectedTier="worker";
+      const _expectedTier="manager";
       if(_allTiers.length>0&&!_allTiers.includes(_expectedTier)){
         await sb.auth.signOut();
         const _other=_allTiers.includes("pro")?"Pro":_allTiers.includes("manager")?"Manager":(_allTiers.includes("worker")?(lang==="tr"?"Çalışan":"Worker"):"");
@@ -5220,7 +6192,7 @@ const AuthModal=({onClose,onLogin,t})=>{
       if(!sb){setErr(lang==="tr"?"Supabase yüklenemedi":"Supabase failed");setLoading(false);return}
       const{data,error}=await sb.auth.signUp({
         email,password,
-        options:{data:{name:name.trim(),full_name:name.trim(),app_tier:"worker"}}
+        options:{data:{name:name.trim(),full_name:name.trim(),app_tier:"manager"}}
       });
       if(error)throw error;
       if(data.user&&!data.user.email_confirmed_at){
@@ -5405,7 +6377,7 @@ const ChatTab=({team,teamMembers,user,recipes,menus,stock,productions,t})=>{
   const lang=t.lang;
 
   const myName=user?.name||user?.email||"?";
-  const myRole=(()=>{try{return JSON.parse(localStorage.getItem("km_profile")||"{}")?.role||"";}catch(e){return "";}})();
+  const myRole=(()=>{try{return JSON.parse(localStorage.getItem("kmc_profile")||"{}")?.role||"";}catch(e){return "";}})();
   const[chatError,setChatError]=useState("");
 
   const L={
@@ -5461,7 +6433,7 @@ const ChatTab=({team,teamMembers,user,recipes,menus,stock,productions,t})=>{
       const uid=session?.user?.id||user?.userId||user?.id;
       const uname=session?.user?.user_metadata?.name||session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||myName;
       if(!uid){setSending(false);return;}
-      const profile=JSON.parse(localStorage.getItem("km_profile")||"{}");
+      const profile=JSON.parse(localStorage.getItem("kmc_profile")||"{}");
       await sb.from("team_messages").insert({
         team_id:team.id,
         user_id:uid,
@@ -5575,12 +6547,14 @@ const ChatTab=({team,teamMembers,user,recipes,menus,stock,productions,t})=>{
             onClick={()=>{
               if(!isAttachment)return;
               if(msg.type==="file"&&msg.attachment?.data){
+                // Direkt indir
                 const a=document.createElement("a");
                 a.href=msg.attachment.data;
                 a.download=msg.attachment.name||"download";
                 document.body.appendChild(a);a.click();a.remove();
                 return;
               }
+              // Custom event ile App'e ilet
               window.dispatchEvent(new CustomEvent("km-open-attachment",{detail:{attachment:msg.attachment,type:msg.type}}));
             }}>
             {isAttachment&&<div>
@@ -5701,12 +6675,13 @@ const ChatTab=({team,teamMembers,user,recipes,menus,stock,productions,t})=>{
           e.target.value="";
         }}/>
       </label>
-      {/* Dosya butonu */}
+      {/* Dosya butonu (PDF, doc vs) */}
       <label style={{...bSt("s",t),padding:"10px 12px",flexShrink:0,borderRadius:12,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
         📄
         <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" style={{display:"none"}} onChange={async e=>{
           const file=e.target.files?.[0];
           if(!file)return;
+          // Limit 4MB (Supabase row limit ~8MB ama base64 ~33% şişer)
           if(file.size>4*1024*1024){
             window.toast.info(lang==="tr"?"Dosya 4MB'dan büyük olamaz":"File must be under 4MB");
             e.target.value="";return;
@@ -5900,7 +6875,7 @@ const UnifiedChatTab=({team,teamMembers,user,recipes,menus,stock,productions,api
     const{data:{session}}=await sb.auth.getSession();
     const uid=session?.user?.id||myUid;
     const uname=session?.user?.user_metadata?.name||session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||user?.name||"?";
-    const profile=JSON.parse(localStorage.getItem("km_profile")||"{}");
+    const profile=JSON.parse(localStorage.getItem("kmc_profile")||"{}");
     await sb.from("team_messages").insert({
       team_id:team.id,user_id:uid,user_name:uname,
       user_role:profile.role||"",private_to:otherUid,
@@ -6399,19 +7374,22 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
   </div>;
 };
 
-// ═══ WHATSAPP SOHBET BİTİŞ ═══
-
 
 // ═══ KM: EKİP KATILMA SİSTEMİ ═══
 const generateInviteCode=()=>Math.random().toString(36).substring(2,8).toUpperCase();
 const createTeam=async(teamName,userId,userName,parentTeamId=null)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
+  // ═══ Bu kullanıcı zaten team kurmuş mu? ═══
+  const{data:existingTeams}=await sb.from("teams").select("id,name").eq("owner_id",userId).eq("app_type","manager");
+  if(existingTeams&&existingTeams.length>0){
+    throw new Error("Zaten bir ekibiniz var: "+existingTeams[0].name+". Önce mevcut ekibi silin.");
+  }
   const code=generateInviteCode();
-  const insertData={name:teamName,invite_code:code.toUpperCase(),owner_id:userId};
+  const insertData={name:teamName,invite_code:code.toUpperCase(),owner_id:userId,app_type:"manager"};
   if(parentTeamId)insertData.parent_team_id=parentTeamId;
   const{data:team,error:te}=await sb.from("teams").insert(insertData).select().single();
   if(te)throw te;
-  const{error:me}=await sb.from("team_members").insert({team_id:team.id,user_id:userId,role:"worker",position:userName});
+  const{error:me}=await sb.from("team_members").insert({team_id:team.id,user_id:userId,role:"manager",position:userName});
   if(me)throw me;
   return team;
 };
@@ -6436,7 +7414,7 @@ const joinTeam=async(inviteCode,userId,userName,requestedDepartment)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
   // Davet kodu ile ekibi bul
   const{data:team,error:te}=await sb.from("teams").select("*").eq("invite_code",inviteCode.toUpperCase()).single();
-  if(te||!team)throw new Error("Geçersiz davet kodu");
+  if(te||!team)throw new Error(lang==="tr"?"Geçersiz davet kodu":"Invalid invite code");
   
   // Zaten ekipte mi?
   const{data:existing}=await sb.from("team_members").select("id").eq("team_id",team.id).eq("user_id",userId).single();
@@ -6451,17 +7429,18 @@ const joinTeam=async(inviteCode,userId,userName,requestedDepartment)=>{
     throw err;
   }
   
-  // Yeni istek gönder (Worker rolü)
+  // Yeni istek gönder
   const{error:re}=await sb.from("team_join_requests").insert({
     team_id:team.id,
     user_id:userId,
     user_name:userName,
     requested_department:requestedDepartment||null,
-    requested_role:"worker",
+    requested_role:"chef",  // Manager kullanıyor → departman şefi
     status:"pending"
   });
   if(re)throw re;
   
+  // İstek gönderildi, ekibe henüz dahil değil
   const err=new Error("REQUEST_SENT");
   err.code="SENT";
   err.team=team;
@@ -6485,8 +7464,1365 @@ const setTeamData=async(teamId,table,jsonData,userId)=>{
   }
 };
 
-// ═══ MAIN ═══
+
+// ═══ TATİL HELPERS ═══
+const _hdCache={};
+const getHolidaysForCountry=(country="TR",year)=>{
+  const key=`${country}-${year}`;
+  if(_hdCache[key])return _hdCache[key];
+  try{
+    const hd=new Holidays(country);
+    const list=hd.getHolidays(year)||[];
+    const result={};
+    list.forEach(h=>{
+      if(h.type==="public"){
+        const dStr=String(h.date).slice(0,10);
+        result[dStr]=h.name||"Holiday";
+        const nm=(h.name||"").toLowerCase();
+        if(nm.includes("ramazan")||nm.includes("eid al-fitr")||nm.includes("ramadan")){
+          for(let i=1;i<=2;i++){
+            const d=new Date(dStr+"T12:00:00");
+            d.setDate(d.getDate()+i);
+            const next=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+            result[next]=(h.name||"Eid")+` (${i+1}. gün)`;
+          }
+        }
+        if(nm.includes("kurban")||nm.includes("eid al-adha")||nm.includes("eid al adha")){
+          for(let i=1;i<=3;i++){
+            const d=new Date(dStr+"T12:00:00");
+            d.setDate(d.getDate()+i);
+            const next=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+            result[next]=(h.name||"Eid")+` (${i+1}. gün)`;
+          }
+        }
+      }
+    });
+    _hdCache[key]=result;
+    return result;
+  }catch(e){return {};}
+};
+const getTurkishHolidays=(year)=>getHolidaysForCountry("TR",year);
+const getWeekendDays=(country="TR")=>{
+  const israelLike=["IL"];
+  const fridayCountries=["SA","AE","BH","KW","OM","QA","YE","DZ","EG","IQ","JO","LY","SY","SD"];
+  if(israelLike.includes(country))return[5,6];
+  if(fridayCountries.includes(country))return[5,6];
+  return[0,6];
+};
+const getDefaultAnnualLeave=(country="TR")=>{
+  const map={TR:14,DE:20,FR:25,GB:28,US:10,IT:20,ES:22,NL:20,BE:20,AT:25,CH:20,PL:20,AU:20,JP:10,CA:10,SE:25,NO:25,DK:25,FI:25};
+  return map[country]||14;
+};
+const COMMON_COUNTRIES=[
+  {code:"TR",name:"Türkiye",flag:"🇹🇷"},{code:"DE",name:"Deutschland",flag:"🇩🇪"},
+  {code:"FR",name:"France",flag:"🇫🇷"},{code:"GB",name:"United Kingdom",flag:"🇬🇧"},
+  {code:"US",name:"United States",flag:"🇺🇸"},{code:"IT",name:"Italia",flag:"🇮🇹"},
+  {code:"ES",name:"España",flag:"🇪🇸"},{code:"NL",name:"Nederland",flag:"🇳🇱"},
+  {code:"BE",name:"België",flag:"🇧🇪"},{code:"AT",name:"Österreich",flag:"🇦🇹"},
+  {code:"CH",name:"Schweiz",flag:"🇨🇭"},{code:"PL",name:"Polska",flag:"🇵🇱"},
+  {code:"SE",name:"Sverige",flag:"🇸🇪"},{code:"NO",name:"Norge",flag:"🇳🇴"},
+  {code:"DK",name:"Danmark",flag:"🇩🇰"},{code:"FI",name:"Suomi",flag:"🇫🇮"},
+  {code:"GR",name:"Ελλάδα",flag:"🇬🇷"},{code:"PT",name:"Portugal",flag:"🇵🇹"},
+  {code:"IE",name:"Ireland",flag:"🇮🇪"},{code:"CZ",name:"Česko",flag:"🇨🇿"},
+  {code:"HU",name:"Magyarország",flag:"🇭🇺"},{code:"RO",name:"România",flag:"🇷🇴"},
+  {code:"RU",name:"Россия",flag:"🇷🇺"},{code:"UA",name:"Україна",flag:"🇺🇦"},
+  {code:"CA",name:"Canada",flag:"🇨🇦"},{code:"MX",name:"México",flag:"🇲🇽"},
+  {code:"BR",name:"Brasil",flag:"🇧🇷"},{code:"AR",name:"Argentina",flag:"🇦🇷"},
+  {code:"AU",name:"Australia",flag:"🇦🇺"},{code:"NZ",name:"New Zealand",flag:"🇳🇿"},
+  {code:"JP",name:"日本",flag:"🇯🇵"},{code:"KR",name:"한국",flag:"🇰🇷"},
+  {code:"CN",name:"中国",flag:"🇨🇳"},{code:"IN",name:"भारत",flag:"🇮🇳"},
+  {code:"AE",name:"الإمارات",flag:"🇦🇪"},{code:"SA",name:"السعودية",flag:"🇸🇦"},
+  {code:"IL",name:"ישראל",flag:"🇮🇱"},{code:"EG",name:"مصر",flag:"🇪🇬"},
+  {code:"ZA",name:"South Africa",flag:"🇿🇦"}
+];
+
+// ═══ SHIFT TAB v2 (Sıfırdan, AI tabanlı) ═══
+const ShiftTab=({team,teamMembers,phantomMembers=[],setPhantomMembers,user,t})=>{
+  const lang=t.lang;
+  const[shifts,setShifts]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const fileInputRef=useRef(null);
+  const[importDate,setImportDate]=useState(new Date().toISOString().slice(0,10));
+  const[aiLoading,setAiLoading]=useState(false);
+  const[previewShifts,setPreviewShifts]=useState(null);
+  const[holidays,setHolidays]=useState({});
+  const[showHoliday,setShowHoliday]=useState(false);
+  const[exportMenuOpen,setExportMenuOpen]=useState(false);
+  // Hafta navigasyonu (Pazartesi başlangıçlı hafta)
+  // Verilen tarihin haftasının Pazartesi'sini döndür (lokal saat dilimi)
+  const getMondayOf=(date)=>{
+    const d=new Date(date);
+    d.setHours(12,0,0,0); // gün geçişi sorunlarını önlemek için öğlene sabit
+    const day=d.getDay(); // 0=Paz, 1=Pzt, ..., 6=Cmt
+    const diff=day===0?-6:(1-day); // Paz ise 6 gün geri, değilse (1-day) gün
+    d.setDate(d.getDate()+diff);
+    // Yerel YYYY-MM-DD formatı (toISOString UTC verir, bizde kayma olabilir)
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,"0");
+    const dd=String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${dd}`;
+  };
+  const[weekStart,setWeekStart]=useState(()=>getMondayOf(new Date()));
+  // Hücre düzenleme modal
+  const[cellEdit,setCellEdit]=useState(null); // {memberId, memberType, date, existing, name}
+  const[yearSummary,setYearSummary]=useState(null);
+  // Hızlı vardiya şablonları (team'den yüklenir)
+  const[presets,setPresets]=useState(team?.shift_presets||[
+    {name:lang==="tr"?"Sabah":"Morning",start:"07:00",end:"15:00"},
+    {name:lang==="tr"?"Akşam":"Evening",start:"15:00",end:"23:00"},
+    {name:lang==="tr"?"Gece":"Night",start:"23:00",end:"07:00"}
+  ]);
+  useEffect(()=>{
+    if(team?.shift_presets&&Array.isArray(team.shift_presets))setPresets(team.shift_presets);
+  },[team?.id]);
+
+  useEffect(()=>{
+    if(!team?.id)return;
+    const sb=initSupabase();if(!sb)return;
+    setLoading(true);
+    sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000).then(({data,error})=>{
+      if(!error&&data)setShifts(data);
+      setLoading(false);
+    });
+    const year=new Date().getFullYear();
+    const country=team?.country||"TR";
+    setHolidays({...getHolidaysForCountry(country,year),...getHolidaysForCountry(country,year+1)});
+  },[team?.id]);
+
+  // Birleşik üye listesi (gerçek + phantom, linked olmayan)
+  const allMembers=useMemo(()=>{
+    const list=[
+      ...teamMembers.map(m=>({id:m.userId||m.user_id,type:"real",name:m.name||"",position:m.position||m.role||"",annual_leave_total:m.annual_leave_total||14,_obj:m})),
+      ...phantomMembers.filter(p=>!p.linked_user_id).map(p=>({id:p.id,type:"phantom",name:p.name||"",position:p.position||"",annual_leave_total:p.annual_leave_total||14,_obj:p}))
+    ];
+    return list;
+  },[teamMembers,phantomMembers]);
+
+  // Haftanın 7 günü
+  const weekDays=useMemo(()=>{
+    const days=[];
+    const start=new Date(weekStart+"T12:00:00");
+    for(let i=0;i<7;i++){
+      const d=new Date(start);
+      d.setDate(d.getDate()+i);
+      const y=d.getFullYear();
+      const m=String(d.getMonth()+1).padStart(2,"0");
+      const dd=String(d.getDate()).padStart(2,"0");
+      days.push({
+        date:`${y}-${m}-${dd}`,
+        dayNum:d.getDate(),
+        weekday:d.toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"short"}),
+        isWeekend:((team?.country?getWeekendDays(team.country):[0,6])).includes(d.getDay())
+      });
+    }
+    return days;
+  },[weekStart,lang]);
+
+  // Bu haftaki vardiyalar (member×date map)
+  const shiftMap=useMemo(()=>{
+    const m={};
+    const weekDates=new Set(weekDays.map(d=>d.date));
+    shifts.forEach(s=>{
+      if(!weekDates.has(s.date))return;
+      const key=(s.phantom_member_id||s.created_by)+"|"+s.date;
+      m[key]=s;
+    });
+    return m;
+  },[shifts,weekDays]);
+
+  // Üyenin haftalık toplam saati hesapla
+  const calcHours=(memberId)=>{
+    let total=0;
+    weekDays.forEach(d=>{
+      const s=shiftMap[memberId+"|"+d.date];
+      if(s&&s.type!=="leave"&&s.type!=="off"&&s.start_time&&s.end_time){
+        const[sh,sm]=s.start_time.split(":").map(Number);
+        const[eh,em]=s.end_time.split(":").map(Number);
+        let diff=(eh*60+em)-(sh*60+sm);
+        if(diff<0)diff+=24*60; // Gece vardiyası
+        total+=diff/60;
+      }
+    });
+    return total;
+  };
+
+  // Kullanılan yıllık izin
+  const calcUsedLeave=(memberId)=>{
+    return shifts.filter(s=>(s.phantom_member_id===memberId||s.created_by===memberId)&&s.type==="leave").length;
+  };
+  // Tüm izin tiplerini say
+  const calcLeaveByType=(memberId,type)=>{
+    return shifts.filter(s=>(s.phantom_member_id===memberId||s.created_by===memberId)&&s.type===type).length;
+  };
+  // Yıllık özet hesabı
+  const getYearStats=(memberId,year)=>{
+    const yearStr=String(year);
+    const memberShifts=shifts.filter(s=>(s.phantom_member_id===memberId||s.created_by===memberId)&&s.date?.startsWith(yearStr));
+    let totalHours=0,shiftCount=0;
+    const byType={leave:0,sick:0,parental:0,training:0,unpaid:0,off:0};
+    memberShifts.forEach(s=>{
+      if(s.type==="shift"||!s.type){
+        shiftCount++;
+        if(s.start_time&&s.end_time){
+          const[sh,sm]=s.start_time.split(":").map(Number);
+          const[eh,em]=s.end_time.split(":").map(Number);
+          let diff=(eh*60+em)-(sh*60+sm);
+          if(diff<0)diff+=24*60;
+          totalHours+=diff/60;
+        }
+      }else if(byType[s.type]!==undefined){
+        byType[s.type]++;
+      }
+    });
+    return{shiftCount,totalHours,...byType};
+  };
+
+  // Hafta navigasyonu
+  const shiftWeek=(delta)=>{
+    const d=new Date(weekStart+"T12:00:00");
+    d.setDate(d.getDate()+delta*7);
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,"0");
+    const dd=String(d.getDate()).padStart(2,"0");
+    setWeekStart(`${y}-${m}-${dd}`);
+  };
+
+  // Hücre kaydet
+  const saveCell=async({memberId,memberType,date,start,end,type,position,name})=>{
+    const sb=initSupabase();if(!sb)return;
+    // Önce mevcut kaydı sil
+    let delQ=sb.from("shifts").delete().eq("team_id",team.id).eq("date",date);
+    if(memberType==="real")delQ=delQ.eq("created_by",memberId);
+    else delQ=delQ.eq("phantom_member_id",memberId);
+    await delQ;
+    // type "delete" ise sadece sil, kayıt ekleme
+    if(type==="delete"){
+      const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
+      if(data)setShifts(data);
+      return true;
+    }
+    // OFF dahil tüm diğer tipler kayıt olur
+    const payload={
+      team_id:team.id,
+      name:position||"Vardiya",
+      member_name:name,
+      start_time:(type==="leave"||type==="off"||type==="sick"||type==="parental"||type==="training"||type==="unpaid")?"00:00:00":(start.length===5?start+":00":start),
+      end_time:(type==="leave"||type==="off"||type==="sick"||type==="parental"||type==="training"||type==="unpaid")?"00:00:00":(end.length===5?end+":00":end),
+      date,
+      tasks:[],
+      type:type||"shift",
+      ...(memberType==="real"?{created_by:memberId}:{phantom_member_id:memberId})
+    };
+    const{error}=await sb.from("shifts").insert(payload);
+    if(error){window.toast.error(error.message);return false;}
+    const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
+    if(data)setShifts(data);
+    return true;
+  };
+
+  // Hücreye tıkla
+  const openCellEdit=(member,date)=>{
+    const existing=shiftMap[member.id+"|"+date];
+    setCellEdit({
+      memberId:member.id,
+      memberType:member.type,
+      memberName:member.name,
+      position:member.position,
+      date,
+      existing,
+      start:existing?.start_time?.slice(0,5)||"09:00",
+      end:existing?.end_time?.slice(0,5)||"18:00",
+      type:existing?.type||"shift"
+    });
+  };
+
+  // Excel İçe (AI parser)
+  const handleFileChange=async(e)=>{
+    const file=e.target.files?.[0];
+    e.target.value="";
+    if(!file)return;
+    if(!team?.id){window.toast.error(lang==="tr"?"Önce ekip oluşturun":"Create a team first");return;}
+    let rows=[];
+    try{
+      const isExcel=/\.(xlsx|xls)$/i.test(file.name);
+      if(isExcel){
+        const buf=await file.arrayBuffer();
+        const wb=XLSX.read(buf,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""}).filter(r=>r.some(c=>String(c).trim()));
+      }else{
+        const text=await file.text();
+        rows=text.split(/\r?\n/).filter(l=>l.trim()).map(l=>l.split(/\t|,/));
+      }
+    }catch(err){window.toast.error((lang==="tr"?"Dosya okunamadı: ":"File read error: ")+err.message);return;}
+    if(rows.length<2){window.toast.error(lang==="tr"?"Geçersiz dosya":"Invalid file");return;}
+    setAiLoading(true);
+    try{
+      const resp=await fetch("https://kitchen-manager-ai.aligny0.workers.dev/parse-shift-excel",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({rows:rows.map(r=>r.map(c=>String(c))),startDate:importDate,lang})
+      });
+      if(!resp.ok)throw new Error("HTTP "+resp.status);
+      const data=await resp.json();
+      if(data.error)throw new Error(data.error);
+      const flat=[];
+      for(const s of (data.shifts||[])){
+        for(const e of (s.entries||[])){
+          if(!e.date||!e.start||!e.end)continue;
+          flat.push({name:s.name||"",position:s.position||"Vardiya",date:e.date,start:e.start.slice(0,5),end:e.end.slice(0,5)});
+        }
+      }
+      if(flat.length===0)window.toast.error(lang==="tr"?"AI hiç vardiya bulamadı":"AI found no shifts");
+      else setPreviewShifts(flat);
+    }catch(err){window.toast.error((lang==="tr"?"AI hatası: ":"AI error: ")+err.message);}
+    finally{setAiLoading(false);}
+  };
+
+  const updatePreview=(i,field,value)=>setPreviewShifts(prev=>{const c=[...prev];c[i]={...c[i],[field]:value};return c;});
+  const removePreview=(i)=>setPreviewShifts(prev=>prev.filter((_,idx)=>idx!==i));
+
+  const importAll=async()=>{
+    if(!previewShifts||!previewShifts.length)return;
+    const sb=initSupabase();if(!sb)return;
+    let success=0,failed=0,newPhantoms=[];
+    for(const s of previewShifts){
+      const sName=(s.name||"").trim();
+      const sNameLower=sName.toLowerCase();
+      const realMember=teamMembers.find(m=>{const mn=(m.name||"").toLowerCase().trim();return mn===sNameLower||mn.includes(sNameLower)||sNameLower.includes(mn);});
+      let phantomId=null,creator=null;
+      if(realMember)creator=realMember.userId||realMember.user_id;
+      else{
+        const allP=[...phantomMembers,...newPhantoms];
+        let phantom=allP.find(p=>{const pn=(p.name||"").toLowerCase().trim();return pn===sNameLower||pn.includes(sNameLower)||sNameLower.includes(pn);});
+        if(!phantom){
+          const{data:created,error:perr}=await sb.from("team_phantom_members").insert({team_id:team.id,name:sName,position:s.position||null,created_by:user.userId}).select().single();
+          if(perr){failed++;continue;}
+          phantom=created;newPhantoms.push(created);
+        }
+        phantomId=phantom.id;
+      }
+      try{
+        let delQ=sb.from("shifts").delete().eq("team_id",team.id).eq("date",s.date);
+        if(creator)delQ=delQ.eq("created_by",creator);
+        else if(phantomId)delQ=delQ.eq("phantom_member_id",phantomId);
+        await delQ;
+        const{error}=await sb.from("shifts").insert({
+          team_id:team.id,name:s.position||"Vardiya",member_name:sName,
+          start_time:s.start+":00",end_time:s.end+":00",date:s.date,tasks:[],type:"shift",
+          created_by:creator,phantom_member_id:phantomId
+        });
+        if(error){failed++;continue;}
+        success++;
+      }catch(e){failed++;}
+    }
+    if(newPhantoms.length>0&&setPhantomMembers){
+      setPhantomMembers(prev=>[...prev,...newPhantoms]);
+      LS.set("kmc_phantom_members",[...phantomMembers,...newPhantoms]);
+    }
+    const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
+    if(data)setShifts(data);
+    window.toast.success(lang==="tr"?`✓ ${success} vardiya${newPhantoms.length?` (${newPhantoms.length} yeni üye)`:""}`:`✓ ${success} shifts`);
+    setPreviewShifts(null);
+  };
+
+  // ═══ DIŞA AKTAR — Excel ═══
+  const exportExcel=()=>{
+    if(typeof XLSX==="undefined"){window.toast.error("XLSX yüklenemedi");return;}
+    const headerRow=[lang==="tr"?"Pozisyon":"Position",lang==="tr"?"İsim":"Name",lang==="tr"?"Toplam Saat":"Total Hours",lang==="tr"?"Kalan İzin":"Leave Left"];
+    weekDays.forEach(d=>headerRow.push(`${d.dayNum} ${d.weekday}`));
+    const data=[headerRow];
+    allMembers.forEach(m=>{
+      const row=[m.position||"",m.name,calcHours(m.id),m.annual_leave_total-calcUsedLeave(m.id)];
+      weekDays.forEach(d=>{
+        const s=shiftMap[m.id+"|"+d.date];
+        if(!s)row.push("");
+        else if(s.type==="leave")row.push(lang==="tr"?"İZİN":"LEAVE");
+        else if(s.type==="off")row.push("OFF");
+        else row.push(`${s.start_time?.slice(0,5)}-${s.end_time?.slice(0,5)}`);
+      });
+      data.push(row);
+    });
+    const ws=XLSX.utils.aoa_to_sheet(data);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"Vardiya");
+    XLSX.writeFile(wb,`vardiya_${weekStart}.xlsx`);
+    setExportMenuOpen(false);
+  };
+
+  // ═══ DIŞA AKTAR — PDF (yazdır penceresi PDF olarak kaydedebilir) ═══
+  const exportPDF=()=>{printTable("pdf");setExportMenuOpen(false);};
+  const exportPrint=()=>{printTable("print");setExportMenuOpen(false);};
+
+  const printTable=(mode)=>{
+    const w=window.open("","_blank");
+    if(!w){window.toast.error(lang==="tr"?"Popup engellendi":"Popup blocked");return;}
+    const weekLabel=`${new Date(weekDays[0].date).toLocaleDateString("tr-TR")} - ${new Date(weekDays[6].date).toLocaleDateString("tr-TR")}`;
+    let html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Vardiya ${weekLabel}</title>
+      <style>
+        body{font-family:Arial,sans-serif;font-size:11px;margin:20px}
+        h1{font-size:16px;margin-bottom:6px}
+        .meta{color:#666;font-size:10px;margin-bottom:12px}
+        table{border-collapse:collapse;width:100%}
+        th,td{border:1px solid #888;padding:4px 6px;text-align:center}
+        th{background:#f3f4f6;font-weight:bold}
+        .pos{text-align:left;background:#fbbf24;font-weight:bold}
+        .name{text-align:left;font-weight:600}
+        .weekend{background:#fef3c7}
+        .holiday{background:#fee2e2}
+        .leave{background:#dcfce7;font-weight:bold}
+        .off{background:#f3f4f6;color:#999}
+        @media print{body{margin:0}}
+      </style></head><body>
+      <h1>📅 ${team.name} — ${lang==="tr"?"Haftalık Vardiya":"Weekly Shifts"}</h1>
+      <div class="meta">${weekLabel}</div>
+      <table><thead><tr>
+        <th>${lang==="tr"?"Pozisyon":"Position"}</th>
+        <th>${lang==="tr"?"İsim":"Name"}</th>
+        <th>${lang==="tr"?"Toplam":"Total"}</th>
+        <th>${lang==="tr"?"İzin":"Leave"}</th>`;
+    weekDays.forEach(d=>{
+      const isH=!!holidays[d.date];
+      html+=`<th class="${isH?"holiday":(d.isWeekend?"weekend":"")}">${d.dayNum} ${d.weekday}${isH?" 🎌":""}</th>`;
+    });
+    html+=`</tr></thead><tbody>`;
+    allMembers.forEach(m=>{
+      html+=`<tr><td class="pos">${m.position||""}</td><td class="name">${m.name}</td><td>${calcHours(m.id)}</td><td>${m.annual_leave_total-calcUsedLeave(m.id)}</td>`;
+      weekDays.forEach(d=>{
+        const s=shiftMap[m.id+"|"+d.date];
+        const isH=!!holidays[d.date];
+        const cls=s?.type==="leave"?"leave":(s?.type==="off"?"off":(isH?"holiday":(d.isWeekend?"weekend":"")));
+        let txt="";
+        if(s){
+          if(s.type==="leave")txt=lang==="tr"?"İZİN":"LEAVE";
+          else if(s.type==="off")txt="OFF";
+          else txt=`${s.start_time?.slice(0,5)}-${s.end_time?.slice(0,5)}`;
+        }
+        html+=`<td class="${cls}">${txt}</td>`;
+      });
+      html+=`</tr>`;
+    });
+    html+=`</tbody></table>
+      <script>window.onload=()=>{${mode==="print"?"window.print();":""}};</script>
+      </body></html>`;
+    w.document.write(html);
+    w.document.close();
+  };
+
+  if(!team){
+    return <div style={{padding:24,textAlign:"center",color:t.tm}}>{lang==="tr"?"Vardiya için önce ekip oluşturun.":"Create a team first."}</div>;
+  }
+
+  const weekLabel=`${new Date(weekDays[0].date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short"})} - ${new Date(weekDays[6].date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"short",year:"numeric"})}`;
+
+  return <div style={{padding:"10px 12px"}}>
+    {/* Üst bar */}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <button onClick={()=>shiftWeek(-1)} style={{...bSt("s",t),padding:"6px 10px",fontSize:13}}>◀</button>
+        <div style={{fontSize:13,fontWeight:700,color:t.text,minWidth:140,textAlign:"center"}}>{weekLabel}</div>
+        <button onClick={()=>shiftWeek(1)} style={{...bSt("s",t),padding:"6px 10px",fontSize:13}}>▶</button>
+        <button onClick={()=>setWeekStart(getMondayOf(new Date()))} style={{...bSt("s",t),fontSize:10,padding:"4px 8px"}}>{lang==="tr"?"Bu Hafta":"This Week"}</button>
+        <button onClick={async()=>{
+          if(!confirm(lang==="tr"?"Bu haftanın tüm vardiyaları sonraki haftaya kopyalansın mı?":"Copy all this week's shifts to next week?"))return;
+          const sb=initSupabase();if(!sb)return;
+          const weekShifts=shifts.filter(s=>weekDays.some(d=>d.date===s.date));
+          if(weekShifts.length===0){window.toast.info(lang==="tr"?"Bu hafta vardiya yok":"No shifts this week");return;}
+          const nextWeekStart=new Date(weekStart+"T12:00:00");
+          nextWeekStart.setDate(nextWeekStart.getDate()+7);
+          let success=0;
+          for(const s of weekShifts){
+            const oldDate=new Date(s.date+"T12:00:00");
+            const newDate=new Date(oldDate);
+            newDate.setDate(newDate.getDate()+7);
+            const newDateStr=`${newDate.getFullYear()}-${String(newDate.getMonth()+1).padStart(2,"0")}-${String(newDate.getDate()).padStart(2,"0")}`;
+            try{
+              let delQ=sb.from("shifts").delete().eq("team_id",team.id).eq("date",newDateStr);
+              if(s.created_by)delQ=delQ.eq("created_by",s.created_by);
+              else if(s.phantom_member_id)delQ=delQ.eq("phantom_member_id",s.phantom_member_id);
+              await delQ;
+              const{error}=await sb.from("shifts").insert({
+                team_id:team.id,name:s.name,member_name:s.member_name,
+                start_time:s.start_time,end_time:s.end_time,
+                date:newDateStr,tasks:[],type:s.type||"shift",
+                created_by:s.created_by,phantom_member_id:s.phantom_member_id
+              });
+              if(!error)success++;
+            }catch(e){}
+          }
+          const{data}=await sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:true}).limit(2000);
+          if(data)setShifts(data);
+          window.toast.success(lang==="tr"?`✓ ${success} vardiya kopyalandı`:`✓ ${success} copied`);
+          // Sonraki haftaya geç
+          const y=nextWeekStart.getFullYear();
+          const m=String(nextWeekStart.getMonth()+1).padStart(2,"0");
+          const dd=String(nextWeekStart.getDate()).padStart(2,"0");
+          setWeekStart(`${y}-${m}-${dd}`);
+        }} title={lang==="tr"?"Bu haftayı sonrakine kopyala":"Copy to next week"} style={{...bSt("s",t),fontSize:10,padding:"4px 8px"}}>📋➡</button>
+      </div>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",position:"relative"}}>
+        <input type="date" value={importDate} onChange={e=>setImportDate(e.target.value)} title={lang==="tr"?"Excel başlangıç tarihi":"Excel start"} style={{...iSt(t),fontSize:10,padding:"4px 6px",width:120}}/>
+        <button onClick={()=>fileInputRef.current?.click()} style={{...bSt("s",t),fontSize:11}}>📥 {lang==="tr"?"İçe":"Import"}</button>
+        <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={handleFileChange}/>
+        <button onClick={()=>setExportMenuOpen(!exportMenuOpen)} style={{...bSt("s",t),fontSize:11}}>📤 {lang==="tr"?"Dışa":"Export"}</button>
+        {exportMenuOpen&&<div style={{position:"absolute",top:34,right:0,background:t.cardBg||t.bg,border:`1px solid ${t.border}`,borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.15)",zIndex:100,minWidth:160}}>
+          <button onClick={exportExcel} style={{display:"block",width:"100%",textAlign:"left",padding:"8px 12px",background:"transparent",border:"none",cursor:"pointer",color:t.text,fontSize:12}}>📊 Excel</button>
+          <button onClick={exportPDF} style={{display:"block",width:"100%",textAlign:"left",padding:"8px 12px",background:"transparent",border:"none",cursor:"pointer",color:t.text,fontSize:12}}>📄 PDF</button>
+          <button onClick={exportPrint} style={{display:"block",width:"100%",textAlign:"left",padding:"8px 12px",background:"transparent",border:"none",cursor:"pointer",color:t.text,fontSize:12}}>🖨️ {lang==="tr"?"Yazdır":"Print"}</button>
+        </div>}
+        <button onClick={()=>setShowHoliday(!showHoliday)} style={{...bSt("s",t),fontSize:11}}>🎌</button>
+      </div>
+    </div>
+
+    {/* Tablo */}
+    {allMembers.length===0?<div style={{textAlign:"center",padding:40,color:t.tm}}>
+      <div style={{fontSize:32,marginBottom:8}}>👥</div>
+      <div style={{fontSize:13}}>{lang==="tr"?"Henüz üye yok":"No members"}</div>
+      <div style={{fontSize:11,marginTop:4}}>{lang==="tr"?"Ayarlar → Ekip'ten üye ekleyin":"Add members from Settings → Team"}</div>
+    </div>:<div style={{overflowX:"auto",border:`1px solid ${t.border}`,borderRadius:8,background:t.cardBg||t.bg}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:800}}>
+        <thead>
+          <tr style={{background:t.inBg||"#f9fafb"}}>
+            <th style={{padding:"6px 8px",textAlign:"left",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.tm,whiteSpace:"nowrap",position:"sticky",left:0,background:t.inBg||"#f9fafb",zIndex:2}}>{lang==="tr"?"Pozisyon":"Position"}</th>
+            <th style={{padding:"6px 8px",textAlign:"left",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.tm,whiteSpace:"nowrap"}}>{lang==="tr"?"İsim":"Name"}</th>
+            <th style={{padding:"6px 6px",textAlign:"center",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.tm,whiteSpace:"nowrap"}}>{lang==="tr"?"Saat":"Hrs"}</th>
+            <th style={{padding:"6px 6px",textAlign:"center",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.tm,whiteSpace:"nowrap"}}>{lang==="tr"?"İzin":"Lv"}</th>
+            {weekDays.map(d=>{
+              const isH=!!holidays[d.date];
+              const bg=isH?"#fee2e2":(d.isWeekend?"#fef3c7":(t.inBg||"#f9fafb"));
+              return <th key={d.date} style={{padding:"6px 4px",textAlign:"center",borderBottom:`1px solid ${t.border}`,fontWeight:700,fontSize:10,color:t.text,whiteSpace:"nowrap",background:bg,minWidth:80}}>
+                <div>{d.dayNum} {d.weekday}</div>
+                {isH&&<div style={{fontSize:9,color:"#dc2626"}}>🎌</div>}
+              </th>;
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {allMembers.map((m,idx)=>{
+            const hours=calcHours(m.id);
+            const leaveLeft=m.annual_leave_total-calcUsedLeave(m.id);
+            return <tr key={m.id}>
+              <td style={{padding:"5px 8px",borderBottom:`1px solid ${t.border}`,fontWeight:600,color:t.text,whiteSpace:"nowrap",position:"sticky",left:0,background:idx%2?t.bg:(t.cardBg||t.bg),zIndex:1,fontSize:11}}>{m.position||"—"}</td>
+              <td onClick={()=>setYearSummary({memberId:m.id,memberName:m.name,memberType:m.type})} style={{padding:"5px 8px",borderBottom:`1px solid ${t.border}`,color:t.text,whiteSpace:"nowrap",fontSize:11,cursor:"pointer",textDecoration:"underline",textDecorationColor:t.tm,textDecorationStyle:"dotted",textUnderlineOffset:3}}>{m.name}{m.type==="phantom"&&<span style={{fontSize:9,color:t.tm,marginLeft:4}}>👤❓</span>}</td>
+              <td style={{padding:"5px 6px",borderBottom:`1px solid ${t.border}`,textAlign:"center",color:t.text,fontSize:11,fontWeight:600}}>{hours}</td>
+              <td style={{padding:"5px 6px",borderBottom:`1px solid ${t.border}`,textAlign:"center",color:leaveLeft<3?t.danger:t.tm,fontSize:11}}>{leaveLeft}</td>
+              {weekDays.map(d=>{
+                const s=shiftMap[m.id+"|"+d.date];
+                const isH=!!holidays[d.date];
+                let bg="transparent",txt="",fg=t.text,fw=400;
+                if(s){
+                  if(s.type==="leave"){bg="#dcfce7";txt=lang==="tr"?"İZİN":"LEAVE";fg="#15803d";fw=700;}
+                  else if(s.type==="sick"){bg="#ffedd5";txt=lang==="tr"?"HSP":"SICK";fg="#c2410c";fw=700;}
+                  else if(s.type==="parental"){bg="#fce7f3";txt=lang==="tr"?"DOĞ":"PAR";fg="#9d174d";fw=700;}
+                  else if(s.type==="training"){bg="#dbeafe";txt=lang==="tr"?"EĞT":"TRN";fg="#1e40af";fw=700;}
+                  else if(s.type==="unpaid"){bg="#e5e7eb";txt=lang==="tr"?"ÜCR":"UNP";fg="#374151";fw=700;}
+                  else if(s.type==="off"){bg="#f3f4f6";txt="OFF";fg="#9ca3af";}
+                  else{txt=`${s.start_time?.slice(0,5)}-${s.end_time?.slice(0,5)}`;}
+                }
+                if(!s&&isH)bg="#fee2e2";
+                else if(!s&&d.isWeekend)bg="#fef9c3";
+                return <td key={d.date} onClick={()=>openCellEdit(m,d.date)} style={{padding:"5px 4px",borderBottom:`1px solid ${t.border}`,borderLeft:`1px solid ${t.border}`,textAlign:"center",cursor:"pointer",background:bg,color:fg,fontSize:10,fontWeight:fw,whiteSpace:"nowrap"}}>{txt||(isH?"🎌":"")}</td>;
+              })}
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>}
+
+    {/* Renk açıklamaları */}
+    <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:8,fontSize:10,color:t.tm}}>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#fef9c3",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Hafta Sonu":"Weekend"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#fee2e2",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Resmi Tatil":"Holiday"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#dcfce7",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Yıllık İzin":"Annual Leave"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#ffedd5",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Hastalık":"Sick"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#fce7f3",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Doğum":"Parental"}</span>
+      <span><span style={{display:"inline-block",width:10,height:10,background:"#dbeafe",border:`1px solid ${t.border}`,verticalAlign:"middle",marginRight:4}}/>{lang==="tr"?"Eğitim":"Training"}</span>
+      <span>👤❓ {lang==="tr"?"Kayıtsız":"Unregistered"}</span>
+    </div>
+
+    {/* AI Loading */}
+    {aiLoading&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:28,textAlign:"center",maxWidth:300}}>
+        <div style={{fontSize:36,marginBottom:10}}>🤖</div>
+        <div style={{fontSize:14,fontWeight:600,color:t.text}}>{lang==="tr"?"AI tabloyu okuyor...":"AI is reading..."}</div>
+      </div>
+    </div>}
+
+    {/* Önizleme modal (Excel import sonrası) */}
+    {previewShifts&&<div onClick={e=>{if(e.target===e.currentTarget)setPreviewShifts(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:18,maxWidth:700,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:16,fontWeight:700,color:t.text}}>🤖 {lang==="tr"?"Önizleme":"Preview"}</div>
+          <div style={{fontSize:11,color:t.tm}}>{previewShifts.length} {lang==="tr"?"vardiya":"shifts"}</div>
+        </div>
+        <div style={{flex:1,overflow:"auto",border:`1px solid ${t.border}`,borderRadius:8,padding:8}}>
+          {previewShifts.map((s,i)=><div key={i} style={{display:"flex",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`1px solid ${t.border}`,flexWrap:"wrap"}}>
+            <input value={s.name} onChange={e=>updatePreview(i,"name",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",flex:"1 1 100px"}}/>
+            <input value={s.position} onChange={e=>updatePreview(i,"position",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",flex:"1 1 80px"}}/>
+            <input type="date" value={s.date} onChange={e=>updatePreview(i,"date",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:130}}/>
+            <input type="time" value={s.start} onChange={e=>updatePreview(i,"start",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:80}}/>
+            <input type="time" value={s.end} onChange={e=>updatePreview(i,"end",e.target.value)} style={{...iSt(t),fontSize:11,padding:"4px 6px",width:80}}/>
+            <button onClick={()=>removePreview(i)} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14}}>✕</button>
+          </div>)}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:12}}>
+          <button onClick={()=>setPreviewShifts(null)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
+          <button onClick={importAll} style={{...bSt("p",t),flex:2}}>{lang==="tr"?`✓ ${previewShifts.length} Aktar`:`✓ Import ${previewShifts.length}`}</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Yıllık Özet Modal */}
+    {yearSummary&&(()=>{
+      const year=new Date(weekStart).getFullYear();
+      const stats=getYearStats(yearSummary.memberId,year);
+      const m=allMembers.find(x=>x.id===yearSummary.memberId);
+      const leaveLeft=(m?.annual_leave_total||14)-stats.leave;
+      return <div onClick={e=>{if(e.target===e.currentTarget)setYearSummary(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:420,width:"100%"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:18,fontWeight:700,color:t.text}}>{yearSummary.memberName}</div>
+              <div style={{fontSize:12,color:t.tm}}>{year} {lang==="tr"?"yıllık özeti":"summary"}</div>
+            </div>
+            <button onClick={()=>setYearSummary(null)} style={{background:"transparent",border:"none",fontSize:18,cursor:"pointer",color:t.tm}}>✕</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div style={{padding:10,background:t.inBg||"#f9fafb",borderRadius:8}}>
+              <div style={{fontSize:10,color:t.tm,fontWeight:600}}>{lang==="tr"?"Toplam Vardiya":"Total Shifts"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:t.text}}>{stats.shiftCount}</div>
+            </div>
+            <div style={{padding:10,background:t.inBg||"#f9fafb",borderRadius:8}}>
+              <div style={{fontSize:10,color:t.tm,fontWeight:600}}>{lang==="tr"?"Toplam Saat":"Total Hours"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:t.text}}>{Math.round(stats.totalHours)}</div>
+            </div>
+            <div style={{padding:10,background:"#dcfce7",borderRadius:8}}>
+              <div style={{fontSize:10,color:"#15803d",fontWeight:600}}>🌴 {lang==="tr"?"Yıllık İzin":"Leave"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#15803d"}}>{stats.leave} / {m?.annual_leave_total||14}</div>
+              <div style={{fontSize:9,color:"#15803d",marginTop:2}}>{lang==="tr"?`${leaveLeft} gün kaldı`:`${leaveLeft} days left`}</div>
+            </div>
+            <div style={{padding:10,background:"#ffedd5",borderRadius:8}}>
+              <div style={{fontSize:10,color:"#c2410c",fontWeight:600}}>🤒 {lang==="tr"?"Hastalık":"Sick"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#c2410c"}}>{stats.sick}</div>
+            </div>
+            <div style={{padding:10,background:"#fce7f3",borderRadius:8}}>
+              <div style={{fontSize:10,color:"#9d174d",fontWeight:600}}>👶 {lang==="tr"?"Doğum/Babalık":"Parental"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#9d174d"}}>{stats.parental}</div>
+            </div>
+            <div style={{padding:10,background:"#dbeafe",borderRadius:8}}>
+              <div style={{fontSize:10,color:"#1e40af",fontWeight:600}}>📚 {lang==="tr"?"Eğitim":"Training"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#1e40af"}}>{stats.training}</div>
+            </div>
+            <div style={{padding:10,background:"#e5e7eb",borderRadius:8,gridColumn:"span 2"}}>
+              <div style={{fontSize:10,color:"#374151",fontWeight:600}}>💸 {lang==="tr"?"Ücretsiz İzin":"Unpaid Leave"}</div>
+              <div style={{fontSize:20,fontWeight:700,color:"#374151"}}>{stats.unpaid}</div>
+            </div>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* Hücre düzenleme modal */}
+    {cellEdit&&<div onClick={e=>{if(e.target===e.currentTarget)setCellEdit(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:380,width:"100%"}}>
+        <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:4}}>{cellEdit.memberName}</div>
+        <div style={{fontSize:11,color:t.tm,marginBottom:14}}>{new Date(cellEdit.date).toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long"})}</div>
+        
+        {/* ÜST SIRA: OFF + YILLIK İZİN (en sık kullanılanlar) */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+          <button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"off",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ OFF":"✓ OFF");setCellEdit(null);}
+          }} style={{...bSt("s",t),background:"#f3f4f6",color:"#374151",fontSize:13,padding:"12px 8px",fontWeight:700}}>⊘ OFF</button>
+          <button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"leave",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ Yıllık izin":"✓ Annual leave");setCellEdit(null);}
+          }} style={{...bSt("s",t),background:"#dcfce7",color:"#15803d",fontSize:13,padding:"12px 8px",fontWeight:700}}>🌴 {lang==="tr"?"YILLIK İZİN":"LEAVE"}</button>
+        </div>
+
+        {/* Vardiya saati (manuel) */}
+        <div style={{padding:12,background:t.inBg||"#f9fafb",borderRadius:8,marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:600,color:t.tm,marginBottom:6}}>{lang==="tr"?"VARDİYA SAATİ":"SHIFT TIME"}</div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input type="time" value={cellEdit.start} onChange={e=>setCellEdit({...cellEdit,start:e.target.value,type:"shift"})} style={{...iSt(t),flex:1}}/>
+            <span style={{color:t.tm}}>→</span>
+            <input type="time" value={cellEdit.end} onChange={e=>setCellEdit({...cellEdit,end:e.target.value,type:"shift"})} style={{...iSt(t),flex:1}}/>
+          </div>
+          <button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"shift",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ Kaydedildi":"✓ Saved");setCellEdit(null);}
+          }} style={{...bSt("p",t),width:"100%",marginTop:8,fontSize:12}}>{lang==="tr"?"✓ Vardiyayı Kaydet":"✓ Save Shift"}</button>
+        </div>
+
+        {/* + Diğer izin tipleri */}
+        {cellEdit.showMore?<>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+            <button onClick={async()=>{
+              const ok=await saveCell({...cellEdit,type:"sick",name:cellEdit.memberName});
+              if(ok){window.toast.success(lang==="tr"?"✓ Hastalık raporu":"✓ Sick");setCellEdit(null);}
+            }} style={{...bSt("s",t),background:"#ffedd5",color:"#c2410c",fontSize:11,padding:"8px 4px"}}>🤒 {lang==="tr"?"Hastalık":"Sick"}</button>
+            <button onClick={async()=>{
+              const ok=await saveCell({...cellEdit,type:"parental",name:cellEdit.memberName});
+              if(ok){window.toast.success(lang==="tr"?"✓ Doğum/Babalık":"✓ Parental");setCellEdit(null);}
+            }} style={{...bSt("s",t),background:"#fce7f3",color:"#9d174d",fontSize:11,padding:"8px 4px"}}>👶 {lang==="tr"?"Doğum/Babalık":"Parental"}</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+            <button onClick={async()=>{
+              const ok=await saveCell({...cellEdit,type:"training",name:cellEdit.memberName});
+              if(ok){window.toast.success(lang==="tr"?"✓ Eğitim":"✓ Training");setCellEdit(null);}
+            }} style={{...bSt("s",t),background:"#dbeafe",color:"#1e40af",fontSize:11,padding:"8px 4px"}}>📚 {lang==="tr"?"Eğitim":"Training"}</button>
+            <button onClick={async()=>{
+              const ok=await saveCell({...cellEdit,type:"unpaid",name:cellEdit.memberName});
+              if(ok){window.toast.success(lang==="tr"?"✓ Ücretsiz izin":"✓ Unpaid");setCellEdit(null);}
+            }} style={{...bSt("s",t),background:"#e5e7eb",color:"#374151",fontSize:11,padding:"8px 4px"}}>💸 {lang==="tr"?"Ücretsiz":"Unpaid"}</button>
+          </div>
+        </>:<button onClick={()=>setCellEdit({...cellEdit,showMore:true})} style={{...bSt("s",t),width:"100%",fontSize:11,padding:"6px",marginBottom:8,color:t.tm}}>+ {lang==="tr"?"Diğer izin tipleri":"More leave types"}</button>}
+        
+        {/* En altta: Sil ve İptal */}
+        <div style={{display:"flex",gap:8}}>
+          {cellEdit.existing&&<button onClick={async()=>{
+            const ok=await saveCell({...cellEdit,type:"delete",name:cellEdit.memberName});
+            if(ok){window.toast.success(lang==="tr"?"✓ Silindi":"✓ Deleted");setCellEdit(null);}
+          }} style={{...bSt("s",t),flex:1,fontSize:12,color:t.danger}}>🗑️ {lang==="tr"?"Sil":"Delete"}</button>}
+          <button onClick={()=>setCellEdit(null)} style={{...bSt("s",t),flex:1,fontSize:12}}>{lang==="tr"?"İptal":"Cancel"}</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Tatiller modal */}
+    {showHoliday&&<div onClick={e=>{if(e.target===e.currentTarget)setShowHoliday(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:400,width:"100%"}}>
+        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:10}}>🎌 {lang==="tr"?"Resmi Tatiller":"Holidays"}</div>
+        <div style={{maxHeight:300,overflow:"auto"}}>
+          {Object.entries(holidays).sort().map(([d,name])=><div key={d} style={{padding:6,fontSize:12,borderBottom:`1px solid ${t.border}`}}>{new Date(d).toLocaleDateString(lang==="tr"?"tr-TR":"en-US")} — {name}</div>)}
+        </div>
+        <button onClick={()=>setShowHoliday(false)} style={{...bSt("p",t),width:"100%",marginTop:12}}>{lang==="tr"?"Kapat":"Close"}</button>
+      </div>
+    </div>}
+  </div>;
+};
+
+
+
+// ═══ HIZLI VARDİYA ŞABLONLARI ═══
+const JoinRequestsCard=({team,user,t})=>{
+  const lang=t.lang;
+  const[requests,setRequests]=useState([]);
+  const[loading,setLoading]=useState(true);
+  
+  const DEPTS={
+    pastry:{name:lang==="tr"?"Pastane":"Pastry",icon:"🍰"},
+    kitchen:{name:lang==="tr"?"Sıcak Mutfak":"Hot Kitchen",icon:"🔥"},
+    cold:{name:lang==="tr"?"Soğuk Mutfak":"Cold Kitchen",icon:"🥗"},
+    butcher:{name:lang==="tr"?"Kasap":"Butcher",icon:"🥩"},
+    service:{name:lang==="tr"?"Servis":"Service",icon:"🍽️"},
+    bar:{name:"Bar",icon:"🍷"}
+  };
+  
+  const load=async()=>{
+    setLoading(true);
+    const sb=initSupabase();if(!sb){setLoading(false);return;}
+    const{data}=await sb.from("team_join_requests").select("*").eq("team_id",team.id).eq("status","pending").order("created_at",{ascending:false});
+    setRequests(data||[]);
+    setLoading(false);
+  };
+  
+  useEffect(()=>{load();},[team?.id]);
+  
+  const approve=async(req)=>{
+    const sb=initSupabase();if(!sb)return;
+    const{error:me}=await sb.from("team_members").insert({
+      team_id:team.id,
+      user_id:req.user_id,
+      role:req.requested_role||"worker",
+      department:req.requested_department,
+      position:req.user_name
+    });
+    if(me){window.toast?.error(me.message);return;}
+    await sb.from("team_join_requests").update({
+      status:"approved",
+      decided_by:user?.userId,
+      decided_at:new Date().toISOString()
+    }).eq("id",req.id);
+    window.toast?.success(lang==="tr"?`✓ ${req.user_name} onaylandı`:`✓ ${req.user_name} approved`);
+    load();
+  };
+  
+  const reject=async(req)=>{
+    if(!window.confirm(lang==="tr"?`${req.user_name} isteğini reddet?`:`Reject ${req.user_name}?`))return;
+    const sb=initSupabase();if(!sb)return;
+    await sb.from("team_join_requests").update({
+      status:"rejected",
+      decided_by:user?.userId,
+      decided_at:new Date().toISOString()
+    }).eq("id",req.id);
+    window.toast?.success(lang==="tr"?"İstek reddedildi":"Request rejected");
+    load();
+  };
+  
+  if(loading)return null;
+  if(requests.length===0)return null;
+  
+  return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12,border:`2px solid ${t.accent}`}}>
+    <div style={{fontSize:11,color:t.accent,fontWeight:700,marginBottom:10,letterSpacing:"0.05em",display:"flex",alignItems:"center",gap:6}}>
+      <span style={{background:t.accent,color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:10}}>{requests.length}</span>
+      ⏳ {lang==="tr"?"BEKLEYEN İSTEKLER":"PENDING REQUESTS"}
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {requests.map(req=>{
+        const dept=DEPTS[req.requested_department];
+        return <div key={req.id} style={{padding:10,background:t.inBg||"#f9fafb",borderRadius:8}}>
+          <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:2}}>{req.user_name}</div>
+          <div style={{fontSize:11,color:t.tm,marginBottom:8}}>
+            {dept?.icon||"📋"} {dept?.name||req.requested_department||"-"} · {req.requested_role==="chef"?(lang==="tr"?"Departman Şefi":"Dept Chef"):(lang==="tr"?"Çalışan":"Worker")}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>approve(req)} style={{...bSt("p",t),flex:1,fontSize:11,padding:"6px 10px"}}>✓ {lang==="tr"?"Onayla":"Approve"}</button>
+            <button onClick={()=>reject(req)} style={{...bSt("s",t),flex:1,fontSize:11,padding:"6px 10px",color:t.danger}}>✕ {lang==="tr"?"Reddet":"Reject"}</button>
+          </div>
+        </div>;
+      })}
+    </div>
+  </div>;
+};
+
+const ShiftPresetsCard=({team,setTeam,t,lang})=>{
+  const defaults=[
+    {name:lang==="tr"?"Sabah":"Morning",start:"07:00",end:"15:00"},
+    {name:lang==="tr"?"Akşam":"Evening",start:"15:00",end:"23:00"},
+    {name:lang==="tr"?"Gece":"Night",start:"23:00",end:"07:00"}
+  ];
+  const[presets,setPresets]=useState(team?.shift_presets&&Array.isArray(team.shift_presets)?team.shift_presets:defaults);
+  const[showAdd,setShowAdd]=useState(false);
+  const[newP,setNewP]=useState({name:"",start:"09:00",end:"18:00"});
+
+  const savePresets=async(list)=>{
+    const sb=initSupabase();if(!sb)return;
+    const{error}=await sb.from("teams").update({shift_presets:list}).eq("id",team.id);
+    if(error){window.toast.error(error.message);return;}
+    setPresets(list);
+    setTeam({...team,shift_presets:list});
+    LS.set("kmc_team",{...team,shift_presets:list});
+  };
+
+  return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12}}>
+    <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span>⚡ {lang==="tr"?"HIZLI VARDİYA ŞABLONLARI":"QUICK SHIFT TEMPLATES"}</span>
+      <button onClick={()=>setShowAdd(true)} style={{...bSt("s",t),fontSize:10,padding:"4px 10px"}}>+ {lang==="tr"?"Ekle":"Add"}</button>
+    </div>
+    <div style={{fontSize:11,color:t.tm,marginBottom:8,lineHeight:1.4}}>
+      {lang==="tr"?"Vardiya tablosunda bir hücreye tıkladığında bu şablonlar tek tıkla atanabilir.":"These templates appear as one-click options when editing shift cells."}
+    </div>
+    {presets.length===0&&<div style={{fontSize:11,color:t.tm,padding:8,textAlign:"center"}}>{lang==="tr"?"Henüz şablon yok":"No templates"}</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {presets.map((p,i)=><div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:t.bg,border:`1px solid ${t.border}`,borderRadius:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+          <div style={{fontSize:13,fontWeight:600,color:t.text}}>{p.name}</div>
+          <div style={{fontSize:11,color:t.tm}}>{p.start} → {p.end}</div>
+        </div>
+        <button onClick={()=>{if(confirm(lang==="tr"?"Silinsin mi?":"Delete?"))savePresets(presets.filter((_,idx)=>idx!==i));}} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>)}
+    </div>
+    {showAdd&&<div onClick={e=>{if(e.target===e.currentTarget)setShowAdd(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:380,width:"100%"}}>
+        <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:10}}>+ {lang==="tr"?"Yeni Şablon":"New Template"}</div>
+        <div style={{display:"grid",gap:8}}>
+          <input value={newP.name} onChange={e=>setNewP({...newP,name:e.target.value})} placeholder={lang==="tr"?"İsim (Sabah, Pastane vb.)":"Name"} style={{...iSt(t)}}/>
+          <div style={{display:"flex",gap:8}}>
+            <input type="time" value={newP.start} onChange={e=>setNewP({...newP,start:e.target.value})} style={{...iSt(t),flex:1}}/>
+            <input type="time" value={newP.end} onChange={e=>setNewP({...newP,end:e.target.value})} style={{...iSt(t),flex:1}}/>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:12}}>
+          <button onClick={()=>setShowAdd(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
+          <button onClick={async()=>{
+            if(!newP.name.trim()){window.toast.error(lang==="tr"?"İsim gerekli":"Name required");return;}
+            await savePresets([...presets,newP]);
+            setNewP({name:"",start:"09:00",end:"18:00"});
+            setShowAdd(false);
+          }} style={{...bSt("p",t),flex:1}}>{lang==="tr"?"Ekle":"Add"}</button>
+        </div>
+      </div>
+    </div>}
+  </div>;
+};
+
+// ═══ PHANTOM MEMBERS SECTION — Ekip üyeleri (gerçek + phantom) ═══
+const PhantomMembersSection=({team,teamMembers,phantomMembers,setPhantomMembers,user,t,lang})=>{
+  const[showAdd,setShowAdd]=useState(false);
+  const[newPhantom,setNewPhantom]=useState({name:"",position:"",department:"",email:"",phone:""});
+  const[inviteFor,setInviteFor]=useState(null); // phantom obj — davet linki gösterme
+
+  const addPhantom=async()=>{
+    if(!newPhantom.name.trim()){window.toast.error(lang==="tr"?"İsim gerekli":"Name required");return;}
+    const sb=initSupabase();if(!sb)return;
+    const{data,error}=await sb.from("team_phantom_members").insert({
+      team_id:team.id,
+      name:newPhantom.name.trim(),
+      position:newPhantom.position.trim()||null,
+      department:newPhantom.department.trim()||null,
+      email:newPhantom.email.trim()||null,
+      phone:newPhantom.phone.trim()||null,
+      created_by:user.userId
+    }).select().single();
+    if(error){window.toast.error(error.message);return;}
+    setPhantomMembers(prev=>[...prev,data]);
+    LS.set("kmc_phantom_members",[...phantomMembers,data]);
+    setNewPhantom({name:"",position:"",department:"",email:"",phone:""});
+    setShowAdd(false);
+    window.toast.success(lang==="tr"?"✓ Üye eklendi":"✓ Member added");
+  };
+
+  const removePhantom=async(p)=>{
+    if(!confirm(lang==="tr"?`${p.name} silinsin mi? Bu kişinin tüm vardiyaları da silinecek.`:`Delete ${p.name}? All their shifts will be removed.`))return;
+    const sb=initSupabase();if(!sb)return;
+    const{error}=await sb.from("team_phantom_members").delete().eq("id",p.id);
+    if(error){window.toast.error(error.message);return;}
+    setPhantomMembers(prev=>prev.filter(x=>x.id!==p.id));
+    LS.set("kmc_phantom_members",phantomMembers.filter(x=>x.id!==p.id));
+    window.toast.success(lang==="tr"?"Silindi":"Deleted");
+  };
+
+  // Yıllık izin günü güncelle (gerçek veya phantom üye için)
+  const updateLeaveTotal=async(m,newTotal)=>{
+    const sb=initSupabase();if(!sb)return;
+    const val=parseInt(newTotal)||0;
+    if(m.type==="phantom"){
+      const{error}=await sb.from("team_phantom_members").update({annual_leave_total:val}).eq("id",m._id);
+      if(error){window.toast.error(error.message);return;}
+      setPhantomMembers(prev=>prev.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
+      LS.set("kmc_phantom_members",phantomMembers.map(x=>x.id===m._id?{...x,annual_leave_total:val}:x));
+    }else{
+      const{error}=await sb.from("team_members").update({annual_leave_total:val}).eq("team_id",team.id).eq("user_id",m._id);
+      if(error){window.toast.error(error.message);return;}
+    }
+  };
+
+  const generateInviteToken=async(p)=>{
+    if(p.invite_token){
+      setInviteFor(p);
+      return;
+    }
+    const sb=initSupabase();if(!sb)return;
+    // 24 karakter rastgele token
+    const token=Array.from(crypto.getRandomValues(new Uint8Array(18))).map(b=>b.toString(36)).join("").substring(0,20);
+    const{data,error}=await sb.from("team_phantom_members").update({invite_token:token,invite_created_at:new Date().toISOString()}).eq("id",p.id).select().single();
+    if(error){window.toast.error(error.message);return;}
+    setPhantomMembers(prev=>prev.map(x=>x.id===p.id?data:x));
+    LS.set("kmc_phantom_members",phantomMembers.map(x=>x.id===p.id?data:x));
+    setInviteFor(data);
+  };
+
+  const copyInviteLink=async(p)=>{
+    const link=`${window.location.origin}${window.location.pathname}?invite=${p.invite_token}&team=${team.id}`;
+    try{
+      await navigator.clipboard.writeText(link);
+      window.toast.success(lang==="tr"?"✓ Link kopyalandı":"✓ Link copied");
+    }catch{
+      const ta=document.createElement("textarea");ta.value=link;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);
+      window.toast.success(lang==="tr"?"✓ Link kopyalandı":"✓ Link copied");
+    }
+  };
+
+  const shareWhatsApp=(p)=>{
+    const link=`${window.location.origin}${window.location.pathname}?invite=${p.invite_token}&team=${team.id}`;
+    const msg=lang==="tr"
+      ?`Merhaba ${p.name}, ${team.name} ekibine katılmak için bu linke tıkla:\n${link}`
+      :`Hi ${p.name}, click this link to join ${team.name}:\n${link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`,"_blank");
+  };
+
+  // Birleşik liste — gerçek + phantom (linked olmayan)
+  const allMembers=[
+    ...teamMembers.map(m=>({...m,type:"real",displayName:m.name,_id:m.userId||m.user_id})),
+    ...phantomMembers.filter(p=>!p.linked_user_id).map(p=>({...p,type:"phantom",displayName:p.name,_id:p.id}))
+  ];
+
+  return <div style={{...cSt(t),padding:"12px 14px",marginBottom:12,background:t.inBg}}>
+    <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <span>👥 {lang==="tr"?"EKİP ÜYELERİ":"TEAM MEMBERS"} ({allMembers.length})</span>
+      <button onClick={()=>setShowAdd(true)} style={{...bSt("s",t),fontSize:10,padding:"4px 10px"}}>+ {lang==="tr"?"Üye":"Member"}</button>
+    </div>
+    {allMembers.length===0&&<div style={{fontSize:11,color:t.tm,padding:8,textAlign:"center"}}>{lang==="tr"?"Henüz ekip üyesi yok":"No members yet"}</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {allMembers.map((m,i)=>{
+        const isMe=m.type==="real"&&m._id===user?.userId;
+        const isChef=m.type==="real"&&(m.role==="chef"||m.role==="head_chef"||m.role==="executive_chef");
+        const isPhantom=m.type==="phantom";
+        return <div key={m._id||i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 10px",background:t.bg,border:`1px solid ${isPhantom?t.tm:t.border}`,borderRadius:8,opacity:isPhantom?0.85:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:isChef?t.accent:(isPhantom?"transparent":t.tm),color:isPhantom?t.tm:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:12,flexShrink:0,border:isPhantom?`2px dashed ${t.tm}`:"none"}}>
+              {(m.displayName||"?").charAt(0).toUpperCase()}
+            </div>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{fontSize:13,fontWeight:600,color:t.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
+                {m.displayName||"-"}
+                {isMe&&<span style={{fontSize:10,color:t.tm,fontWeight:400}}>({lang==="tr"?"Sen":"You"})</span>}
+                {isPhantom&&<span style={{fontSize:9,color:t.tm,fontWeight:400,background:t.bg2||"transparent",padding:"1px 6px",borderRadius:4,border:`1px solid ${t.tm}`}}>{lang==="tr"?"Kayıtsız":"Pending"}</span>}
+              </div>
+              <div style={{fontSize:10,color:t.tm,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                {isChef?"👑 ":""}
+                {isPhantom?(m.position||m.department||(lang==="tr"?"Pozisyon belirsiz":"No position")):
+                  (m.role==="chef"?(lang==="tr"?"Şef":"Chef"):
+                   m.role==="head_chef"?(lang==="tr"?"Baş Şef":"Head Chef"):
+                   m.role==="executive_chef"?(lang==="tr"?"Executive Şef":"Executive Chef"):
+                   m.role==="sous_chef"?"Sous Chef":
+                   m.role==="member"?(lang==="tr"?"Üye":"Member"):(m.role||""))}
+              </div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:t.tm}}>
+              <span title={lang==="tr"?"Yıllık izin günü":"Annual leave days"}>🌴</span>
+              <input type="number" min="0" max="60" defaultValue={m.annual_leave_total||getDefaultAnnualLeave(team?.country||"TR")} onBlur={e=>updateLeaveTotal(m,e.target.value)} style={{...iSt(t),width:48,fontSize:11,padding:"3px 4px",textAlign:"center"}}/>
+            </div>
+            {isPhantom&&<>
+              <button onClick={()=>generateInviteToken(m)} title={lang==="tr"?"Davet linki":"Invite link"} style={{...bSt("s",t),fontSize:11,padding:"4px 8px"}}>🔗</button>
+              <button onClick={()=>removePhantom(m)} title={lang==="tr"?"Sil":"Delete"} style={{background:"transparent",border:"none",color:t.danger,cursor:"pointer",fontSize:14,padding:"0 4px"}}>✕</button>
+            </>}
+          </div>
+        </div>;
+      })}
+    </div>
+
+    {/* Yeni Phantom Ekle Modal */}
+    {showAdd&&<div onClick={e=>{if(e.target===e.currentTarget)setShowAdd(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:400,width:"100%"}}>
+        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:6}}>+ {lang==="tr"?"Yeni Üye":"New Member"}</div>
+        <div style={{fontSize:11,color:t.tm,marginBottom:12,lineHeight:1.4}}>{lang==="tr"?"Uygulamaya kayıtlı olmayan bir ekip üyesi ekle. Daha sonra davet linki gönderebilirsin.":"Add a member who isn't registered in the app yet. You can send an invite link later."}</div>
+        <div style={{display:"grid",gap:8}}>
+          <input value={newPhantom.name} onChange={e=>setNewPhantom({...newPhantom,name:e.target.value})} placeholder={lang==="tr"?"İsim Soyisim *":"Full name *"} style={{...iSt(t)}}/>
+          <input value={newPhantom.position} onChange={e=>setNewPhantom({...newPhantom,position:e.target.value})} placeholder={lang==="tr"?"Pozisyon (Pastry Chef)":"Position"} style={{...iSt(t)}}/>
+          <input value={newPhantom.department} onChange={e=>setNewPhantom({...newPhantom,department:e.target.value})} placeholder={lang==="tr"?"Departman (Pastane)":"Department"} style={{...iSt(t)}}/>
+          <input value={newPhantom.email} onChange={e=>setNewPhantom({...newPhantom,email:e.target.value})} placeholder="email@example.com" style={{...iSt(t)}}/>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:14}}>
+          <button onClick={()=>setShowAdd(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
+          <button onClick={addPhantom} style={{...bSt("p",t),flex:1}}>{lang==="tr"?"Ekle":"Add"}</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Davet Linki Modal */}
+    {inviteFor&&<div onClick={e=>{if(e.target===e.currentTarget)setInviteFor(null);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:t.cardBg||t.bg,borderRadius:14,padding:20,maxWidth:420,width:"100%"}}>
+        <div style={{fontSize:16,fontWeight:700,color:t.text,marginBottom:4}}>🔗 {lang==="tr"?"Davet Linki":"Invite Link"}</div>
+        <div style={{fontSize:12,color:t.tm,marginBottom:14,lineHeight:1.4}}>
+          <strong>{inviteFor.name}</strong> {lang==="tr"?"için davet linki hazır. Linke tıklayan kişi kayıt olduğunda otomatik olarak bu phantom hesabıyla eşleşir.":"link is ready. When clicked and registered, the user is auto-linked to this phantom."}
+        </div>
+        <div style={{background:t.bg2||t.bg,border:`1px solid ${t.border}`,borderRadius:8,padding:10,marginBottom:12,fontSize:11,wordBreak:"break-all",fontFamily:"monospace",color:t.text}}>
+          {window.location.origin}{window.location.pathname}?invite={inviteFor.invite_token}&team={team.id}
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={()=>copyInviteLink(inviteFor)} style={{...bSt("p",t),flex:"1 1 100px"}}>📋 {lang==="tr"?"Kopyala":"Copy"}</button>
+          <button onClick={()=>shareWhatsApp(inviteFor)} style={{...bSt("s",t),flex:"1 1 100px"}}>💬 WhatsApp</button>
+          <button onClick={()=>setInviteFor(null)} style={{...bSt("s",t),flex:"1 1 100px"}}>{lang==="tr"?"Kapat":"Close"}</button>
+        </div>
+      </div>
+    </div>}
+  </div>;
+};
+
 // ═══ KANBAN TAB ═══
+const ChildTeamsSection=({teamId,t,lang})=>{
+  const[children,setChildren]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[stats,setStats]=useState({});
+
+  const loadChildren=async()=>{
+    setLoading(true);
+    try{
+      const sb=initSupabase();if(!sb){setLoading(false);return;}
+      const{data}=await sb.from("teams").select("id,name,invite_code").eq("parent_team_id",teamId);
+      const list=data||[];
+      setChildren(list);
+      // Her alt ekip için stat çek
+      const newStats={};
+      await Promise.all(list.map(async(child)=>{
+        const[stockRes,prodRes,membersRes]=await Promise.all([
+          sb.from("team_stock").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_productions").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_members").select("id").eq("team_id",child.id),
+        ]);
+        const stock=Array.isArray(stockRes?.data?.data)?stockRes.data.data:[];
+        const prod=Array.isArray(prodRes?.data?.data)?prodRes.data.data:[];
+        const today=new Date().toDateString();
+        const todayProd=prod.filter(p=>{const d=p.producedAt||p.created_at;return d&&new Date(d).toDateString()===today;});
+        newStats[child.id]={
+          stockCount:stock.length,
+          totalProd:prod.length,
+          todayProd:todayProd.length,
+          memberCount:(membersRes?.data||[]).length,
+        };
+      }));
+      setStats(newStats);
+    }catch(e){console.warn("Alt ekipler yüklenemedi:",e);}
+    setLoading(false);
+  };
+
+  useEffect(()=>{loadChildren();},[teamId]);
+
+  if(loading)return <div style={{...cSt(t),padding:14,marginBottom:12}}>
+    <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:6,letterSpacing:"0.05em"}}>🏢 {lang==="tr"?"ALT EKİPLER":"CHILD TEAMS"}</div>
+    <div style={{fontSize:12,color:t.tm}}>⏳</div>
+  </div>;
+
+  if(!children.length)return <div style={{...cSt(t),padding:14,marginBottom:12,background:t.inBg}}>
+    <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:6,letterSpacing:"0.05em"}}>🏢 {lang==="tr"?"ALT EKİPLER":"CHILD TEAMS"}</div>
+    <div style={{fontSize:12,color:t.tm,lineHeight:1.5}}>{lang==="tr"?"Henüz alt ekip yok. Davet kodunuzu paylaşarak Manager/Pro kullanıcılarının size bağlanmasını sağlayın.":"No child teams yet. Share your invite code so Manager/Pro users can link to you."}</div>
+  </div>;
+
+  return <div style={{...cSt(t),padding:14,marginBottom:12}}>
+    <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:10,letterSpacing:"0.05em",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span>🏢 {lang==="tr"?"ALT EKİPLER":"CHILD TEAMS"} ({children.length})</span>
+      <button onClick={loadChildren} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:13}}>↻</button>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {children.map(child=>{
+        const s=stats[child.id]||{};
+        return <div key={child.id} style={{background:t.inBg,border:`1px solid ${t.border}`,borderRadius:10,padding:"10px 12px"}}>
+          <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:6}}>🍳 {child.name}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,color:t.tm}}>
+            <div>👥 {s.memberCount||0} {lang==="tr"?"üye":"members"}</div>
+            <div>📦 {s.stockCount||0} {lang==="tr"?"stok":"stock"}</div>
+            <div>🍳 {s.totalProd||0} {lang==="tr"?"üretim":"productions"}</div>
+            <div style={{color:s.todayProd>0?t.success:t.tm}}>📅 {s.todayProd||0} {lang==="tr"?"bugün":"today"}</div>
+          </div>
+        </div>;
+      })}
+    </div>
+  </div>;
+};
+
+
+const HubTab=({team,user,t})=>{
+  const lang=t.lang;
+  const[children,setChildren]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[expandedId,setExpandedId]=useState(null);
+  const[period,setPeriod]=useState("today"); // today, week, month
+  const[allData,setAllData]=useState({}); // {teamId: {stock, productions, members}}
+
+  const periodFilter=(items,dateField="producedAt")=>{
+    const now=new Date();
+    return items.filter(item=>{
+      const d=item[dateField]||item.created_at;
+      if(!d)return false;
+      const dt=new Date(d);
+      if(period==="today")return dt.toDateString()===now.toDateString();
+      if(period==="week"){const w=new Date();w.setDate(w.getDate()-7);return dt>=w;}
+      if(period==="month"){const m=new Date();m.setMonth(m.getMonth()-1);return dt>=m;}
+      return true;
+    });
+  };
+
+  const loadAll=async()=>{
+    setLoading(true);
+    try{
+      const sb=initSupabase();if(!sb){setLoading(false);return;}
+      const{data:list}=await sb.from("teams").select("id,name,invite_code").eq("parent_team_id",team.id);
+      const teams=list||[];
+      setChildren(teams);
+      const data={};
+      await Promise.all(teams.map(async(child)=>{
+        const[stockRes,prodRes,membersRes]=await Promise.all([
+          sb.from("team_stock").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_productions").select("data").eq("team_id",child.id).maybeSingle(),
+          sb.from("team_members").select("user_id,name,role").eq("team_id",child.id),
+        ]);
+        data[child.id]={
+          stock:Array.isArray(stockRes?.data?.data)?stockRes.data.data:[],
+          productions:Array.isArray(prodRes?.data?.data)?prodRes.data.data:[],
+          members:membersRes?.data||[],
+        };
+      }));
+      setAllData(data);
+    }catch(e){console.warn("Hub load:",e);}
+    setLoading(false);
+  };
+
+  useEffect(()=>{loadAll();},[team?.id]);
+
+  // Toplam istatistikler
+  const totals=useMemo(()=>{
+    let totalStock=0,totalProd=0,totalFire=0,totalConsumed=0,totalActive=0,totalMembers=0;
+    let totalCost=0,totalFireCost=0;
+    Object.values(allData).forEach(d=>{
+      totalStock+=d.stock.length;
+      totalMembers+=d.members.length;
+      const filtered=periodFilter(d.productions);
+      filtered.forEach(p=>{
+        totalProd++;
+        if(p.status==="fire"||p.fired)totalFire++;
+        else if(p.status==="consumed"||p.consumed===p.portions)totalConsumed++;
+        else if(p.status==="active")totalActive++;
+        if(p.cost)totalCost+=p.cost;
+        if((p.status==="fire"||p.fired)&&p.cost)totalFireCost+=p.cost;
+      });
+    });
+    return{totalStock,totalProd,totalFire,totalConsumed,totalActive,totalMembers,totalCost,totalFireCost};
+  },[allData,period]);
+
+  // Düşük stok uyarıları
+  const lowStockAlerts=useMemo(()=>{
+    const alerts=[];
+    Object.entries(allData).forEach(([teamId,d])=>{
+      const child=children.find(c=>c.id===teamId);
+      d.stock.forEach(s=>{
+        if(s.qty<=(s.low||100)){
+          alerts.push({teamName:child?.name||"?",item:s.name,qty:s.qty,unit:s.unit||"g"});
+        }
+      });
+    });
+    return alerts.slice(0,10);
+  },[allData,children]);
+
+  // Yakın SKT
+  const expiringSoon=useMemo(()=>{
+    const items=[];
+    const now=new Date();
+    const week=new Date();week.setDate(week.getDate()+7);
+    Object.entries(allData).forEach(([teamId,d])=>{
+      const child=children.find(c=>c.id===teamId);
+      d.stock.forEach(s=>{
+        if(!s.skt)return;
+        const exp=new Date(s.skt);
+        if(exp<=week){
+          items.push({teamName:child?.name||"?",item:s.name,skt:s.skt,daysLeft:Math.ceil((exp-now)/(24*3600*1000))});
+        }
+      });
+    });
+    return items.sort((a,b)=>a.daysLeft-b.daysLeft).slice(0,10);
+  },[allData,children]);
+
+  if(loading)return <div style={{textAlign:"center",padding:"60px 20px",color:t.tm}}>⏳ {lang==="tr"?"Yükleniyor...":"Loading..."}</div>;
+
+  if(!team)return <div style={{...cSt(t),padding:24,textAlign:"center",color:t.tm}}>
+    <div style={{fontSize:32,marginBottom:8}}>🏢</div>
+    <div>{lang==="tr"?"Önce ekip oluşturun.":"Create a team first."}</div>
+  </div>;
+
+  if(!children.length)return <div style={{...cSt(t),padding:24,textAlign:"center"}}>
+    <div style={{fontSize:32,marginBottom:8}}>🏢</div>
+    <div style={{fontSize:14,color:t.text,fontWeight:700,marginBottom:6}}>{lang==="tr"?"Henüz alt ekip yok":"No child teams yet"}</div>
+    <div style={{fontSize:12,color:t.tm,lineHeight:1.5}}>{lang==="tr"?"Ekibinizin davet kodunu Manager kullanıcılarla paylaşın. Onlar kendi ekiplerini sizin ekibinize bağladığında burada görünecekler.":"Share your team invite code with Manager users. They will appear here when they link their teams to yours."}</div>
+    <div style={{marginTop:12,padding:"10px 14px",background:t.acB,borderRadius:10,display:"inline-block"}}>
+      <div style={{fontSize:11,color:t.accent,fontWeight:700}}>{lang==="tr"?"DAVET KODU":"INVITE CODE"}</div>
+      <div style={{fontSize:24,fontWeight:900,color:t.accent,letterSpacing:"0.2em"}}>{team.inviteCode||team.invite_code}</div>
+    </div>
+  </div>;
+
+  return <div>
+    {/* Başlık */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <h2 style={{fontSize:20,color:t.text,fontFamily:"'Fraunces',serif",margin:0}}>📊 {lang==="tr"?"Departman Raporu":"Department Report"}</h2>
+      <button onClick={loadAll} style={{...bSt("s",t),fontSize:11,padding:"5px 10px"}}>↻</button>
+    </div>
+
+    {/* Periyot Filtre */}
+    <div style={{display:"flex",gap:4,marginBottom:14,background:t.inBg,padding:3,borderRadius:10}}>
+      {[["today",lang==="tr"?"Bugün":"Today"],["week",lang==="tr"?"Hafta":"Week"],["month",lang==="tr"?"Ay":"Month"]].map(([p,l])=>
+        <button key={p} onClick={()=>setPeriod(p)} style={{flex:1,padding:"7px",borderRadius:8,fontSize:12,fontWeight:600,border:"none",cursor:"pointer",background:period===p?t.card:"transparent",color:period===p?t.text:t.tm}}>{l}</button>
+      )}
+    </div>
+
+    {/* Genel Özet Kartları */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+      <div style={{...cSt(t),padding:"12px 14px"}}>
+        <div style={{fontSize:10,color:t.tm,fontWeight:700,letterSpacing:"0.05em"}}>{lang==="tr"?"DEPARTMAN":"DEPARTMENTS"}</div>
+        <div style={{fontSize:24,fontWeight:800,color:t.accent}}>{children.length}</div>
+        <div style={{fontSize:10,color:t.tm}}>👥 {totals.totalMembers} {lang==="tr"?"toplam üye":"total members"}</div>
+      </div>
+      <div style={{...cSt(t),padding:"12px 14px"}}>
+        <div style={{fontSize:10,color:t.tm,fontWeight:700,letterSpacing:"0.05em"}}>{lang==="tr"?"ÜRETİM":"PRODUCTIONS"}</div>
+        <div style={{fontSize:24,fontWeight:800,color:t.success}}>{totals.totalProd}</div>
+        <div style={{fontSize:10,color:t.tm}}>✓ {totals.totalConsumed} · ⚡ {totals.totalActive}</div>
+      </div>
+      <div style={{...cSt(t),padding:"12px 14px"}}>
+        <div style={{fontSize:10,color:t.tm,fontWeight:700,letterSpacing:"0.05em"}}>{lang==="tr"?"STOK":"STOCK"}</div>
+        <div style={{fontSize:24,fontWeight:800,color:t.text}}>{totals.totalStock}</div>
+        <div style={{fontSize:10,color:t.danger}}>⚠️ {lowStockAlerts.length} {lang==="tr"?"düşük":"low"}</div>
+      </div>
+      <div style={{...cSt(t),padding:"12px 14px"}}>
+        <div style={{fontSize:10,color:t.tm,fontWeight:700,letterSpacing:"0.05em"}}>{lang==="tr"?"FİRE":"WASTE"}</div>
+        <div style={{fontSize:24,fontWeight:800,color:t.danger}}>{totals.totalFire}</div>
+        <div style={{fontSize:10,color:t.tm}}>{totals.totalProd>0?Math.round(totals.totalFire/totals.totalProd*100):0}% {lang==="tr"?"fire oranı":"waste rate"}</div>
+      </div>
+    </div>
+
+    {/* Departmanlar */}
+    <div style={{fontSize:11,color:t.tm,fontWeight:700,letterSpacing:"0.05em",marginBottom:8}}>🏢 {lang==="tr"?"DEPARTMANLAR":"DEPARTMENTS"}</div>
+    <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+      {children.map(child=>{
+        const d=allData[child.id]||{stock:[],productions:[],members:[]};
+        const filteredProd=periodFilter(d.productions);
+        const fireCount=filteredProd.filter(p=>p.status==="fire"||p.fired).length;
+        const lowStock=d.stock.filter(s=>s.qty<=(s.low||100)).length;
+        const isExp=expandedId===child.id;
+        return <div key={child.id} style={{...cSt(t)}}>
+          <button onClick={()=>setExpandedId(isExp?null:child.id)} style={{width:"100%",padding:"12px 14px",background:"none",border:"none",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:4}}>🍳 {child.name}</div>
+              <div style={{display:"flex",gap:10,fontSize:11,color:t.tm,flexWrap:"wrap"}}>
+                <span>👥 {d.members.length}</span>
+                <span>📦 {d.stock.length}</span>
+                <span style={{color:t.success}}>🍳 {filteredProd.length}</span>
+                {fireCount>0&&<span style={{color:t.danger}}>🗑 {fireCount}</span>}
+                {lowStock>0&&<span style={{color:t.danger}}>⚠️ {lowStock}</span>}
+              </div>
+            </div>
+            <span style={{color:t.tm,fontSize:14}}>{isExp?"▾":"▸"}</span>
+          </button>
+          {isExp&&<div style={{padding:"0 14px 14px",borderTop:`1px solid ${t.border}`}}>
+            {/* Üyeler */}
+            {d.members.length>0&&<div style={{marginTop:12}}>
+              <div style={{fontSize:10,color:t.tm,fontWeight:700,letterSpacing:"0.05em",marginBottom:6}}>👥 {lang==="tr"?"ÜYELER":"MEMBERS"}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                {d.members.map(m=><span key={m.user_id} style={{fontSize:11,background:t.inBg,padding:"3px 8px",borderRadius:6,color:t.text}}>{m.role==="chef"?"👑 ":""}{m.name}</span>)}
+              </div>
+            </div>}
+            {/* Son Üretimler */}
+            {filteredProd.length>0&&<div style={{marginTop:12}}>
+              <div style={{fontSize:10,color:t.tm,fontWeight:700,letterSpacing:"0.05em",marginBottom:6}}>🍱 {lang==="tr"?"ÜRETİMLER":"PRODUCTIONS"} ({filteredProd.length})</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:200,overflowY:"auto"}}>
+                {filteredProd.slice(0,8).map((p,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,padding:"4px 6px",background:t.inBg,borderRadius:6}}>
+                  <span style={{color:t.text,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.recipeName||"?"}</span>
+                  <span style={{color:t.tm,fontSize:10,marginLeft:8}}>{p.portions||0}p</span>
+                  <span style={{color:p.status==="fire"||p.fired?t.danger:p.status==="consumed"?t.success:t.tm,fontSize:10,marginLeft:8}}>
+                    {p.status==="fire"||p.fired?"🗑":p.status==="consumed"?"✓":"⚡"}
+                  </span>
+                </div>)}
+              </div>
+            </div>}
+            {/* Düşük Stok */}
+            {lowStock>0&&<div style={{marginTop:12}}>
+              <div style={{fontSize:10,color:t.danger,fontWeight:700,letterSpacing:"0.05em",marginBottom:6}}>⚠️ {lang==="tr"?"DÜŞÜK STOK":"LOW STOCK"}</div>
+              <div style={{fontSize:11,color:t.tm}}>{d.stock.filter(s=>s.qty<=(s.low||100)).slice(0,5).map(s=>s.name).join(" · ")}</div>
+            </div>}
+          </div>}
+        </div>;
+      })}
+    </div>
+
+    {/* Cross-departman uyarılar */}
+    {(lowStockAlerts.length>0||expiringSoon.length>0)&&<div style={{marginTop:14}}>
+      <div style={{fontSize:11,color:t.tm,fontWeight:700,letterSpacing:"0.05em",marginBottom:8}}>🚨 {lang==="tr"?"GENEL UYARILAR":"GLOBAL ALERTS"}</div>
+      {lowStockAlerts.length>0&&<div style={{...cSt(t),padding:"10px 14px",marginBottom:8,borderLeft:`3px solid ${t.danger}`}}>
+        <div style={{fontSize:12,fontWeight:700,color:t.danger,marginBottom:4}}>⚠️ {lang==="tr"?"Düşük Stok":"Low Stock"} ({lowStockAlerts.length})</div>
+        {lowStockAlerts.slice(0,5).map((a,i)=><div key={i} style={{fontSize:11,color:t.text,padding:"2px 0"}}>
+          <span style={{color:t.tm}}>{a.teamName}</span> · {a.item} ({a.qty}{a.unit})
+        </div>)}
+      </div>}
+      {expiringSoon.length>0&&<div style={{...cSt(t),padding:"10px 14px",borderLeft:`3px solid #f59e0b`}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:4}}>📅 {lang==="tr"?"Yakında SKT":"Expiring Soon"} ({expiringSoon.length})</div>
+        {expiringSoon.slice(0,5).map((a,i)=><div key={i} style={{fontSize:11,color:t.text,padding:"2px 0"}}>
+          <span style={{color:t.tm}}>{a.teamName}</span> · {a.item} ({a.daysLeft<0?(lang==="tr"?"süresi geçti":"expired"):a.daysLeft+(lang==="tr"?" gün":" days")})
+        </div>)}
+      </div>}
+    </div>}
+  </div>;
+};
+
+
 const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=>{
   const[cards,setCards]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -6496,6 +8832,10 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
   const[dragCard,setDragCard]=useState(null);
   const[editCard,setEditCard]=useState(null);
   const[detailCard,setDetailCard]=useState(null);
+  const[showProgress,setShowProgress]=useState(false);
+  const[progressCard,setProgressCard]=useState(null);
+  const[progressNote,setProgressNote]=useState("");
+  const[progressUploading,setProgressUploading]=useState(false);
   const[newCard,setNewCard]=useState({text:"",col:"todo",assignedTo:"",priority:"medium",dueDate:"",visibility:"team",colorLabel:"normal",cardType:"task",recurrence:"",meetingAt:"",meetingAttendees:[]});
   const[newComment,setNewComment]=useState("");
   const lang=t.lang;
@@ -6684,7 +9024,8 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
     const overdue=card.due_date&&card.col!=="done"&&new Date(card.due_date)<new Date();
     const checkDone=(card.checklist||[]).filter(i=>i.done).length;
     const checkTotal=(card.checklist||[]).length;
-    const canEdit=canManage||card.created_by===myUid||card.assigned_to===myUid;
+    const canEdit=canManage||card.created_by===myUid;
+    const isAssigned=card.assigned_to===myUid;
     return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div style={{...cSt(t),width:"100%",maxWidth:520,borderRadius:"20px 20px 0 0",padding:"20px 18px",maxHeight:"90vh",overflowY:"auto"}}>
         {/* Başlık */}
@@ -6936,147 +9277,6 @@ const KanbanTab=({team,teamMembers,user,t,profile,isManager=false,isPro=false})=
   </div>;
 };
 
-const getTurkishHolidays=(year)=>{const h={};[`${year}-01-01`,`${year}-04-23`,`${year}-05-01`,`${year}-05-19`,`${year}-07-15`,`${year}-08-30`,`${year}-10-29`].forEach(d=>h[d]="Resmi Tatil");return h;};
-const ShiftTab=({team,teamMembers,user,t})=>{
-  const[shifts,setShifts]=useState([]);const[loading,setLoading]=useState(true);const[showNew,setShowNew]=useState(false);
-  const[form,setForm]=useState({name:"Sabah",start:"07:00",end:"15:00",tasks:[],date:new Date().toISOString().slice(0,10)});
-  const[holidays,setHolidays]=useState({});const[showHoliday,setShowHoliday]=useState(false);const[newHoliday,setNewHoliday]=useState({date:"",name:""});
-  const lang=t.lang;
-  const shiftColors={"Sabah":"#f59e0b","Morning":"#f59e0b","Öğle":"#10b981","Afternoon":"#10b981","Akşam":"#6366f1","Evening":"#6366f1","Gece":"#1e293b","Night":"#1e293b"};
-  const shiftNames={tr:["Sabah","Öğle","Akşam","Gece"],en:["Morning","Afternoon","Evening","Night"]}[lang]||["Morning","Afternoon","Evening","Night"];
-  useEffect(()=>{
-    if(!team?.id)return;const sb=initSupabase();if(!sb)return;
-    sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:false}).limit(60).then(({data})=>{if(data)setShifts(data);setLoading(false);});
-    const saved=JSON.parse(localStorage.getItem(`kmc_holidays_${team.id}`)||"{}");
-    setHolidays({...getTurkishHolidays(new Date().getFullYear()),...saved});
-  },[team?.id]);
-  const saveHolidays=(h)=>{setHolidays(h);if(team?.id)localStorage.setItem(`kmc_holidays_${team.id}`,JSON.stringify(h));};
-  const saveShift=async()=>{
-    if(!team?.id||!user?.userId)return;const sb=initSupabase();if(!sb)return;
-    const{data,error}=await sb.from("shifts").insert({team_id:team.id,name:form.name,start_time:form.start,end_time:form.end,date:form.date,tasks:form.tasks,created_by:user.userId}).select().single();
-    if(!error&&data){setShifts(p=>[data,...p]);setShowNew(false);}
-  };
-  const deleteShift=async(id)=>{const sb=initSupabase();if(!sb)return;await sb.from("shifts").delete().eq("id",id);setShifts(p=>p.filter(s=>s.id!==id));};
-  const exportExcel=()=>{
-    if(!shifts.length){window.toast.error("Vardiya yok");return;}
-    const byDate={};shifts.forEach(s=>{if(!byDate[s.date])byDate[s.date]=[];byDate[s.date].push(s);});
-    const dates=Object.keys(byDate).sort();
-    const dn={tr:["Paz","Pzt","Sal","Çar","Per","Cum","Cmt"],en:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]}[lang]||["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-    let csv="Pozisyon\tİsim\t"+dates.map(d=>{const dt=new Date(d+"T12:00:00");return `${dt.getDate()}/${dt.getMonth()+1} ${dn[dt.getDay()]}${holidays[d]?" (TATİL)":""}`;}).join("\t")+"\n";
-    (teamMembers||[]).forEach(m=>{csv+=`${m.role||""}\t${m.name||""}\t${dates.map(d=>{const s=(byDate[d]||[]).find(s=>s.created_by===(m.userId||m.user_id));return s?`${s.start_time}-${s.end_time}`:(holidays[d]?"OFF":"");}).join("\t")}\n`;});
-    const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`vardiya.csv`;a.click();
-  };
-  const byDate={};shifts.forEach(s=>{if(!byDate[s.date])byDate[s.date]=[];byDate[s.date].push(s);});
-  const dates=Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
-  if(!team)return <div style={{textAlign:"center",padding:"60px 20px",color:t.tm}}><div style={{fontSize:40}}>🕐</div><div style={{fontSize:13,marginTop:8,color:t.tm}}>{lang==="tr"?"Ekibe katılın":"Join a team"}</div></div>;
-  return <div style={{maxWidth:520,margin:"0 auto"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-      <h2 style={{fontSize:22,color:t.text,fontFamily:"'Fraunces',serif",margin:0}}>🕐 {lang==="tr"?"Vardiya":"Shifts"}</h2>
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>setShowHoliday(s=>!s)} style={{...bSt("s",t),fontSize:11}}>🗓</button>
-        <button onClick={exportExcel} style={{...bSt("s",t),fontSize:11}}>📊 {lang==="tr"?"Dışa":"Export"}</button>
-        <label style={{...bSt("s",t),fontSize:11,cursor:"pointer"}}>
-          📥 {lang==="tr"?"İçe":"Import"}
-          <input type="file" accept=".csv,.xlsx" style={{display:"none"}} onChange={async e=>{
-            const file=e.target.files?.[0];if(!file)return;
-            const text=await file.text();
-            const lines=text.split("\n").filter(l=>l.trim());
-            if(lines.length<2){window.toast.error(lang==="tr"?"Geçersiz dosya":"Invalid file");return;}
-            // Header: Pozisyon | İsim | Tarih1 | Tarih2...
-            const headers=lines[0].split("\t");
-            const dateHeaders=headers.slice(2); // İlk 2 kolon: Pozisyon, İsim
-            let imported=0;
-            const sb=initSupabase();if(!sb)return;
-            for(let i=1;i<lines.length;i++){
-              const cols=lines[i].split("\t");
-              if(cols.length<3)continue;
-              const role=cols[0]?.trim();
-              const name=cols[1]?.trim();
-              for(let j=0;j<dateHeaders.length;j++){
-                const dateStr=dateHeaders[j+2]?.trim()||dateHeaders[j]?.trim();
-                const shiftStr=cols[j+2]?.trim();
-                if(!shiftStr||shiftStr==="OFF"||shiftStr==="TATİL"||!shiftStr.includes("-"))continue;
-                // "07:00-15:00" formatı
-                const [start,end]=shiftStr.split("-");
-                if(!start||!end)continue;
-                // Tarih parse — "30/4 Pzt" formatı
-                const dateMatch=dateStr.match(/(\d+)\/(\d+)/);
-                if(!dateMatch)continue;
-                const day=dateMatch[1].padStart(2,"0");
-                const month=dateMatch[2].padStart(2,"0");
-                const year=new Date().getFullYear();
-                const date=`${year}-${month}-${day}`;
-                // Üye bul
-                const member=teamMembers.find(m=>m.name===name||(m.name||"").includes(name));
-                await sb.from("shifts").upsert({
-                  team_id:team.id,name:role||"Vardiya",
-                  start_time:start.trim(),end_time:end.trim(),
-                  date,tasks:[],created_by:member?.userId||member?.user_id||user?.userId
-                },{onConflict:"team_id,date,created_by"});
-                imported++;
-              }
-            }
-            // Yenile
-            sb.from("shifts").select("*").eq("team_id",team.id).order("date",{ascending:false}).limit(60).then(({data})=>{if(data)setShifts(data);});
-            flash(lang==="tr"?`✓ ${imported} vardiya içe aktarıldı`:`✓ ${imported} shifts imported`);
-            e.target.value="";
-          }}/>
-        </label>
-        <button onClick={()=>setShowNew(s=>!s)} style={{...bSt("p",t),fontSize:12}}>+</button>
-      </div>
-    </div>
-    {showHoliday&&<div style={{...cSt(t),padding:14,marginBottom:14}}>
-      <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:8}}>🎌 {lang==="tr"?"Resmi Tatil":"Holiday"}</div>
-      <div style={{display:"flex",gap:8,marginBottom:8}}>
-        <input type="date" style={{...iSt(t),flex:1}} value={newHoliday.date} onChange={e=>setNewHoliday(h=>({...h,date:e.target.value}))}/>
-        <input style={{...iSt(t),flex:2}} placeholder={lang==="tr"?"Tatil adı...":"Holiday name..."} value={newHoliday.name} onChange={e=>setNewHoliday(h=>({...h,name:e.target.value}))}/>
-        <button onClick={()=>{if(!newHoliday.date)return;saveHolidays({...holidays,[newHoliday.date]:newHoliday.name||"Tatil"});setNewHoliday({date:"",name:""});}} style={{...bSt("p",t),padding:"8px 12px"}}>+</button>
-      </div>
-      {Object.entries(holidays).sort().map(([d,n])=><div key={d} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderTop:`1px solid ${t.border}`,fontSize:11}}>
-        <span style={{color:t.danger,fontWeight:600,minWidth:90}}>{d}</span><span style={{flex:1,marginLeft:8,color:t.text}}>{n}</span>
-        <button onClick={()=>{const h={...holidays};delete h[d];saveHolidays(h);}} style={{background:"none",border:"none",color:t.danger,cursor:"pointer"}}>✕</button>
-      </div>)}
-    </div>}
-    {showNew&&<div style={{...cSt(t),padding:16,marginBottom:16}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-        <select style={iSt(t)} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}>{shiftNames.map(n=><option key={n} value={n}>{n}</option>)}</select>
-        <input type="date" style={iSt(t)} value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))}/>
-        <input type="time" style={iSt(t)} value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/>
-        <input type="time" style={iSt(t)} value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/>
-      </div>
-      {(form.tasks||[]).map((task,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
-        <input style={{...iSt(t),flex:1,fontSize:13}} value={task} onChange={e=>{const t2=[...form.tasks];t2[i]=e.target.value;setForm(f=>({...f,tasks:t2}));}}/>
-        <button onClick={()=>setForm(f=>({...f,tasks:f.tasks.filter((_,j)=>j!==i)}))} style={{background:"none",border:`1px solid ${t.danger}`,borderRadius:8,color:t.danger,cursor:"pointer",padding:"4px 8px"}}>✕</button>
-      </div>)}
-      <button onClick={()=>setForm(f=>({...f,tasks:[...f.tasks,""]}))} style={{...bSt("s",t),fontSize:12,width:"100%",marginBottom:8}}>+ {lang==="tr"?"Görev":"Task"}</button>
-      <div style={{display:"flex",gap:8}}>
-        <button onClick={()=>setShowNew(false)} style={{...bSt("s",t),flex:1}}>{lang==="tr"?"İptal":"Cancel"}</button>
-        <button onClick={saveShift} style={{...bSt("p",t),flex:2}}>{lang==="tr"?"Kaydet":"Save"}</button>
-      </div>
-    </div>}
-    {loading&&<div style={{textAlign:"center",padding:20,color:t.tm}}>⏳</div>}
-    {!loading&&!shifts.length&&<div style={{textAlign:"center",padding:"40px 20px",color:t.tm}}><div style={{fontSize:32}}>🕐</div><div style={{fontSize:13,marginTop:8}}>{lang==="tr"?"Vardiya yok":"No shifts"}</div></div>}
-    {dates.map(date=>{
-      const isHol=holidays[date];const dt=new Date(date+"T12:00:00");
-      return <div key={date} style={{marginBottom:16}}>
-        <div style={{fontSize:12,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:isHol?"#fef2f2":"transparent",borderRadius:8}}>
-          <span style={{color:isHol?t.danger:t.tm}}>{dt.toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{weekday:"long",day:"numeric",month:"long"})}</span>
-          {isHol&&<span style={{fontSize:11,color:"#fff",background:t.danger,padding:"2px 8px",borderRadius:8}}>🎌 {isHol}</span>}
-        </div>
-        {byDate[date].map(shift=>{const color=isHol?"#dc2626":shiftColors[shift.name]||t.accent;return <div key={shift.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,borderLeft:`3px solid ${color}`}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:14,fontWeight:700,color}}>{shift.name}</span><span style={{fontSize:12,color:t.tm}}>{shift.start_time} - {shift.end_time}</span></div>
-            <button onClick={()=>deleteShift(shift.id)} style={{background:"none",border:"none",color:t.tm,cursor:"pointer",fontSize:16}}>✕</button>
-          </div>
-          {(shift.tasks||[]).map((task,i)=><div key={i} style={{fontSize:12,color:t.ts,padding:"2px 0"}}>• {task}</div>)}
-        </div>;})}
-      </div>;
-    })}
-  </div>;
-};
-
-
-// ═══ BOT RULES TAB ═══
 const BotRulesTab=({team,teamMembers,user,stock,setBotMessages,t})=>{
   const[rules,setRules]=useState([]);const[loading,setLoading]=useState(true);const[showNew,setShowNew]=useState(false);
   const EMPTY={trigger_type:"time",message:"",trigger_time:"09:00",days:["MO","TU","WE","TH","FR","SA","SU"],stock_item:"",stock_threshold:100,skt_days:3,shift_minutes:30,action_type:"team_chat",assign_to:"",active:true};
@@ -7091,6 +9291,7 @@ const BotRulesTab=({team,teamMembers,user,stock,setBotMessages,t})=>{
   const saveRule=async()=>{
     if(!form.message.trim()||!team?.id)return;
     const sb=initSupabase();if(!sb){window.toast.error("Supabase yok");return;}
+    // Empty UUID/string'leri NULL yap (Postgres UUID kolonu boş string kabul etmez)
     const payload={
       team_id:team.id,
       trigger_type:form.trigger_type,
@@ -7107,7 +9308,10 @@ const BotRulesTab=({team,teamMembers,user,stock,setBotMessages,t})=>{
       created_by:user?.userId||null
     };
     const{data,error}=await sb.from("bot_rules").insert(payload).select().single();
-    if(error){window.toast.error((lang==="tr"?"Kayıt başarısız: ":"Save failed: ")+error.message);return;}
+    if(error){
+      window.toast.error((lang==="tr"?"Kayıt başarısız: ":"Save failed: ")+error.message);
+      return;
+    }
     if(data){setRules(p=>[...p,data]);setShowNew(false);setForm(EMPTY);}
   };
   const toggleRule=async(rule)=>{const sb=initSupabase();if(!sb)return;await sb.from("bot_rules").update({active:!rule.active}).eq("id",rule.id);setRules(p=>p.map(r=>r.id===rule.id?{...r,active:!r.active}:r));};
@@ -7166,7 +9370,6 @@ const BotRulesTab=({team,teamMembers,user,stock,setBotMessages,t})=>{
     </div>;})}
   </div>;
 };
-
 
 
 // ═══ SVG İKON SİSTEMİ ═══
@@ -7450,7 +9653,7 @@ const DockTabBar=({tabs,tab,setTab,t,ICONS,lowCount})=>{
 
 
 
-function App(){
+export default function App(){
   const[apiKey,setApiKey]=useState("worker-proxy");
   const[dark,setDark]=useState(LS.get(SK.dark,false));
   const[lang,setLang]=useState(LS.get(SK.lang,"tr"));
@@ -7482,53 +9685,189 @@ function App(){
   const[conversations,setConversations]=useState(LS.get(SK.conversations,[]));
   const[activeConvId,setActiveConvId]=useState(LS.get(SK.activeConvId,null));
   const[botMessages,setBotMessages]=useState(LS.get(SK.botMessages,[]));
-  const[notifSettings,setNotifSettings]=useState(LS.get(SK.notifSettings,{
-    enabled:true,
-    storageCheck:true,    // 09/15/21 depo kontrolü
-    expiredSKT:true,      // SKT geçen ürün
-    lowStock:true,        // düşük stok
-    lotReminder:true      // parti no gece hatırlatma
-  }));
+  const[notifSettings,setNotifSettings]=useState(LS.get(SK.notifSettings,{enabled:true,storageCheck:true,expiredSKT:true,lowStock:true,lotReminder:true}));
   const[calorieDB,setCalorieDB]=useState(LS.get(SK.calorieDB,{}));
   const[printers,setPrinters]=useState(LS.get(SK.printers,[]));
-  const[todos,setTodos]=useState(LS.get("km_todos",[]));
-  const[team,setTeam]=useState(LS.get("km_team",null));
-  const[teamMembers,setTeamMembers]=useState(LS.get("km_team_members",[]));
+  const[todos,setTodos]=useState(LS.get("kmc_todos",[]));
+  const[team,setTeam]=useState(LS.get("kmc_team",null));
+  const[teamMembers,setTeamMembers]=useState(LS.get("kmc_team_members",[]));
+  // Phantom üyeler — uygulamaya kayıtlı olmayan ekip üyeleri
+  const[phantomMembers,setPhantomMembers]=useState(LS.get("kmc_phantom_members",[]));
+  // Global box-sizing reset - input/grid taşma sorununu engeller
+  useEffect(()=>{
+    const id="tulpar-global-reset";
+    if(document.getElementById(id))return;
+    const style=document.createElement("style");
+    style.id=id;
+    style.textContent=`*,*::before,*::after{box-sizing:border-box}input,select,textarea,button{font-family:inherit;max-width:100%}`;
+    document.head.appendChild(style);
+  },[]);
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
-    sb.from("team_members").select("*").eq("team_id",team.id).then(({data})=>{
-      if(data&&data.length>0)setTeamMembers(data.map(m=>({userId:m.user_id,name:m.position||m.user_id,role:m.role})));
+    sb.from("team_phantom_members").select("*").eq("team_id",team.id).order("created_at",{ascending:true}).then(({data,error})=>{
+      if(!error&&data){
+        setPhantomMembers(data);
+        LS.set("kmc_phantom_members",data);
+      }
     });
   },[team?.id]);
-  // Açılışta team varsa üyeleri Supabase'den çek
+
+
+  // Parent team bilgisini yükle
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
-    sb.from("team_members").select("*").eq("team_id",team.id).then(({data})=>{
+    sb.from("teams").select("parent_team_id").eq("id",team.id).single().then(async({data})=>{
+      if(!data?.parent_team_id){
+        if(team.parent_team_id)setTeam(t=>({...t,parent_team_id:null,parent_team_name:null}));
+        return;
+      }
+      const{data:parent}=await sb.from("teams").select("name").eq("id",data.parent_team_id).single();
+      setTeam(t=>({...t,parent_team_id:data.parent_team_id,parent_team_name:parent?.name||null}));
+    });
+  },[team?.id]);
+
+  useEffect(()=>{
+    if(!team?.id)return;
+    const sb=initSupabase();if(!sb)return;
+    // Team_members'ı yükle
+    sb.from("team_members").select("*").eq("team_id",team.id).then(({data,error})=>{
+      if(error){console.warn("team_members fetch error:",error.message);return;}
       if(data&&data.length>0)setTeamMembers(data.map(m=>({userId:m.user_id,name:m.position||m.user_id,role:m.role})));
+    });
+    // Team'in kendisini de doğrula — Supabase'den varsa fresh data alalım
+    sb.from("teams").select("*").eq("id",team.id).single().then(({data,error})=>{
+      if(error){console.warn("team fetch error:",error.message);return;}
+      if(data){
+        // Eğer team değişmişse update et
+        const updated={...data,role:team.role,inviteCode:data.invite_code};
+        if(JSON.stringify(updated)!==JSON.stringify(team)){
+          setTeam(updated);
+        }
+      }
     });
   },[team?.id]);
   useEffect(()=>{
-    if(team)LS.set("km_team",team);
-    else localStorage.removeItem("km_team");
+    if(team)LS.set("kmc_team",team);
+    else localStorage.removeItem("kmc_team");
   },[team]);
   useEffect(()=>{
-    if(teamMembers?.length>0)LS.set("km_team_members",teamMembers);
+    if(teamMembers?.length>0)LS.set("kmc_team_members",teamMembers);
   },[teamMembers]);
-  useEffect(()=>{LS.set("km_todos",todos)},[todos]);
+  useEffect(()=>{LS.set("kmc_todos",todos)},[todos]);
   // Etiket takip numarası: YYYYMMDD-XXXX formatı, günlük sıfırlanır
   const getLabelSeq=()=>{
     const today=new Date().toISOString().slice(0,10).replace(/-/g,"");
-    const stored=LS.get("km_labelseq",{date:"",seq:0});
+    const stored=LS.get("kmc_labelseq",{date:"",seq:0});
     let seq=stored.date===today?stored.seq+1:1;
-    LS.set("km_labelseq",{date:today,seq});
+    LS.set("kmc_labelseq",{date:today,seq});
     return `${today}-${String(seq).padStart(4,"0")}`;
   };
   // AUTH
   const[user,setUser]=useState(null);
-  const[wallpaper,setWallpaper]=useState(localStorage.getItem("km_wallpaper")||"default");
-  const[customWP,setCustomWP]=useState(localStorage.getItem("km_customwp")||"");
+
+  // ═══ OTOMATİK BOT KONTROLÜ — App açılınca çalışır ═══
+  const stockRef=useRef(stock);
+  useEffect(()=>{stockRef.current=stock;},[stock]);
+  const userRef=useRef(user);
+  useEffect(()=>{userRef.current=user;},[user]);
+  // ═══ Login sonrası DB'den team yükle ═══
+  useEffect(()=>{
+    if(!user?.userId)return;
+    (async()=>{
+      try{
+        const sb=initSupabase();if(!sb)return;
+        // Önce owner olduğu team'i ara
+        let{data:ownTeams}=await sb.from("teams").select("*").eq("owner_id",user.userId).eq("app_type","manager");
+        let myTeam=null,myRole=null;
+        if(ownTeams&&ownTeams.length>0){
+          myTeam=ownTeams[0];
+          myRole="manager";
+        }else{
+          // Member olduğu team'i ara
+          const{data:memberships}=await sb.from("team_members").select("team_id,role,position,department").eq("user_id",user.userId);
+          if(memberships&&memberships.length>0){
+            const tid=memberships[0].team_id;
+            const{data:tData}=await sb.from("teams").select("*").eq("id",tid).single();
+            if(tData){
+              myTeam=tData;
+              myRole=memberships[0].role;
+            }
+          }
+        }
+        if(myTeam){
+          const teamObj={...myTeam,role:myRole==="manager"||myRole==="pro"?"chef":myRole,inviteCode:myTeam.invite_code};
+          setTeam(teamObj);
+          LS.set("kmc_team",teamObj);
+          // Üyeleri yükle
+          const{data:members}=await sb.from("team_members").select("user_id,role,position,department").eq("team_id",myTeam.id);
+          if(members){
+            const memberList=members.map(m=>({userId:m.user_id,name:m.position||"",role:m.role,department:m.department}));
+            setTeamMembers(memberList);
+            LS.set("kmc_team_members",memberList);
+          }
+        }
+      }catch(e){console.warn("team load:",e.message);}
+    })();
+  },[user?.userId]);
+  useEffect(()=>{
+    if(!team?.id)return;
+    const sb=initSupabase();if(!sb)return;
+    const checkBots=async()=>{
+      const{data:rules}=await sb.from("bot_rules").select("*").eq("team_id",team.id).eq("active",true);
+      if(!rules?.length)return;
+      const now=new Date();
+      const today=now.toISOString().slice(0,10);
+      const currentMinutes=now.getHours()*60+now.getMinutes();
+      const DAY_MAP={0:"SU",1:"MO",2:"TU",3:"WE",4:"TH",5:"FR",6:"SA"};
+      const todayKey=DAY_MAP[now.getDay()];
+      const lastRunKey=`kmc_bot_lastrun_${team.id}`;
+      const lastRun=JSON.parse(localStorage.getItem(lastRunKey)||"{}");
+      const currentStock=stockRef.current||[];
+      const currentUser=userRef.current;
+
+      for(const rule of rules){
+        const ruleKey=`${rule.id}_${today}`;
+        if(lastRun[ruleKey])continue;
+        let shouldFire=false;
+        if(rule.trigger_type==="time"){
+          const ruleTime=rule.trigger_time||"09:00";
+          const ruleDays=rule.days||["MO","TU","WE","TH","FR","SA","SU"];
+          const [rh,rm]=ruleTime.split(":").map(Number);
+          const ruleMinutes=rh*60+rm;
+          if(ruleDays.includes(todayKey)&&currentMinutes>=ruleMinutes&&currentMinutes<ruleMinutes+30){
+            shouldFire=true;
+          }
+        } else if(rule.trigger_type==="stock"){
+          const item=currentStock.find(s=>s.name?.toLowerCase().includes((rule.stock_item||"").toLowerCase()));
+          if(item&&item.qty<=(rule.stock_threshold||100))shouldFire=true;
+        } else if(rule.trigger_type==="skt"){
+          const days=rule.skt_days||3;
+          const threshold=new Date(Date.now()+days*86400000).toISOString().slice(0,10);
+          const expiring=currentStock.filter(s=>s.skt&&s.skt<=threshold&&s.skt>=today);
+          if(expiring.length>0)shouldFire=true;
+        }
+        if(shouldFire){
+          const msg=rule.message;
+          if(rule.action_type==="team_chat"){
+            await sb.from("team_messages").insert({team_id:team.id,user_id:currentUser?.userId||"bot",user_name:"⚙️ Otomasyon",user_role:"bot",type:"text",text:`⚙️ ${msg}`});
+          } else if(rule.action_type==="dm"&&rule.assign_to){
+            await sb.from("team_messages").insert({team_id:team.id,user_id:currentUser?.userId||"bot",user_name:"⚙️ Otomasyon",user_role:"bot",type:"text",text:`⚙️ ${msg}`,private_to:rule.assign_to});
+          }
+          setBotMessages(p=>[...p,{id:Date.now(),text:msg,ts:new Date().toISOString(),type:"bot",icon:"⚙️"}]);
+          lastRun[ruleKey]=now.toISOString();
+          localStorage.setItem(lastRunKey,JSON.stringify(lastRun));
+        }
+      }
+    };
+    checkBots();
+    const interval=setInterval(checkBots,2*60*1000);
+    return()=>clearInterval(interval);
+  },[team?.id]);
+
+  const[wallpaper,setWallpaper]=useState(localStorage.getItem("kmc_wallpaper")||"default");
+  const[customWP,setCustomWP]=useState(localStorage.getItem("kmc_customwp")||"");
   // Kullanıcı adı güncelleme — session'dan gerçek isim al
   useEffect(()=>{
     if(!user?.userId)return;
@@ -7538,7 +9877,7 @@ function App(){
       const realName=session.user.user_metadata?.name||session.user.user_metadata?.full_name||session.user.email?.split("@")[0];
       if(realName&&realName!==user.name){
         setUser(u=>u?{...u,name:realName}:u);
-        LS.set("km_user",{...user,name:realName});
+        LS.set("kmc_user",{...user,name:realName});
       }
     });
   },[user?.userId]);
@@ -7555,8 +9894,8 @@ function App(){
       setShowAuth(true);
     }
   },[]);
-  const[authRequired,setAuthRequired]=useState(LS.get("km_authrequired",true));
-  useEffect(()=>{LS.set("km_authrequired",authRequired)},[authRequired]);
+  const[authRequired,setAuthRequired]=useState(LS.get("kmc_authrequired",true));
+  useEffect(()=>{LS.set("kmc_authrequired",authRequired)},[authRequired]);
 
   // Supabase oturum kontrolü - sayfa açıldığında mevcut oturumu yükle
   useEffect(()=>{
@@ -7576,10 +9915,10 @@ function App(){
             const _mTiers=(_memberCheck||[]).map(m=>m.role);
             const _aTiers=[..._mTiers];
             if(_metaT&&!_aTiers.includes(_metaT))_aTiers.push(_metaT);
-            if(_aTiers.length>0&&!_aTiers.includes("worker")){
+            if(_aTiers.length>0&&!_aTiers.includes("manager")){
               await sb.auth.signOut();
-              LS.set("kmw_user",null);
-              LS.set("kmw_team",null);
+              LS.set("kmc_user",null);
+              LS.set("kmc_team",null);
               setUser(null);
               setAuthChecked(true);
               const _other=_aTiers.includes("pro")?"Pro":_aTiers.includes("manager")?"Manager":(_aTiers.includes("worker")?"Çalışan":"");
@@ -7595,12 +9934,12 @@ function App(){
             accessToken:data.session.access_token
           };
           setUser(u);
-          LS.set("km_user",u);
+          LS.set("kmc_user",u);
         }
         setAuthChecked(true);
       }).catch(()=>{clearTimeout(_authTimeout);setAuthChecked(true);});
       const{data:listener}=sb.auth.onAuthStateChange((event,session)=>{
-        if(event==="SIGNED_OUT"){setUser(null);LS.set("km_user",null);}
+        if(event==="SIGNED_OUT"){setUser(null);LS.set("kmc_user",null);}
         else if(event==="PASSWORD_RECOVERY"){
           // Şifre sıfırlama linki tıklandı — yeni şifre ekranını göster, giriş yapma
           localStorage.setItem("km_password_recovery","true");
@@ -7617,18 +9956,23 @@ function App(){
             userId:session.user.id,
             accessToken:session.access_token
           };
-          setUser(u);LS.set("km_user",u);
+          setUser(u);LS.set("kmc_user",u);
           // Ekibi Supabase'den yükle
           (async()=>{try{
-            const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",session.user.id).eq("role","worker").order("joined_at",{ascending:false}).limit(1);
+            const{data:members_raw}=await sb.from("team_members").select("team_id,role,position").eq("user_id",session.user.id).eq("role","chef").order("joined_at",{ascending:false}).limit(1);
             const membership=members_raw?.[0]||null;
             if(membership?.team_id){
               const{data:teamData}=await sb.from("teams").select("*").eq("id",membership.team_id).single();
               if(teamData){
                 const loadedTeam={...teamData,role:membership.role,inviteCode:teamData.invite_code};
-                setTeam(loadedTeam);LS.set("km_team",loadedTeam);
+                setTeam(loadedTeam);LS.set("kmc_team",loadedTeam);
                 const{data:members}=await sb.from("team_members").select("*").eq("team_id",teamData.id);
-                if(members)setTeamMembers(members.map(m=>({userId:m.user_id,name:m.position||m.user_id,role:m.role})));
+                if(members){
+                  const uids=members.map(m=>m.user_id);
+                  const{data:profs}=await sb.from("profiles").select("id,full_name,email").in("id",uids);
+                  const getName=(uid)=>{const p=(profs||[]).find(p=>p.id===uid);return p?.full_name||p?.email?.split("@")[0]||uid;};
+                  setTeamMembers(members.map(m=>({userId:m.user_id,name:getName(m.user_id),role:m.role,position:m.position})));
+                }
               }
             }
           }catch(e){console.warn("Ekip yüklenemedi:",e.message);}})();
@@ -7783,14 +10127,11 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   useEffect(()=>{LS.set(SK.printers,printers)},[printers]);
 
   // ═══ REALTIME SYNC ═══
-  // Debounce ref'leri
   const _sbStockTimer=useRef(null);
   const _sbProdTimer=useRef(null);
   const _sbRecipeTimer=useRef(null);
   const _sbTodosTimer=useRef(null);
-  const _syncInProgress=useRef(false);
 
-  // stock → team_stock (2sn debounce)
   useEffect(()=>{
     if(!team?.id||!user?.userId)return;
     if(_sbStockTimer.current)clearTimeout(_sbStockTimer.current);
@@ -7800,7 +10141,6 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
     return()=>{if(_sbStockTimer.current)clearTimeout(_sbStockTimer.current);};
   },[stock,team?.id,user?.userId]);
 
-  // productions → team_productions (2sn debounce)
   useEffect(()=>{
     if(!team?.id||!user?.userId)return;
     if(_sbProdTimer.current)clearTimeout(_sbProdTimer.current);
@@ -7810,7 +10150,6 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
     return()=>{if(_sbProdTimer.current)clearTimeout(_sbProdTimer.current);};
   },[productions,team?.id,user?.userId]);
 
-  // recipes → team_recipes (3sn debounce — daha az kritik)
   useEffect(()=>{
     if(!team?.id||!user?.userId)return;
     if(_sbRecipeTimer.current)clearTimeout(_sbRecipeTimer.current);
@@ -7820,7 +10159,6 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
     return()=>{if(_sbRecipeTimer.current)clearTimeout(_sbRecipeTimer.current);};
   },[recipes,team?.id,user?.userId]);
 
-  // todos → team_todos (2sn debounce)
   useEffect(()=>{
     if(!team?.id||!user?.userId)return;
     if(_sbTodosTimer.current)clearTimeout(_sbTodosTimer.current);
@@ -7830,14 +10168,13 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
     return()=>{if(_sbTodosTimer.current)clearTimeout(_sbTodosTimer.current);};
   },[todos,team?.id,user?.userId]);
 
-  // Realtime dinleyici — başka cihazdan değişiklik gelince state güncelle
   useEffect(()=>{
     if(!team?.id)return;
     const sb=initSupabase();if(!sb)return;
-    const channel=sb.channel(`km-sync-${team.id}`)
+    const channel=sb.channel(`kmc-sync-${team.id}`)
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"team_stock",filter:`team_id=eq.${team.id}`},
         (payload)=>{
-          if(payload.new?.updated_by===user?.userId)return; // kendi yazımı yok say
+          if(payload.new?.updated_by===user?.userId)return;
           if(payload.new?.data)setStock(payload.new.data);
         })
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"team_productions",filter:`team_id=eq.${team.id}`},
@@ -7932,12 +10269,12 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   useEffect(()=>{
     const checkReset=()=>{
       const now=new Date();
-      const lastReset=LS.get("km_lastreset",null);
+      const lastReset=LS.get("kmc_lastreset",null);
       const today=`${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
       if(now.getHours()>=resetHour&&lastReset!==today){
         // Tüm parti no'ları sıfırla
         setLots({});
-        LS.set("km_lastreset",today);
+        LS.set("kmc_lastreset",today);
       }
     };
     checkReset();
@@ -8027,9 +10364,15 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
   const baseTabs=[{id:"recipes",l:t.L.tabRecipes,i:"🍽",icon:"recipes"},{id:"stock",l:t.L.tabStock,i:"📦",icon:"stock"},{id:"production",l:t.L.tabProduction,i:"🍱",icon:"production"}];
   const traceTabs=traceability?[{id:"reports",l:t.L.tabReports,i:"📊",icon:"reports"}]:[];
   const endTabs=[
+    {id:"events",l:lang==="tr"?"Etkinlikler":"Events",i:"🎉",icon:"events"},
     {id:"menus",l:t.L.tabMenus,i:"📋",icon:"menus"},
     {id:"kanban",l:"Kanban",i:"📋",icon:"kanban"},
     {id:"chat",l:lang==="tr"?"Sohbet":"Chats",i:"💬",icon:"chat"},
+    ...(team?[
+
+      {id:"shift",l:lang==="tr"?"Vardiya":"Shifts",i:"🕐",icon:"shift"},
+      {id:"botrules",l:lang==="tr"?"Otomasyon":"Automation",i:"⚙️",icon:"automation"},
+    ]:[])
   ];
   const tabs=[...baseTabs,...traceTabs,...endTabs];
   const swipeNav=useSwipeNav(tabs,tab,setTab);
@@ -8054,7 +10397,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <Logo size={32} c={t.accent}/>
           <div><div style={{fontSize:18,fontFamily:"'Fraunces',serif",color:t.text,fontWeight:700,lineHeight:1}}>Kitchen</div>
-          <div style={{fontSize:9,color:t.accent,letterSpacing:"0.15em",fontWeight:600}}>CHEF</div></div>
+          <div style={{fontSize:9,color:t.accent,letterSpacing:"0.15em",fontWeight:600}}>MANAGER</div></div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {tab==="recipes"&&<button onClick={()=>setSAdd(true)} style={{...bSt("p",t),padding:"7px 14px",fontSize:13}}>{t.L.stockAddBtn}</button>}
@@ -8137,10 +10480,14 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
       {tab==="stock"&&<StockTab stock={stock} setStock={setStock} invoices={invoices} setInvoices={setInvoices} apiKey={apiKey} traceability={traceability} lots={lots} setLots={setLots} trackedIngs={trackedIngs} profile={profile} calorieDB={calorieDB} setCalorieDB={setCalorieDB} t={t}/>}
       {tab==="production"&&<ProductionTab productions={productions} setProductions={setProductions} storageAreas={storageAreas} reportCats={reportCats} setReportCats={setReportCats} profile={profile} traceability={traceability} setTab={setTab} storageChecks={storageChecks} setStorageChecks={setStorageChecks} recipes={recipes} getLabelSeq={getLabelSeq} t={t}/>}
       {tab==="reports"&&<ProductionTab productions={productions} setProductions={setProductions} storageAreas={storageAreas} reportCats={reportCats} setReportCats={setReportCats} profile={profile} traceability={traceability} setTab={setTab} storageChecks={storageChecks} setStorageChecks={setStorageChecks} recipes={recipes} getLabelSeq={getLabelSeq} initialShowReports={true} t={t}/>}
-      {tab==="menus"&&<MenuTab menus={menus} setMenus={setMenus} recipes={recipes} menuTemplates={menuTemplates} setMenuTemplates={setMenuTemplates} t={t}/>}
+      {tab==="events"&&<EventsTab team={team} user={user} t={t} lang={lang} bSt={bSt} cSt={cSt} iSt={iSt} lSt={lSt}/>}
+            {tab==="menus"&&<MenuTab menus={menus} setMenus={setMenus} recipes={recipes} menuTemplates={menuTemplates} setMenuTemplates={setMenuTemplates} t={t} team={team}/>}
       {tab==="todo"&&<TodoTab todos={todos} setTodos={setTodos} t={t}/>}
-      {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile}/>}
-      {tab==="chat"&&<WAChatTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t} tier="chef"/>}
+
+      {tab==="kanban"&&<KanbanTab team={team} teamMembers={teamMembers} user={user} t={t} profile={profile} isManager={true}/>}
+      {tab==="shift"&&<ShiftTab team={team} teamMembers={teamMembers} phantomMembers={phantomMembers} setPhantomMembers={setPhantomMembers} user={user} t={t}/>}
+      {tab==="botrules"&&<BotRulesTab team={team} teamMembers={teamMembers} user={user} stock={stock} setBotMessages={setBotMessages} t={t}/>}
+      {tab==="chat"&&<WAChatTab team={team} teamMembers={teamMembers} user={user} apiKey={apiKey} t={t} tier="manager"/>}
       {tab==="settings"&&<SettingsTab apiKey={apiKey} setApiKey={setApiKey} dark={dark} setDark={setDark} lang={lang} setLang={setLang} recipes={recipes} stock={stock} invoices={invoices} setRecipes={setRecipes} setStock={setStock} setInvoices={setInvoices} expenses={expenses} setExpenses={setExpenses} storageAreas={storageAreas} setStorageAreas={setStorageAreas} profile={profile} setProfile={setProfile} traceability={traceability} setTraceability={setTraceability} trackedIngs={trackedIngs} setTrackedIngs={setTrackedIngs} resetHour={resetHour} setResetHour={setResetHour} organizations={organizations} setOrganizations={setOrganizations} notifSettings={notifSettings} setNotifSettings={setNotifSettings} printers={printers} setPrinters={setPrinters} setBotMessages={setBotMessages} calorieDB={calorieDB} setCalorieDB={setCalorieDB} user={user} setUser={setUser} authRequired={authRequired} setAuthRequired={setAuthRequired} setShowAuth={setShowAuth} handleLogout={handleLogout} team={team} setTeam={setTeam} teamMembers={teamMembers} setTeamMembers={setTeamMembers} wallpaper={wallpaper} setWallpaper={setWallpaper} customWP={customWP} setCustomWP={setCustomWP} t={t}/>}
     </div>
 
@@ -8271,7 +10618,7 @@ Ingredients:\n${ingList}`,"Return JSON only.","haiku");
           sb.auth.getSession().then(({data:{session}})=>{
             const uid=session?.user?.id;
             const uname=session?.user?.user_metadata?.name||session?.user?.email?.split("@")[0]||"?";
-            const profile2=JSON.parse(localStorage.getItem("km_profile")||"{}");
+            const profile2=JSON.parse(localStorage.getItem("kmc_profile")||"{}");
             sb.from("team_messages").insert({
               team_id:team.id,user_id:uid,user_name:uname,
               user_role:profile2.role||"",
@@ -8313,7 +10660,7 @@ class ErrorBoundary extends React.Component{
           React.createElement("pre",{style:{fontSize:11,background:"#fff",padding:10,marginTop:8,borderRadius:6,overflow:"auto",maxHeight:200}},String(this.state.error?.message||this.state.error||"Bilinmeyen hata")+"\n\n"+(this.state.info?.componentStack||""))
         ),
         React.createElement("button",{
-          onClick:()=>{LS.set("km_user",null);location.reload()},
+          onClick:()=>{LS.set("kmc_user",null);location.reload()},
           style:{marginTop:14,padding:"10px 16px",background:"#c00",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600}
         },"Yenile (oturumu temizle)")
       );
@@ -8321,9 +10668,4 @@ class ErrorBoundary extends React.Component{
     return this.props.children;
   }
 }
-
-
-
-export default App;
-
 
