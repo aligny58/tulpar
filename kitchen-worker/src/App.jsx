@@ -4861,7 +4861,8 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             }else if(e.code==="PENDING"){
               flash(lang==="tr"?"⏳ İsteğiniz onay bekliyor.":"⏳ Your request is pending approval.");
             }else{
-              window.toast.info(e.message);
+              console.error("[joinTeam]",e);
+              window.toast.error(friendlyError(e,lang));
             }
           }
         }} style={{...bSt("p",t),width:"100%",marginTop:4,padding:14,fontSize:15,fontWeight:700}}>
@@ -4918,7 +4919,7 @@ const SettingsTab=({apiKey,setApiKey,dark,setDark,lang,setLang,recipes,stock,inv
             if(syncTodos&&syncTodos.length>0)setTodos(syncTodos);
             LS.set("km_last_sync",new Date().toISOString());
             flash(lang==="tr"?"✓ Senkronize edildi":"✓ Synced");
-          }catch(e){window.toast.info(e.message);}
+          }catch(e){console.error("[sync]",e);window.toast.error(friendlyError(e,lang));}
         }} style={{...bSt("s",t),width:"100%",marginBottom:10}}>
           🔄 {lang==="tr"?"Şimdi Senkronize Et":"Sync Now"}
         </button>
@@ -6404,6 +6405,51 @@ const WAChatTab=({team,teamMembers,user,apiKey,t,tier})=>{
 
 // ═══ KM: EKİP KATILMA SİSTEMİ ═══
 const generateInviteCode=()=>Math.random().toString(36).substring(2,8).toUpperCase();
+// ═══ Supabase hatalarını insan diline çevir ═══
+const friendlyError=(e,lang="tr")=>{
+  const tr=lang==="tr";
+  if(!e)return tr?"Bilinmeyen hata":"Unknown error";
+  const msg=(e.message||e.toString()||"").toLowerCase();
+  const code=e.code||"";
+  // Unique constraint - duplicate
+  if(code==="23505"||msg.includes("duplicate key")||msg.includes("already exists")){
+    if(msg.includes("invite_code"))return tr?"Davet kodu çakıştı, tekrar deneyin":"Invite code conflict, try again";
+    if(msg.includes("team_members"))return tr?"Bu kullanıcı zaten ekibe üye":"User already in team";
+    if(msg.includes("teams"))return tr?"Bu isimde bir ekip zaten var":"A team with this name already exists";
+    return tr?"Zaten kayıtlı":"Already exists";
+  }
+  // Foreign key
+  if(code==="23503"||msg.includes("foreign key")){
+    return tr?"Geçersiz referans (ekip veya kullanıcı bulunamadı)":"Invalid reference (team or user not found)";
+  }
+  // Not null
+  if(code==="23502"||msg.includes("null value")||msg.includes("not-null")){
+    return tr?"Zorunlu alan boş bırakılamaz":"Required field cannot be empty";
+  }
+  // Check constraint - role gibi
+  if(code==="23514"||msg.includes("check constraint")){
+    if(msg.includes("role"))return tr?"Geçersiz rol — sadece worker/chef/pro/manager":"Invalid role";
+    return tr?"Geçersiz veri formatı":"Invalid data format";
+  }
+  // RLS
+  if(msg.includes("row-level security")||msg.includes("permission denied")||msg.includes("rls")){
+    return tr?"Bu işlem için yetkiniz yok":"You don't have permission for this action";
+  }
+  // Auth
+  if(msg.includes("jwt")||msg.includes("not authenticated")||msg.includes("invalid token")){
+    return tr?"Oturum süresi doldu, lütfen yeniden giriş yapın":"Session expired, please login again";
+  }
+  // Network
+  if(msg.includes("network")||msg.includes("fetch failed")||msg.includes("failed to fetch")){
+    return tr?"İnternet bağlantısı sorunu":"Network connection issue";
+  }
+  // Bilinen Türkçe mesajlar zaten geliyorsa direkt göster (createTeam'in kendi throw'ları gibi)
+  if(e.message&&!msg.includes("postgrest")&&!msg.includes("relation")&&e.message.length<150){
+    return e.message;
+  }
+  return tr?"Bir hata oluştu — tekrar deneyin":"An error occurred — please try again";
+};
+
 const createTeam=async(teamName,userId,userName,parentTeamId=null)=>{
   const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
   const code=generateInviteCode();
