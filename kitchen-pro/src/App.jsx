@@ -6731,11 +6731,12 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
   const[manualForm,setManualForm]=useState({name:"",event_date:"",start_time:"",pax:"",location:"",notes:"",items:"",photos:[]});
   const[manualBusy,setManualBusy]=useState(false);
   const[manualPreview,setManualPreview]=useState(null);
-  // Yeni detay view state'leri
-  const[detailTab,setDetailTab]=useState("timeline"); // timeline | depts | beo
-  const[expandedSessions,setExpandedSessions]=useState({}); // {sessionIdx: true/false}
+  const[detailTab,setDetailTab]=useState("timeline");
+  const[expandedSessions,setExpandedSessions]=useState({});
+  // Fotoğraf state'leri
+  const[uploadingPhoto,setUploadingPhoto]=useState(null); // {sessionIdx, progress}
+  const[lightboxPhoto,setLightboxPhoto]=useState(null); // {url, sessionIdx, photoIdx}
 
-  // Departman tanımları
   const DEPARTMENTS=[
     {id:"kitchen",icon:"🍳",tr:"Sıcak Mutfak",en:"Hot Kitchen",color:"#dc2626"},
     {id:"cold",icon:"🥗",tr:"Soğuk Mutfak",en:"Cold Kitchen",color:"#0891b2"},
@@ -6748,7 +6749,6 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
     {id:"general",icon:"📋",tr:"Genel",en:"General",color:"#6b7280"}
   ];
 
-  // Yükle
   useEffect(()=>{
     if(!team?.id){setLoading(false);return;}
     const sb=initSupabase();if(!sb){setLoading(false);return;}
@@ -6759,9 +6759,7 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
       });
   },[team?.id]);
 
-  // PDF metnini çıkar (PDF.js)
   const extractPDFText=async(file)=>{
-    // PDF.js yükle
     if(!window.pdfjsLib){
       await new Promise((res,rej)=>{
         const s=document.createElement("script");
@@ -6784,7 +6782,6 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
     return{text:pages.join("\n\n--- SAYFA ---\n\n"),isImageBased:totalLen<200,pageCount:pdf.numPages};
   };
 
-  // PDF'i base64'e çevir (vision için)
   const pdfToBase64=(file)=>new Promise((res,rej)=>{
     const r=new FileReader();
     r.onload=()=>res(r.result.split(",")[1]);
@@ -6792,148 +6789,17 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
     r.readAsDataURL(file);
   });
 
-  // AI ile parse et
   const parseWithAI=async(file)=>{
     setParsing(true);setError("");
     try{
       setParseProgress(lang==="tr"?"PDF okunuyor...":"Reading PDF...");
       const{text,isImageBased,pageCount}=await extractPDFText(file);
 
-      const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data with multi-day support and sub-events (e.g. AM Coffee Break, Lunch, PM Coffee Break).
-
-Output VALID JSON ONLY (no markdown, no explanation), matching this schema:
-{
-  "name": "Event/booking name (e.g. Live Consulting Meeting, Wedding Tasting)",
-  "contractNo": "Contract/booking number if shown (e.g. 714268)",
-  "accountName": "Account/company name (e.g. Asemble Organizasyon)",
-  "confManager": "Conf/Cat Manager name if shown",
-  "contactName": "Primary contact person name (e.g. Emel Duman)",
-  "contactPhone": "Contact phone number if shown",
-  "startDate": "YYYY-MM-DD — earliest date in BEO",
-  "endDate": "YYYY-MM-DD — latest date in BEO (same as startDate if single-day)",
-  "currency": "EUR/USD/TRY/GBP",
-  "totalAmount": number or null,
-  "pricePerPerson": number or null,
-  "vatRate": number (default 20),
-  "guestAllergies": [
-    {
-      "count": number,
-      "type": "Allergy/diet type (gluten free, lactose free, vegetarian, vegan, nut allergy, halal, kosher)",
-      "note": "Optional extra context if BEO mentions specific guests/sessions"
-    }
-  ],
-  "subEvents": [
-    {
-      "date": "YYYY-MM-DD",
-      "timeStart": "HH:MM",
-      "timeEnd": "HH:MM",
-      "name": "Sub-event name (Meeting, AM Coffee Break, Lunch, PM Coffee Break, Tea & Coffee, Dessert Service)",
-      "type": "Type code: coffee_break | lunch | dinner | dessert | cocktail | meeting | tea_service | setup | other",
-      "room": "Room/venue (Kaftan, Tugra Lobby, Tugra Restaurant)",
-      "setUp": "Set-up type (Lounge, Theater, Coffee Break, Existing Setup)",
-      "pax": number,
-      "items": [
-        {
-          "name": "Menu item exact name (e.g. 'Mekik çeşitleri', 'Grilled lamb loin')",
-          "departments": ["pastry"],
-          "allergens": ["gluten","dairy","egg","nut","shellfish","fish","soy","sesame","sulphite","celery","mustard","peanut","lupin","mollusc"]
-        }
-      ],
-      "notesTr": "Turkish notes/instructions from ATT TO X sections (if any)",
-      "notesEn": "English notes/instructions from ATT TO X sections (if any)"
-    }
-  ],
-  "summary": "STRICT REQUIREMENT — write this in ${lang==="tr"?"TURKISH (Türkçe)":"ENGLISH"}, 2-3 sentences max"
-}
-
-Department codes (each item can have MULTIPLE departments):
-- "kitchen" = Hot kitchen: main courses, hot starters, hot canapes, hot soups
-- "cold" = Cold kitchen: cold starters, salads, cold canapes
-- "pastry" = Pastane (Türkiye usulü): tatlılar (panna cotta, tiramisu, profiterole, tarts), hamur işleri (mekik, muffin, brioche, poğaça, simit, focaccia), ekmek ve viennoiserie. EKMEK DAHİL HER ŞEY.
-- "butcher" = Meat prep: lamb cuts, beef tenderloin, marinades
-- "service" = Banquet service: table arrangements, plating, lounge setup
-- "bar" = Beverages: cocktails, wine, soft drinks (note: Tea & Coffee is service, not bar)
-- "setup" = Furniture/equipment: podium, AV, signage, skirt, chairs
-- "accounting" = Pricing, billing notes, VAT
-- "general" = Other notes
-
-Rules:
-- ALWAYS extract every sub-event separately (Meeting, AM Break, Lunch, PM Break, Tea Service, Dessert Service).
-- Each menu item is one entry with departments array (can be multi: "Tahini buns" = ["pastry"]).
-- Each menu item MUST have an "allergens" array — list ALL allergens likely present based on the dish name and common ingredients. Use exactly these codes: gluten, dairy, egg, nut, shellfish, fish, soy, sesame, sulphite, celery, mustard, peanut, lupin, mollusc.
-- Notes (ATT TO ...) belong to the sub-event they're under. Split TR and EN if both languages present.
-- Setup instructions (podium, chair, skirt) → "setup" department + put in notes.
-- If a sub-event has no menu items (e.g. pure meeting), items can be empty array AND set "type": "meeting".
-- For meat dishes, also add "butcher" if prep cuts are needed.
-- Convert dates: "27. February 2026" → "2026-02-27".
-- Extract exact pax from "Exp/Gtd: 12 / 12" or "for 40 pax".
-
-GUEST ALLERGY EXTRACTION:
-- Scan the ENTIRE BEO for any mention of guest allergies, diets, intolerances or dietary restrictions.
-- Look for phrases: "X guests vegetarian", "1 misafir gluten free", "2 vegan", "lactose intolerant", "halal option", "no nuts", "celiac", "1 kişi laktoz intoleransı", "vejetaryen", "vegan menü" etc.
-- Each unique allergy/diet → one entry in guestAllergies array with count and type.
-- If no allergies mentioned anywhere, return empty array [].
-
-ALLERGEN ASSIGNMENT FOR EACH ITEM:
-- gluten: wheat flour, bread, pasta, cake, cookies, biscuits, pastry, breaded items, beer
-- dairy: milk, cheese, cream, butter, yogurt, panna cotta, tiramisu, cream sauces
-- egg: eggs, mayonnaise, meringue, brioche, custard, fresh pasta
-- nut: walnut, almond, hazelnut, pistachio, pecan (NOT peanut — that's separate)
-- peanut: peanuts specifically
-- shellfish: shrimp/karides, prawn, crab, lobster
-- fish: salmon, tuna, anchovies, sardine
-- soy: soy sauce, tofu, edamame
-- sesame: tahini, sesame seeds, simit (has sesame)
-- sulphite: wine, vinegar (in significant amounts)
-- Examples:
-  * "Vanilla panna cotta" → ["dairy","egg"]
-  * "Tahinli çörek" → ["gluten","sesame"]
-  * "Mini brioche, yumurta" → ["gluten","egg","dairy"]
-  * "Goat cheese arancini" → ["dairy","gluten","egg"]
-  * "Kuşkonmaz karidesli sandviç" → ["shellfish","gluten","egg"]
-  * "Grilled lamb loin" → []
-  * "Focaccia, emmental, incir" → ["gluten","dairy"]
-
-CRITICAL — BILINGUAL MENU HANDLING:
-- BEO often shows the same dish in English AND Turkish on consecutive lines or separated by "/" or "**".
-- ALWAYS merge them into ONE menu item using format: "EnglishName / TurkishName"
-- Example: "Vanilla panna cotta, blueberry jubilée" + "Vanilyalı panna cotta, marine yaban mersini" → ONE item: "Vanilla panna cotta / Vanilyalı panna cotta"
-- Example: "Grilled lamb loin" + "Izgara kuzu sırtı" → ONE item: "Grilled lamb loin / Izgara kuzu sırtı"
-- NEVER create duplicate items for the same dish in different languages.
-
-DEPARTMENT ASSIGNMENT EXAMPLES (use exactly these mappings):
-- "Tea & Coffee", "Soft drinks" → ["service"] (service, NOT bar — bar is for alcoholic drinks/cocktails only)
-- "Cocktails", "Wine", "Beer" → ["bar"]
-- "Lamb loin", "Beef tenderloin", "Roasted beef" → ["kitchen","butcher"] (kitchen for cooking, butcher for prep)
-- "Panna cotta", "Tiramisu", "Profiterole", "Crème brûlée", "Tartolet" → ["pastry"]
-- "Mekik çeşitleri", "Muffin", "Tahini buns", "Brioche", "Poğaça", "Simit", "Focaccia", "Danimarka çöreği", "Ekmek" → ["pastry"]
-- "Choux topları" with savoury filling (cheese) → ["pastry"] (pastry technique)
-- "Kayısılı tiramisu", "Apricot tiramisu" → ["pastry"]
-- "Goat cheese arancini" → ["kitchen"]
-- "Salad", "Bruschetta", "Cold starter", "Mediterranean salad" → ["cold"]
-- "Sandviç", "Sandwich" with cold filling → ["cold"]
-- "Sebzeli lazanya", "Hot pasta", "Soup" → ["kitchen"]
-- "Mini kuşkonmazlı kiş" (warm savoury tart) → ["pastry"] (pastry technique)
-- "Kol böreği", "Samosa" → ["pastry"]
-
-LANGUAGE OUTPUT:
-- summary MUST be in ${lang==="tr"?"Turkish":"English"} — NOT bilingual, just one language.
-- notesTr → Turkish version of notes (ATT TO ... parts in Turkish)
-- notesEn → English version of notes (ATT TO ... parts in English)
-
-CRITICAL OUTPUT FORMAT: Return ONLY pure JSON. No markdown fences, no comments, no trailing commas, no explanations before or after. Just valid parseable JSON, starting with { and ending with }.
-BE EXTREMELY CONCISE to fit in response limits:
-  * notesTr/notesEn: maximum 80 chars each, single line summaries only
-  * Menu item names: max 60 chars (allow space for "EN / TR" format)
-  * Skip duplicate items across sub-events
-  * Skip ATT TO ACCOUNTING details (covered in pricing fields)
-  * summary: max 150 chars total
-Output minified JSON if possible (no extra whitespace between properties).`;
+      const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data with multi-day support and sub-events (e.g. AM Coffee Break, Lunch, PM Coffee Break).\n\nOutput VALID JSON ONLY (no markdown, no explanation), matching this schema:\n{\n  \"name\": \"Event/booking name (e.g. Live Consulting Meeting, Wedding Tasting)\",\n  \"contractNo\": \"Contract/booking number if shown (e.g. 714268)\",\n  \"accountName\": \"Account/company name (e.g. Asemble Organizasyon)\",\n  \"confManager\": \"Conf/Cat Manager name if shown\",\n  \"contactName\": \"Primary contact person name (e.g. Emel Duman)\",\n  \"contactPhone\": \"Contact phone number if shown\",\n  \"startDate\": \"YYYY-MM-DD — earliest date in BEO\",\n  \"endDate\": \"YYYY-MM-DD — latest date in BEO (same as startDate if single-day)\",\n  \"currency\": \"EUR/USD/TRY/GBP\",\n  \"totalAmount\": number or null,\n  \"pricePerPerson\": number or null,\n  \"vatRate\": number (default 20),\n  \"guestAllergies\": [\n    {\n      \"count\": number,\n      \"type\": \"Allergy/diet type (gluten free, lactose free, vegetarian, vegan, nut allergy, halal, kosher)\",\n      \"note\": \"Optional extra context if BEO mentions specific guests/sessions\"\n    }\n  ],\n  \"subEvents\": [\n    {\n      \"date\": \"YYYY-MM-DD\",\n      \"timeStart\": \"HH:MM\",\n      \"timeEnd\": \"HH:MM\",\n      \"name\": \"Sub-event name (Meeting, AM Coffee Break, Lunch, PM Coffee Break, Tea & Coffee, Dessert Service)\",\n      \"type\": \"Type code: coffee_break | lunch | dinner | dessert | cocktail | meeting | tea_service | setup | other\",\n      \"room\": \"Room/venue (Kaftan, Tugra Lobby, Tugra Restaurant)\",\n      \"setUp\": \"Set-up type (Lounge, Theater, Coffee Break, Existing Setup)\",\n      \"pax\": number,\n      \"items\": [\n        {\n          \"name\": \"Menu item exact name (e.g. 'Mekik çeşitleri', 'Grilled lamb loin')\",\n          \"departments\": [\"pastry\"],\n          \"allergens\": [\"gluten\",\"dairy\",\"egg\",\"nut\",\"shellfish\",\"fish\",\"soy\",\"sesame\",\"sulphite\",\"celery\",\"mustard\",\"peanut\",\"lupin\",\"mollusc\"]\n        }\n      ],\n      \"notesTr\": \"Turkish notes/instructions from ATT TO X sections (if any)\",\n      \"notesEn\": \"English notes/instructions from ATT TO X sections (if any)\"\n    }\n  ],\n  \"summary\": \"STRICT REQUIREMENT — write this in ${lang==="tr"?"TURKISH (Türkçe)":"ENGLISH"}, 2-3 sentences max\"\n}\n\nDepartment codes (each item can have MULTIPLE departments):\n- \"kitchen\" = Hot kitchen: main courses, hot starters, hot canapes, hot soups\n- \"cold\" = Cold kitchen: cold starters, salads, cold canapes\n- \"pastry\" = Pastane (Türkiye usulü): tatlılar (panna cotta, tiramisu, profiterole, tarts), hamur işleri (mekik, muffin, brioche, poğaça, simit, focaccia), ekmek ve viennoiserie. EKMEK DAHİL HER ŞEY.\n- \"butcher\" = Meat prep: lamb cuts, beef tenderloin, marinades\n- \"service\" = Banquet service: table arrangements, plating, lounge setup\n- \"bar\" = Beverages: cocktails, wine, soft drinks (note: Tea & Coffee is service, not bar)\n- \"setup\" = Furniture/equipment: podium, AV, signage, skirt, chairs\n- \"accounting\" = Pricing, billing notes, VAT\n- \"general\" = Other notes\n\nRules:\n- ALWAYS extract every sub-event separately (Meeting, AM Break, Lunch, PM Break, Tea Service, Dessert Service).\n- Each menu item is one entry with departments array (can be multi: \"Tahini buns\" = [\"pastry\"]).\n- Each menu item MUST have an \"allergens\" array — list ALL allergens likely present based on the dish name and common ingredients. Use exactly these codes: gluten, dairy, egg, nut, shellfish, fish, soy, sesame, sulphite, celery, mustard, peanut, lupin, mollusc.\n- Notes (ATT TO ...) belong to the sub-event they're under. Split TR and EN if both languages present.\n- Setup instructions (podium, chair, skirt) → \"setup\" department + put in notes.\n- If a sub-event has no menu items (e.g. pure meeting), items can be empty array AND set \"type\": \"meeting\".\n- For meat dishes, also add \"butcher\" if prep cuts are needed.\n- Convert dates: \"27. February 2026\" → \"2026-02-27\".\n- Extract exact pax from \"Exp/Gtd: 12 / 12\" or \"for 40 pax\".\n\nGUEST ALLERGY EXTRACTION:\n- Scan the ENTIRE BEO for any mention of guest allergies, diets, intolerances or dietary restrictions.\n- Look for phrases: \"X guests vegetarian\", \"1 misafir gluten free\", \"2 vegan\", \"lactose intolerant\", \"halal option\", \"no nuts\", \"celiac\", \"1 kişi laktoz intoleransı\", \"vejetaryen\", \"vegan menü\" etc.\n- Each unique allergy/diet → one entry in guestAllergies array with count and type.\n- If no allergies mentioned anywhere, return empty array [].\n\nALLERGEN ASSIGNMENT FOR EACH ITEM:\n- gluten: wheat flour, bread, pasta, cake, cookies, biscuits, pastry, breaded items, beer\n- dairy: milk, cheese, cream, butter, yogurt, panna cotta, tiramisu, cream sauces\n- egg: eggs, mayonnaise, meringue, brioche, custard, fresh pasta\n- nut: walnut, almond, hazelnut, pistachio, pecan (NOT peanut — that's separate)\n- peanut: peanuts specifically\n- shellfish: shrimp/karides, prawn, crab, lobster\n- fish: salmon, tuna, anchovies, sardine\n- soy: soy sauce, tofu, edamame\n- sesame: tahini, sesame seeds, simit (has sesame)\n- sulphite: wine, vinegar (in significant amounts)\n\nCRITICAL — BILINGUAL MENU HANDLING:\n- BEO often shows the same dish in English AND Turkish on consecutive lines or separated by \"/\" or \"**\".\n- ALWAYS merge them into ONE menu item using format: \"EnglishName / TurkishName\"\n- NEVER create duplicate items for the same dish in different languages.\n\nDEPARTMENT ASSIGNMENT EXAMPLES:\n- \"Tea & Coffee\", \"Soft drinks\" → [\"service\"]\n- \"Cocktails\", \"Wine\", \"Beer\" → [\"bar\"]\n- \"Lamb loin\", \"Beef tenderloin\" → [\"kitchen\",\"butcher\"]\n- \"Panna cotta\", \"Tiramisu\", \"Profiterole\" → [\"pastry\"]\n- \"Mekik\", \"Muffin\", \"Brioche\", \"Poğaça\", \"Simit\", \"Focaccia\" → [\"pastry\"]\n- \"Salad\", \"Cold starter\" → [\"cold\"]\n\nLANGUAGE OUTPUT:\n- summary MUST be in ${lang==="tr"?"Turkish":"English"} — NOT bilingual, just one language.\n\nCRITICAL OUTPUT FORMAT: Return ONLY pure JSON. No markdown fences, no comments, no trailing commas, no explanations before or after. Just valid parseable JSON, starting with { and ending with }.\nBE EXTREMELY CONCISE to fit in response limits:\n  * notesTr/notesEn: maximum 80 chars each, single line summaries only\n  * Menu item names: max 60 chars\n  * summary: max 150 chars total\nOutput minified JSON if possible.`;
 
       let userMessages;
       if(isImageBased){
         setParseProgress(lang==="tr"?"Resim PDF tespit edildi, vision ile analiz ediliyor...":"Image-based PDF detected, analyzing with vision...");
-        // Sayfa sayfa base64 ve vision
         const base64=await pdfToBase64(file);
         userMessages=[{
           role:"user",
@@ -6960,7 +6826,6 @@ Output minified JSON if possible (no extra whitespace between properties).`;
         const errText=await resp.text().catch(()=>"");
         let errMsg="HTTP "+resp.status;
         try{const j=JSON.parse(errText);if(j.error?.message)errMsg+=" — "+j.error.message;else if(j.error)errMsg+=" — "+JSON.stringify(j.error);}catch{errMsg+=" — "+errText.slice(0,200);}
-        // 503/529 → bir kez retry
         if(resp.status===503||resp.status===529){
           setParseProgress(lang==="tr"?"AI yoğun, tekrar deniyor...":"AI busy, retrying...");
           await new Promise(r=>setTimeout(r,2500));
@@ -6969,10 +6834,7 @@ Output minified JSON if possible (no extra whitespace between properties).`;
             headers:{"Content-Type":"application/json","X-Auth-Token":WORKER_AUTH_TOKEN},
             body:JSON.stringify({model,max_tokens:16000,system:sysPrompt,messages:userMessages})
           });
-          if(!resp2.ok){
-            const t2=await resp2.text().catch(()=>"");
-            throw new Error("AI hatası ("+resp2.status+"): "+(t2.slice(0,200)||errMsg));
-          }
+          if(!resp2.ok){const t2=await resp2.text().catch(()=>"");throw new Error("AI hatası ("+resp2.status+"): "+(t2.slice(0,200)||errMsg));}
           const data2=await resp2.json();
           const aiText2=data2?.content?.[0]?.text||"";
           let jsonStr2=aiText2.trim().replace(/^```(?:json|JSON)?\s*\n?/,"").replace(/\n?```\s*$/,"").trim();
@@ -6986,36 +6848,26 @@ Output minified JSON if possible (no extra whitespace between properties).`;
       }
       const data=await resp.json();
       const aiText=data?.content?.[0]?.text||"";
-
-      // JSON parse — markdown fence varsa temizle (daha sağlam)
       let jsonStr=aiText.trim();
-      // 1) ```json ... ``` veya ``` ... ``` fence'ini her yerden kaldır
       jsonStr=jsonStr.replace(/^```(?:json|JSON)?\s*\n?/,"").replace(/\n?```\s*$/,"").trim();
-      // 2) İlk { veya [ ile son } veya ] arasını al (içinde başka şey varsa kırp)
       const firstBrace=jsonStr.search(/[\{\[]/);
       const lastBrace=Math.max(jsonStr.lastIndexOf("}"),jsonStr.lastIndexOf("]"));
       if(firstBrace>=0&&lastBrace>firstBrace){jsonStr=jsonStr.substring(firstBrace,lastBrace+1);}
       let parsed;
       try{parsed=JSON.parse(jsonStr);}
       catch(e){
-        // Son çare 1: control char'ları temizleyip dene
         try{
           const cleaned=jsonStr.replace(/[\u0000-\u001F]+/g,(m)=>m.replace(/\n/g," ").replace(/\t/g," ").replace(/[^\s]/g,""));
           parsed=JSON.parse(cleaned);
         }catch(e2){
-          // Son çare 2: JSON kesilmiş olabilir, son sağlam objeyi bul
           try{
-            // Trailing comma temizle
             let fixed=jsonStr.replace(/,(\s*[\}\]])/g,"$1");
-            // Eksik kapatma parantezleri ekle (kabaca)
             const opens=(fixed.match(/\{/g)||[]).length;
             const closes=(fixed.match(/\}/g)||[]).length;
             const arrOpens=(fixed.match(/\[/g)||[]).length;
             const arrCloses=(fixed.match(/\]/g)||[]).length;
-            // Son tırnağı kapat (eğer string ortasında kesildiyse)
             const quotes=(fixed.match(/(?<!\\)"/g)||[]).length;
             if(quotes%2!==0)fixed+='"';
-            // Eksik ] ve } ekle
             for(let i=0;i<arrOpens-arrCloses;i++)fixed+="]";
             for(let i=0;i<opens-closes;i++)fixed+="}";
             parsed=JSON.parse(fixed);
@@ -7026,7 +6878,6 @@ Output minified JSON if possible (no extra whitespace between properties).`;
           }
         }
       }
-
       setParseProgress(lang==="tr"?"Tamamlandı":"Done");
       return{parsed,rawText:text.slice(0,5000),isImageBased};
     }finally{
@@ -7034,15 +6885,12 @@ Output minified JSON if possible (no extra whitespace between properties).`;
     }
   };
 
-  // Yeni event yükle
   const handleUpload=async(file)=>{
     if(!file||!team?.id)return;
     if(file.size>10*1024*1024){setError(lang==="tr"?"PDF 10MB'dan büyük olamaz":"PDF must be under 10MB");return;}
     setError("");
     try{
       const{parsed,rawText,isImageBased}=await parseWithAI(file);
-      
-      // PDF'i Supabase Storage'a yükle
       let pdfPath=null;
       try{
         const sb=initSupabase();
@@ -7051,14 +6899,10 @@ Output minified JSON if possible (no extra whitespace between properties).`;
           const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
           pdfPath=`${team.id}/${ts}_${safeName}`;
           const{error:upErr}=await sb.storage.from("event-pdfs").upload(pdfPath,file,{contentType:"application/pdf",upsert:false});
-          if(upErr){
-            console.warn("PDF Storage upload hatası:",upErr.message);
-            pdfPath=null;
-          }
+          if(upErr){console.warn("PDF Storage upload hatası:",upErr.message);pdfPath=null;}
         }
       }catch(e){console.warn("PDF upload exception:",e.message);}
 
-      // Departments aggregate: tüm subEvent'lerden tek bir map (eski uyumluluk için)
       const aggDepts={};
       (parsed.subEvents||[]).forEach(se=>{
         (se.items||[]).forEach(it=>{
@@ -7094,6 +6938,7 @@ Output minified JSON if possible (no extra whitespace between properties).`;
         original_pdf_size:file.size,
         ai_summary:parsed.summary||"",
         guest_allergies:parsed.guestAllergies||[],
+        session_photos:{},
         raw_text:rawText,
         pdf_name:file.name,
         status:"draft",
@@ -7107,7 +6952,6 @@ Output minified JSON if possible (no extra whitespace between properties).`;
     }
   };
 
-  // Kaydet
   const saveEvent=async()=>{
     if(!selectedEvent||!selectedEvent.name?.trim())return;
     const sb=initSupabase();if(!sb)return;
@@ -7135,6 +6979,7 @@ Output minified JSON if possible (no extra whitespace between properties).`;
       original_pdf_size:selectedEvent.original_pdf_size||null,
       ai_summary:selectedEvent.ai_summary||null,
       guest_allergies:selectedEvent.guest_allergies||[],
+      session_photos:selectedEvent.session_photos||{},
       raw_text:selectedEvent.raw_text||null,
       pdf_name:selectedEvent.pdf_name||null,
       status:selectedEvent.status||"draft",
@@ -7158,9 +7003,91 @@ Output minified JSON if possible (no extra whitespace between properties).`;
     }
   };
 
-  // Departmanlara dağıt — sohbete mesaj at
+  // ── Session fotoğraf yükle ──
+  const uploadSessionPhoto=async(file,sessionIdx,eventId)=>{
+    if(!file||!team?.id)return;
+    const MAX_SIZE=8*1024*1024;
+    if(file.size>MAX_SIZE){window.toast.error(lang==="tr"?"Fotoğraf 8MB'dan büyük olamaz":"Photo must be under 8MB");return;}
+    setUploadingPhoto({sessionIdx,progress:0});
+    try{
+      // Resize
+      const resized=await new Promise((res,rej)=>{
+        const reader=new FileReader();
+        reader.onload=ev=>{
+          const img=new Image();
+          img.onload=()=>{
+            const MAX=1200;
+            let w=img.width,h=img.height;
+            if(w>MAX||h>MAX){
+              if(w>h){h=Math.round(h*MAX/w);w=MAX;}
+              else{w=Math.round(w*MAX/h);h=MAX;}
+            }
+            const cv=document.createElement("canvas");
+            cv.width=w;cv.height=h;
+            cv.getContext("2d").drawImage(img,0,0,w,h);
+            cv.toBlob(blob=>{
+              if(!blob){rej(new Error("Resize failed"));return;}
+              res(new File([blob],file.name,{type:"image/jpeg"}));
+            },"image/jpeg",0.82);
+          };
+          img.onerror=()=>rej(new Error("Image load failed"));
+          img.src=ev.target.result;
+        };
+        reader.onerror=()=>rej(new Error("File read failed"));
+        reader.readAsDataURL(file);
+      });
 
-  // Manuel etkinlik AI ile departmanlara dağıt
+      const sb=initSupabase();if(!sb)throw new Error("Supabase yüklenemedi");
+      const ts=Date.now();
+      const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+      const path=`event-photos/${team.id}/${eventId||"new"}/${ts}_s${sessionIdx}_${safeName}`;
+      const{error:upErr}=await sb.storage.from("tulpar-storage").upload(path,resized,{
+        contentType:"image/jpeg",upsert:false
+      });
+      if(upErr)throw upErr;
+      const{data:{publicUrl}}=sb.storage.from("tulpar-storage").getPublicUrl(path);
+
+      // State güncelle
+      const newPhotos={...(selectedEvent.session_photos||{})};
+      const key=String(sessionIdx);
+      newPhotos[key]=[...(newPhotos[key]||[]),publicUrl];
+
+      const updatedEvent={...selectedEvent,session_photos:newPhotos};
+      setSelectedEvent(updatedEvent);
+
+      // DB'ye kaydet (event daha önce kaydedilmişse)
+      if(eventId&&eventId!=="new"){
+        const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
+        if(dbErr)console.warn("session_photos DB güncelleme:",dbErr.message);
+        else setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
+      }
+      window.toast.success(lang==="tr"?"✓ Fotoğraf eklendi":"✓ Photo added");
+    }catch(e){
+      window.toast.error((lang==="tr"?"Fotoğraf yüklenemedi: ":"Upload failed: ")+e.message);
+    }finally{
+      setUploadingPhoto(null);
+    }
+  };
+
+  // ── Session fotoğraf sil ──
+  const deleteSessionPhoto=async(sessionIdx,photoIdx,eventId)=>{
+    const newPhotos={...(selectedEvent.session_photos||{})};
+    const key=String(sessionIdx);
+    if(!newPhotos[key])return;
+    newPhotos[key]=newPhotos[key].filter((_,i)=>i!==photoIdx);
+    if(!newPhotos[key].length)delete newPhotos[key];
+
+    const updatedEvent={...selectedEvent,session_photos:newPhotos};
+    setSelectedEvent(updatedEvent);
+    setLightboxPhoto(null);
+
+    if(eventId&&eventId!=="new"){
+      const sb=initSupabase();if(!sb)return;
+      const{error:dbErr}=await sb.from("events").update({session_photos:newPhotos}).eq("id",eventId);
+      if(!dbErr)setEvents(p=>p.map(e=>e.id===eventId?{...e,session_photos:newPhotos}:e));
+    }
+  };
+
   const aiDistributeManual=async()=>{
     if(!manualForm.name?.trim()){window.toast.error(lang==="tr"?"Etkinlik adı gerekli":"Event name required");return;}
     if(!manualForm.items?.trim()){window.toast.error(lang==="tr"?"En az 1 menü kalemi gerekli":"At least 1 menu item required");return;}
@@ -7168,32 +7095,7 @@ Output minified JSON if possible (no extra whitespace between properties).`;
     try{
       const items=manualForm.items.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
       if(!items.length){throw new Error(lang==="tr"?"Geçerli kalem yok":"No valid items");}
-      
-      // AI prompt
-      const prompt=`You are a banquet kitchen dispatcher. Categorize each menu/event item into one of these departments:
-- kitchen (Hot Kitchen): hot mains, hot starters, soups, hot canapes, grilled, fried items
-- cold (Cold Kitchen): cold starters, salads, cold canapes, mezes, hummus
-- pastry: desserts, baklava, cakes, ice cream, sweets
-- butcher: meat preparation requirements, lamb, beef tenderloin
-- service (Banquet Service): table setup, service notes, decorations
-- bar: drinks, cocktails, wine, beverages, coffee, tea
-- setup: equipment, av, signage, podium
-- accounting: pricing, billing
-- general: anything that doesn't fit
-
-Items to categorize:
-${items.map((it,i)=>`${i+1}. ${it}`).join("\n")}
-
-Respond with ONLY a JSON object, no other text:
-{
-  "kitchen": ["item1","item2"],
-  "cold": [],
-  "pastry": ["item3"],
-  ...all 10 departments, empty arrays if none...
-}
-
-Use the EXACT item text as input. Each item should appear in exactly one department.`;
-      
+      const prompt=`You are a banquet kitchen dispatcher. Categorize each menu/event item into one of these departments:\n- kitchen (Hot Kitchen): hot mains, hot starters, soups, hot canapes, grilled, fried items\n- cold (Cold Kitchen): cold starters, salads, cold canapes, mezes, hummus\n- pastry: desserts, baklava, cakes, ice cream, sweets\n- butcher: meat preparation requirements, lamb, beef tenderloin\n- service (Banquet Service): table setup, service notes, decorations\n- bar: drinks, cocktails, wine, beverages, coffee, tea\n- setup: equipment, av, signage, podium\n- accounting: pricing, billing\n- general: anything that doesn't fit\n\nItems to categorize:\n${items.map((it,i)=>`${i+1}. ${it}`).join("\n")}\n\nRespond with ONLY a JSON object, no other text:\n{\n  \"kitchen\": [\"item1\",\"item2\"],\n  \"cold\": [],\n  \"pastry\": [\"item3\"],\n  ...all 10 departments, empty arrays if none...\n}\n\nUse the EXACT item text as input. Each item should appear in exactly one department.`;
       const proxyUrl="https://kitchen-manager-ai.aligny0.workers.dev";
       const res=await fetch(proxyUrl,{
         method:"POST",
@@ -7203,18 +7105,13 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       if(!res.ok){const txt=await res.text();throw new Error(`API ${res.status}: ${txt.slice(0,100)}`);}
       const data=await res.json();
       const text=data.content?.[0]?.text||"";
-      // JSON çıkar
       const m=text.match(/\{[\s\S]*\}/);
       if(!m)throw new Error(lang==="tr"?"AI yanıtı anlaşılamadı":"AI response unclear");
       const departments=JSON.parse(m[0]);
-      // Boş departmanları temizle
       Object.keys(departments).forEach(k=>{if(!Array.isArray(departments[k])||!departments[k].length)delete departments[k];});
-      
-      // Önizlemeyi göster
       setManualPreview({...manualForm,departments,_isNew:true,team_id:team.id});
     }catch(e){
       console.warn("[manual ai]",e);
-      // AI hata verirse → kullanıcıya tüm kalemleri "general" olarak ata, manuel düzeltsin
       const items=manualForm.items.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
       setManualPreview({...manualForm,departments:{general:items},_isNew:true,team_id:team.id});
       window.toast.info(lang==="tr"?"AI ulaşılamadı, manuel atayın":"AI unavailable, assign manually");
@@ -7222,7 +7119,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
     setManualBusy(false);
   };
 
-  // Manuel formu kaydet (önizlemeden)
   const saveManualEvent=async()=>{
     if(!manualPreview)return;
     const sb=initSupabase();if(!sb)return;
@@ -7235,6 +7131,7 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       location:manualPreview.location||null,
       summary:manualPreview.notes||null,
       departments:manualPreview.departments||{},
+      session_photos:{},
       photos:manualPreview.photos||[],
       source:"manual",
       created_by:user?.userId||null
@@ -7250,7 +7147,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
     }catch(e){window.toast.error(e.message);}
   };
 
-  // Foto yükleme (base64'e çevir, küçült)
   const handleManualPhoto=async(file)=>{
     if(!file)return;
     if(file.size>5*1024*1024){window.toast.error(lang==="tr"?"Foto 5MB'dan büyük olamaz":"Photo > 5MB");return;}
@@ -7291,20 +7187,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
         type:"text",
         text:msg
       });
-      // Fotolar varsa her departmana ayrı mesaj olarak gönder
-      if(Array.isArray(ev.photos)&&ev.photos.length){
-        for(const photo of ev.photos.slice(0,5)){
-          await sb.from("team_messages").insert({
-            team_id:team.id,
-            user_id:user?.userId||"event",
-            user_name:`📅 Event: ${ev.name}`,
-            user_role:"event",
-            type:"image",
-            text:`📷 ${ev.name} — ${deptLabel}`,
-            attachment:photo
-          }).then(()=>{}).catch(()=>{});
-        }
-      }
       count++;
     }
     window.toast.success(lang==="tr"?`✓ ${count} departmana dağıtıldı`:`✓ Distributed to ${count} departments`);
@@ -7318,7 +7200,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
     if(selectedEvent?.id===id)setSelectedEvent(null);
   };
 
-  // Form: department editor
   const updateDept=(deptId,items)=>{
     setSelectedEvent(s=>({...s,departments:{...s.departments,[deptId]:items}}));
   };
@@ -7330,9 +7211,8 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
     </div>;
   }
 
-  // Detail/edit form
+  // ── Detay / Edit modu ──
   if(selectedEvent){
-    // ── Edit modu ──
     if(showEdit||selectedEvent._isNew){
       return <div style={{padding:"12px 14px",paddingBottom:80}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
@@ -7407,7 +7287,7 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       </div>;
     }
 
-    // ── Detay modu (read-only) — 3 tab'lı yeni tasarım ──
+    // ── Detay modu — 3 tab ──
     const getPdfUrl=async(path)=>{
       if(!path)return null;
       const sb=initSupabase();if(!sb)return null;
@@ -7418,8 +7298,8 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
     const totalItems=Object.values(selectedEvent.departments||{}).reduce((s,a)=>s+(a?.length||0),0);
     const subEvents=selectedEvent.sub_events||[];
     const guestAllergies=selectedEvent.guest_allergies||[];
+    const sessionPhotos=selectedEvent.session_photos||{};
 
-    // Session tipine göre ikon ve renk
     const SESSION_TYPES={
       coffee_break:{icon:"☕",color:"#d97706",bg:"#fef3c7",tr:"Coffee Break",en:"Coffee Break"},
       lunch:{icon:"🍽",color:"#16a34a",bg:"#dcfce7",tr:"Öğlen",en:"Lunch"},
@@ -7433,12 +7313,9 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
     };
     const sessionMeta=(s)=>SESSION_TYPES[s.type]||SESSION_TYPES.other;
     const isKitchenSession=(s)=>(s.items||[]).length>0;
-
-    // Alerjen ikonları
     const ALLERGEN_ICONS={gluten:"🌾",dairy:"🥛",egg:"🥚",nut:"🌰",peanut:"🥜",shellfish:"🦐",fish:"🐟",soy:"🫘",sesame:"🌻",sulphite:"🍷",celery:"🌿",mustard:"🌶",lupin:"🌱",mollusc:"🦪"};
     const allergenLabel=(a)=>ALLERGEN_ICONS[a]||"⚠";
 
-    // Tarihe göre grupla (multi-day desteği)
     const byDate={};
     subEvents.forEach((s,idx)=>{
       const d=s.date||selectedEvent.event_date||"unknown";
@@ -7446,24 +7323,26 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       byDate[d].push({...s,_idx:idx});
     });
 
-    // Departmanlar tab için: tüm sub_events'lerden departman bazlı görev topla
     const deptTasks={};
     subEvents.forEach(s=>{
       (s.items||[]).forEach(item=>{
         (item.departments||[]).forEach(did=>{
           if(!deptTasks[did])deptTasks[did]=[];
-          deptTasks[did].push({
-            name:item.name,
-            allergens:item.allergens||[],
-            session:s.name,
-            date:s.date,
-            time:s.timeStart
-          });
+          deptTasks[did].push({name:item.name,allergens:item.allergens||[],session:s.name,date:s.date,time:s.timeStart});
         });
       });
     });
 
     return <div style={{padding:"12px 14px",paddingBottom:80}}>
+      {/* Lightbox */}
+      {lightboxPhoto&&<div onClick={()=>setLightboxPhoto(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,padding:20}}>
+        <img src={lightboxPhoto.url} style={{maxWidth:"100%",maxHeight:"75vh",borderRadius:12,objectFit:"contain"}} onClick={e=>e.stopPropagation()}/>
+        <div style={{display:"flex",gap:10}} onClick={e=>e.stopPropagation()}>
+          <button onClick={()=>setLightboxPhoto(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>✕ {lang==="tr"?"Kapat":"Close"}</button>
+          <button onClick={()=>deleteSessionPhoto(lightboxPhoto.sessionIdx,lightboxPhoto.photoIdx,selectedEvent.id)} style={{background:"#dc2626",border:"none",color:"#fff",borderRadius:10,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>🗑 {lang==="tr"?"Sil":"Delete"}</button>
+        </div>
+      </div>}
+
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <button onClick={()=>{setSelectedEvent(null);setShowEdit(false);setDetailTab("timeline");setExpandedSessions({});}} style={{...bSt("g",t),fontSize:12,padding:"6px 10px"}}>← {lang==="tr"?"Etkinlikler":"Events"}</button>
@@ -7475,7 +7354,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       </div>
 
       <h3 style={{fontSize:20,color:t.text,margin:"0 0 6px 0",fontFamily:"'Fraunces',serif",lineHeight:1.25}}>{selectedEvent.name}</h3>
-
       <div style={{display:"flex",flexWrap:"wrap",gap:8,fontSize:11,color:t.tm,marginBottom:14}}>
         {selectedEvent.event_date&&<span>📅 {new Date(selectedEvent.event_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long",year:"numeric"})}{selectedEvent.end_date&&selectedEvent.end_date!==selectedEvent.event_date?" – "+new Date(selectedEvent.end_date+"T12:00:00").toLocaleDateString(lang==="tr"?"tr-TR":"en-US",{day:"numeric",month:"long"}):""}</span>}
         {selectedEvent.pax&&<span>👥 {selectedEvent.pax} pax</span>}
@@ -7498,13 +7376,11 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
 
       {/* ─── TIMELINE TAB ─── */}
       {detailTab==="timeline"&&<div>
-        {/* AI Özet */}
         {selectedEvent.ai_summary&&<div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.accent+"12",border:`1px solid ${t.accent}30`}}>
           <div style={{fontSize:10,fontWeight:700,color:t.accent,letterSpacing:"0.08em",marginBottom:4}}>🤖 AI ÖZET</div>
           <div style={{fontSize:12,color:t.text,lineHeight:1.55}}>{selectedEvent.ai_summary}</div>
         </div>}
 
-        {/* Misafir Alerjen Uyarıları */}
         {guestAllergies.length>0&&<div style={{background:"#fef3c7",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 12px",marginBottom:14}}>
           <div style={{fontSize:10,fontWeight:700,color:"#92400e",letterSpacing:"0.08em",marginBottom:6,textTransform:"uppercase"}}>⚠ {lang==="tr"?"Misafir Alerjen Uyarıları":"Guest Allergy Warnings"}</div>
           {guestAllergies.map((a,i)=>(
@@ -7515,12 +7391,10 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
           ))}
         </div>}
 
-        {/* Sub-events boş ise eski format göster */}
         {subEvents.length===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
           {lang==="tr"?"Bu etkinlik için saat bazlı oturum bilgisi yok. PDF yeniden yüklenirse AI yeni formatta çıkaracak.":"No timeline sessions for this event. Re-upload the PDF to extract structured timeline."}
         </div>}
 
-        {/* Gün gün session listesi */}
         {Object.keys(byDate).sort().map(date=>(
           <div key={date}>
             {Object.keys(byDate).length>1&&<div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",margin:"4px 0 10px",display:"flex",alignItems:"center",gap:8}}>
@@ -7531,6 +7405,8 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
               const meta=sessionMeta(s);
               const isOpen=expandedSessions[s._idx];
               const isKitchen=isKitchenSession(s);
+              const sPhotos=sessionPhotos[String(s._idx)]||[];
+              const isUploading=uploadingPhoto?.sessionIdx===s._idx;
               return <div key={s._idx} style={{border:`1px solid ${t.border}`,borderRadius:8,marginBottom:8,overflow:"hidden",borderStyle:isKitchen?"solid":"dashed",opacity:isKitchen?1:0.65}}>
                 <div onClick={isKitchen?()=>setExpandedSessions(p=>({...p,[s._idx]:!p[s._idx]})):undefined} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",cursor:isKitchen?"pointer":"default",background:t.card}}>
                   <div style={{width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,background:meta.bg,flexShrink:0}}>{meta.icon}</div>
@@ -7543,10 +7419,28 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
                       {!isKitchen&&<span style={{fontStyle:"italic"}}>{lang==="tr"?"mutfak görevi yok":"no kitchen task"}</span>}
                     </div>
                   </div>
+                  {/* Fotoğraf butonu — her session için */}
+                  <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,background:sPhotos.length>0?t.accent+"20":t.bg,border:`1px solid ${sPhotos.length>0?t.accent:t.border}`,borderRadius:8,padding:"5px 8px",cursor:isUploading?"wait":"pointer",flexShrink:0}}>
+                    {isUploading?<span style={{fontSize:11,color:t.accent}}>⏳</span>:<span style={{fontSize:13}}>📷</span>}
+                    {sPhotos.length>0&&<span style={{fontSize:10,fontWeight:700,color:t.accent}}>{sPhotos.length}</span>}
+                    <input type="file" accept="image/*" style={{display:"none"}} disabled={isUploading} onChange={async e=>{
+                      const f=e.target.files?.[0];
+                      if(f)await uploadSessionPhoto(f,s._idx,selectedEvent.id);
+                      e.target.value="";
+                    }}/>
+                  </label>
                   {isKitchen&&<span style={{fontSize:14,color:t.tm,transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}}>▶</span>}
                 </div>
+
+                {/* Fotoğraf şeridi */}
+                {sPhotos.length>0&&<div style={{display:"flex",gap:6,padding:"6px 12px",overflowX:"auto",background:t.bg,borderTop:`1px solid ${t.border}`,scrollbarWidth:"none"}}>
+                  {sPhotos.map((url,pi)=>(
+                    <img key={pi} src={url} onClick={()=>setLightboxPhoto({url,sessionIdx:s._idx,photoIdx:pi})}
+                      style={{width:52,height:52,objectFit:"cover",borderRadius:6,cursor:"pointer",flexShrink:0,border:`1px solid ${t.border}`}}/>
+                  ))}
+                </div>}
+
                 {isKitchen&&isOpen&&<div style={{padding:"0 12px 12px",borderTop:`1px solid ${t.border}`}}>
-                  {/* Departmana göre menü itemlerini grupla */}
                   {(()=>{
                     const grouped={};
                     (s.items||[]).forEach(item=>{
@@ -7594,8 +7488,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
         {Object.keys(deptTasks).length===0&&totalItems===0&&<div style={{...cSt(t),padding:"14px",textAlign:"center",color:t.tm,fontSize:13}}>
           {lang==="tr"?"Henüz departman görevi yok.":"No department tasks yet."}
         </div>}
-
-        {/* Yeni sub_events bazlı departman görevleri */}
         {Object.keys(deptTasks).length>0&&DEPARTMENTS.filter(d=>deptTasks[d.id]?.length>0).map(d=>(
           <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
             <div style={{fontSize:13,fontWeight:700,color:t.text,marginBottom:8}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
@@ -7614,8 +7506,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
             ))}
           </div>
         ))}
-
-        {/* Eski uyumluluk: sub_events boş ama departments dolu ise */}
         {Object.keys(deptTasks).length===0&&totalItems>0&&DEPARTMENTS.filter(d=>(selectedEvent.departments?.[d.id]||[]).length>0).map(d=>{
           const items=selectedEvent.departments[d.id]||[];
           return <div key={d.id} style={{...cSt(t),padding:"10px 12px",marginBottom:8,borderLeft:`3px solid ${d.color}`}}>
@@ -7623,7 +7513,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
             {items.map((item,i)=><div key={i} style={{fontSize:12,color:t.ts,padding:"3px 0",borderBottom:i<items.length-1?`1px dashed ${t.border}`:"none"}}>{item}</div>)}
           </div>;
         })}
-
         {totalItems>0&&<button onClick={()=>distributeToDepartments(selectedEvent)} style={{...bSt("s",t),width:"100%",marginTop:6,fontSize:13}}>
           📤 {lang==="tr"?"Yeniden Dağıt":"Redistribute"}
         </button>}
@@ -7631,7 +7520,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
 
       {/* ─── BEO TAB ─── */}
       {detailTab==="beo"&&<div>
-        {/* Etkinlik bilgileri */}
         <div style={{marginBottom:14}}>
           <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Etkinlik Bilgileri":"Event Information"}</div>
           {[
@@ -7647,8 +7535,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
             </div>
           ))}
         </div>
-
-        {/* Muhasebe */}
         {(selectedEvent.total_amount||selectedEvent.price_per_person)&&<div style={{marginBottom:14}}>
           <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Muhasebe":"Billing"}</div>
           <div style={{...cSt(t),padding:"10px 12px",background:t.bg}}>
@@ -7666,13 +7552,9 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
             </div>}
           </div>
         </div>}
-
-        {/* PDF butonu */}
         {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
           📄 {lang==="tr"?"Orijinal BEO PDF'ini Aç":"Open Original BEO PDF"}
         </button>}
-
-        {/* Notlar */}
         {selectedEvent.notes&&<div style={{...cSt(t),padding:"10px 12px",marginTop:8}}>
           <div style={{fontSize:10,fontWeight:600,color:t.tm,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>{lang==="tr"?"Notlar":"Notes"}</div>
           <div style={{fontSize:12,color:t.text,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{selectedEvent.notes}</div>
@@ -7681,7 +7563,7 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
     </div>;
   }
 
-  // List view
+  // ── List view ──
   return <div style={{padding:"12px 14px",paddingBottom:60}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
       <div>
@@ -7717,8 +7599,9 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
       const deptCount=Object.keys(ev.departments||{}).filter(k=>ev.departments[k]?.length).length;
       const totalItems=Object.values(ev.departments||{}).reduce((sum,arr)=>sum+(arr?.length||0),0);
       const isPast=ev.event_date&&new Date(ev.event_date)<new Date(new Date().toDateString());
+      const photoCount=Object.values(ev.session_photos||{}).reduce((s,a)=>s+(a?.length||0),0);
       return <div key={ev.id} style={{...cSt(t),padding:"12px 14px",marginBottom:8,opacity:isPast?0.6:1,cursor:"pointer"}}
-        onClick={()=>{setSelectedEvent(ev);setShowEdit(false);}}>
+        onClick={()=>{setSelectedEvent(ev);setShowEdit(false);setDetailTab("timeline");setExpandedSessions({});}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.name}</div>
@@ -7728,15 +7611,17 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
               {ev.pax&&<span>👥 {ev.pax} pax</span>}
               {ev.location&&<span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:140}}>📍 {ev.location}</span>}
             </div>
-            <div style={{fontSize:10,color:t.accent,marginTop:6,fontWeight:600}}>
-              🏢 {deptCount} {lang==="tr"?"departman":"departments"} · {totalItems} {lang==="tr"?"görev":"tasks"}
+            <div style={{display:"flex",gap:10,marginTop:6,fontSize:10,color:t.accent,fontWeight:600}}>
+              <span>🏢 {deptCount} {lang==="tr"?"dept":"depts"} · {totalItems} {lang==="tr"?"görev":"tasks"}</span>
+              {photoCount>0&&<span style={{color:t.tm}}>📷 {photoCount}</span>}
             </div>
           </div>
           <button onClick={e=>{e.stopPropagation();deleteEvent(ev.id);}} style={{...bSt("d",t),padding:"4px 8px",fontSize:11}}>✕</button>
         </div>
       </div>;
     })}
-    {/* Manuel Etkinlik Modal */}
+
+    {/* Manuel Modal */}
     {showManual&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowManual(false);}}>
       <div style={{background:t.bg,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",padding:"16px 14px calc(20px + env(safe-area-inset-bottom))"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -7745,7 +7630,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
         </div>
 
         {!manualPreview?<>
-          {/* Form */}
           <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
             <input style={iSt(t)} placeholder={lang==="tr"?"Etkinlik adı *":"Event name *"} value={manualForm.name} onChange={e=>setManualForm(f=>({...f,name:e.target.value}))}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
@@ -7758,15 +7642,15 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
             </div>
             <textarea style={{...iSt(t),minHeight:60,resize:"vertical"}} placeholder={lang==="tr"?"Notlar (opsiyonel)":"Notes (optional)"} value={manualForm.notes} onChange={e=>setManualForm(f=>({...f,notes:e.target.value}))}/>
             <div>
-              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>🍽 {lang==="tr"?"MENÜ KALEMLERI (her satıra bir kalem)":"MENU ITEMS (one per line)"}</div>
-              <textarea style={{...iSt(t),minHeight:120,resize:"vertical",fontFamily:"monospace",fontSize:13}} placeholder={lang==="tr"?"Domates çorbası\nLevrek ızgara\nCrème brûlée\nKokteyl seçimi":"Tomato soup\nGrilled sea bass\nCrème brûlée\nCocktail selection"} value={manualForm.items} onChange={e=>setManualForm(f=>({...f,items:e.target.value}))}/>
+              <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>🍽 {lang==="tr"?"MENÜ KALEMLERİ (her satıra bir kalem)":"MENU ITEMS (one per line)"}</div>
+              <textarea style={{...iSt(t),minHeight:120,resize:"vertical",fontFamily:"monospace",fontSize:13}} placeholder={lang==="tr"?"Domates çorbası\nLevrek ızgara\nCrème brûlée":"Tomato soup\nGrilled sea bass\nCrème brûlée"} value={manualForm.items} onChange={e=>setManualForm(f=>({...f,items:e.target.value}))}/>
             </div>
             <div>
               <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:4,letterSpacing:"0.05em"}}>📷 {lang==="tr"?"FOTOĞRAFLAR (opsiyonel, max 5)":"PHOTOS (optional, max 5)"}</div>
               {manualForm.photos.length>0&&<div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
                 {manualForm.photos.map((p,i)=><div key={i} style={{position:"relative",width:60,height:60}}>
                   <img src={p} style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:8,border:`1px solid ${t.border}`}}/>
-                  <button onClick={()=>setManualForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:10,background:t.danger,color:"#fff",border:"none",fontSize:11,cursor:"pointer"}}>✕</button>
+                  <button onClick={()=>setManualForm(f=>({...f,photos:f.photos.filter((_,j)=>j!==i)}))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:10,background:t.danger||"#dc2626",color:"#fff",border:"none",fontSize:11,cursor:"pointer"}}>✕</button>
                 </div>)}
               </div>}
               {manualForm.photos.length<5&&<label style={{...bSt("g",t),fontSize:12,padding:"8px 12px",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
@@ -7775,13 +7659,10 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
               </label>}
             </div>
           </div>
-
           <button onClick={aiDistributeManual} disabled={manualBusy} style={{...bSt("p",t),width:"100%",padding:"12px",fontSize:14,fontWeight:700,opacity:manualBusy?0.6:1}}>
             {manualBusy?"🤖 "+(lang==="tr"?"AI Dağıtıyor...":"AI Distributing..."):"🤖 "+(lang==="tr"?"AI ile Departmanlara Ata":"AI Distribute to Departments")}
           </button>
-          <div style={{fontSize:11,color:t.tm,textAlign:"center",marginTop:6,lineHeight:1.4}}>{lang==="tr"?"AI menü kalemlerini analiz edip uygun departmanlara atayacak. Sonra düzenleyebilirsin.":"AI will analyze items and assign departments. You can edit after."}</div>
         </>:<>
-          {/* Önizleme + düzenle */}
           <div style={{...cSt(t),padding:"10px 12px",marginBottom:12,background:t.acB,borderColor:t.accent}}>
             <div style={{fontSize:14,fontWeight:700,color:t.text}}>{manualPreview.name}</div>
             <div style={{fontSize:11,color:t.tm,marginTop:2}}>
@@ -7791,7 +7672,6 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
               {manualPreview.location&&<>📍 {manualPreview.location}</>}
             </div>
           </div>
-
           <div style={{fontSize:11,color:t.tm,fontWeight:700,marginBottom:8,letterSpacing:"0.05em"}}>🏢 {lang==="tr"?"DEPARTMAN ATAMASI (yanlışsa düzenle)":"DEPARTMENT ASSIGNMENT (edit if wrong)"}</div>
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
             {Object.entries(manualPreview.departments).map(([deptId,items])=>{
@@ -7816,11 +7696,10 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
                   newDepts[deptId]=(newDepts[deptId]||[]).filter((_,i)=>i!==idx);
                   if(!newDepts[deptId].length)delete newDepts[deptId];
                   return{...p,departments:newDepts};
-                })} style={{background:"none",border:"none",color:t.danger,cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
+                })} style={{background:"none",border:"none",color:t.danger||"#dc2626",cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
               </div>);
             })}
           </div>
-
           <div style={{display:"flex",gap:6}}>
             <button onClick={()=>setManualPreview(null)} style={{...bSt("g",t),flex:1,fontSize:13}}>← {lang==="tr"?"Geri":"Back"}</button>
             <button onClick={saveManualEvent} style={{...bSt("p",t),flex:2,fontSize:13,fontWeight:700}}>✓ {lang==="tr"?"Kaydet":"Save"}</button>
@@ -7828,11 +7707,8 @@ Use the EXACT item text as input. Each item should appear in exactly one departm
         </>}
       </div>
     </div>}
-
   </div>;
 };
-
-
 // ═══ SHIFT TAB ═══
 // ═══ TATİL HELPERS (date-holidays paketi) ═══
 const _hdCache={};
