@@ -6783,6 +6783,9 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
   // Fotoğraf state'leri
   const[uploadingPhoto,setUploadingPhoto]=useState(null); // {sessionIdx, progress}
   const[lightboxPhoto,setLightboxPhoto]=useState(null); // {url, sessionIdx, photoIdx}
+  const[showEventMenu,setShowEventMenu]=useState(false);
+  const[eventMenuData,setEventMenuData]=useState({}); // {dept:[items]}
+  const[eventMenuLoading,setEventMenuLoading]=useState(false);
 
   const DEPARTMENTS=[
     {id:"kitchen",icon:"🍳",tr:"Sıcak Mutfak",en:"Hot Kitchen",color:"#dc2626"},
@@ -6795,6 +6798,33 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
     {id:"accounting",icon:"💰",tr:"Muhasebe",en:"Accounting",color:"#1e40af"},
     {id:"general",icon:"📋",tr:"Genel",en:"General",color:"#6b7280"}
   ];
+
+  const loadEventMenu=async()=>{
+    if(!team?.id)return;
+    setEventMenuLoading(true);
+    try{
+      const sb=initSupabase();if(!sb)return;
+      const{data:childTeams}=await sb.from("teams").select("id,name").eq("parent_team_id",team.id);
+      const allTeamIds=childTeams?.length?childTeams.map(t=>t.id):[];
+      if(!allTeamIds.length){setEventMenuData({});setEventMenuLoading(false);return;}
+      const[secRes,itemRes]=await Promise.all([
+        sb.from("event_menu_sections").select("id,name,department,team_id").in("team_id",allTeamIds),
+        sb.from("event_menu_items").select("name,section_id,status,team_id").in("team_id",allTeamIds).eq("status","active")
+      ]);
+      const sections=secRes.data||[];
+      const items=itemRes.data||[];
+      const byDept={};
+      sections.forEach(sec=>{
+        const deptItems=items.filter(it=>it.section_id===sec.id).map(it=>it.name);
+        if(deptItems.length){
+          if(!byDept[sec.department])byDept[sec.department]={sections:[]};
+          byDept[sec.department].sections.push({name:sec.name,items:deptItems});
+        }
+      });
+      setEventMenuData(byDept);
+    }catch(e){console.warn("[eventMenu]",e.message);}
+    setEventMenuLoading(false);
+  };
 
   useEffect(()=>{
     if(!team?.id){setLoading(false);return;}
@@ -6839,10 +6869,43 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
   const parseWithAI=async(file)=>{
     setParsing(true);setError("");
     try{
+      // Child team'lerin event_menu_items listesini çek — AI departman atamasını iyileştirmek için
+      let kitchenLibrary="";
+      try{
+        const sb=initSupabase();
+        if(sb&&team?.id){
+          // Pro'nun kendi child team'lerini bul
+          const{data:childTeams}=await sb.from("teams").select("id,name").eq("parent_team_id",team.id);
+          if(childTeams?.length){
+            const childIds=childTeams.map(t=>t.id);
+            const{data:sections}=await sb.from("event_menu_sections").select("id,name,department,team_id").in("team_id",childIds);
+            const{data:items}=await sb.from("event_menu_items").select("name,section_id,status").in("team_id",childIds).eq("status","active");
+            if(sections?.length&&items?.length){
+              // Departman bazlı gruplama
+              const byDept={};
+              sections.forEach(sec=>{
+                const deptItems=items.filter(it=>it.section_id===sec.id).map(it=>it.name);
+                if(deptItems.length){
+                  if(!byDept[sec.department])byDept[sec.department]=[];
+                  byDept[sec.department].push(...deptItems);
+                }
+              });
+              if(Object.keys(byDept).length){
+                kitchenLibrary="\n\nKITCHEN PRODUCT LIBRARY (use this to improve department assignment accuracy — these are actual products used by this kitchen):\n";
+                Object.entries(byDept).forEach(([dept,names])=>{
+                  const unique=[...new Set(names)].slice(0,80); // max 80 item per dept
+                  kitchenLibrary+=`- ${dept}: ${unique.join(", ")}\n`;
+                });
+                kitchenLibrary+="When a BEO item matches or closely resembles a product in this library, use that department assignment with HIGH CONFIDENCE.";
+              }
+            }
+          }
+        }
+      }catch(e){console.warn("[kitchen library]",e.message);}
       setParseProgress(lang==="tr"?"PDF okunuyor...":"Reading PDF...");
       const{text,isImageBased,pageCount}=await extractPDFText(file);
 
-      const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data with multi-day support and sub-events (e.g. AM Coffee Break, Lunch, PM Coffee Break).\n\nOutput VALID JSON ONLY (no markdown, no explanation), matching this schema:\n{\n  \"name\": \"Event/booking name (e.g. Live Consulting Meeting, Wedding Tasting)\",\n  \"contractNo\": \"Contract/booking number if shown (e.g. 714268)\",\n  \"accountName\": \"Account/company name (e.g. Asemble Organizasyon)\",\n  \"confManager\": \"Conf/Cat Manager name if shown\",\n  \"contactName\": \"Primary contact person name (e.g. Emel Duman)\",\n  \"contactPhone\": \"Contact phone number if shown\",\n  \"startDate\": \"YYYY-MM-DD — earliest date in BEO\",\n  \"endDate\": \"YYYY-MM-DD — latest date in BEO (same as startDate if single-day)\",\n  \"currency\": \"EUR/USD/TRY/GBP\",\n  \"totalAmount\": number or null,\n  \"pricePerPerson\": number or null,\n  \"vatRate\": number (default 20),\n  \"guestAllergies\": [\n    {\n      \"count\": number,\n      \"type\": \"Allergy/diet type (gluten free, lactose free, vegetarian, vegan, nut allergy, halal, kosher)\",\n      \"note\": \"Optional extra context if BEO mentions specific guests/sessions\"\n    }\n  ],\n  \"subEvents\": [\n    {\n      \"date\": \"YYYY-MM-DD\",\n      \"timeStart\": \"HH:MM\",\n      \"timeEnd\": \"HH:MM\",\n      \"name\": \"Sub-event name (Meeting, AM Coffee Break, Lunch, PM Coffee Break, Tea & Coffee, Dessert Service)\",\n      \"type\": \"Type code: coffee_break | lunch | dinner | dessert | cocktail | meeting | tea_service | setup | other\",\n      \"room\": \"Room/venue (Kaftan, Tugra Lobby, Tugra Restaurant)\",\n      \"setUp\": \"Set-up type (Lounge, Theater, Coffee Break, Existing Setup)\",\n      \"pax\": number,\n      \"items\": [\n        {\n          \"name\": \"Menu item exact name (e.g. 'Mekik çeşitleri', 'Grilled lamb loin')\",\n          \"departments\": [\"pastry\"],\n          \"allergens\": [\"gluten\",\"dairy\",\"egg\",\"nut\",\"shellfish\",\"fish\",\"soy\",\"sesame\",\"sulphite\",\"celery\",\"mustard\",\"peanut\",\"lupin\",\"mollusc\"]\n        }\n      ],\n      \"notesTr\": \"Turkish notes/instructions from ATT TO X sections (if any)\",\n      \"notesEn\": \"English notes/instructions from ATT TO X sections (if any)\"\n    }\n  ],\n  \"summary\": \"STRICT REQUIREMENT — write this in ${lang==="tr"?"TURKISH (Türkçe)":"ENGLISH"}, 2-3 sentences max\"\n}\n\nDepartment codes (each item can have MULTIPLE departments):\n- \"kitchen\" = Hot kitchen: main courses, hot starters, hot canapes, hot soups\n- \"cold\" = Cold kitchen: cold starters, salads, cold canapes\n- \"pastry\" = Pastane (Türkiye usulü): tatlılar (panna cotta, tiramisu, profiterole, tarts), hamur işleri (mekik, muffin, brioche, poğaça, simit, focaccia), ekmek ve viennoiserie. EKMEK DAHİL HER ŞEY.\n- \"butcher\" = Meat prep: lamb cuts, beef tenderloin, marinades\n- \"service\" = Banquet service: table arrangements, plating, lounge setup\n- \"bar\" = Beverages: cocktails, wine, soft drinks (note: Tea & Coffee is service, not bar)\n- \"setup\" = Furniture/equipment: podium, AV, signage, skirt, chairs\n- \"accounting\" = Pricing, billing notes, VAT\n- \"general\" = Other notes\n\nRules:\n- ALWAYS extract every sub-event separately (Meeting, AM Break, Lunch, PM Break, Tea Service, Dessert Service).\n- Each menu item is one entry with departments array (can be multi: \"Tahini buns\" = [\"pastry\"]).\n- Each menu item MUST have an \"allergens\" array — list ALL allergens likely present based on the dish name and common ingredients. Use exactly these codes: gluten, dairy, egg, nut, shellfish, fish, soy, sesame, sulphite, celery, mustard, peanut, lupin, mollusc.\n- Notes (ATT TO ...) belong to the sub-event they're under. Split TR and EN if both languages present.\n- Setup instructions (podium, chair, skirt) → \"setup\" department + put in notes.\n- If a sub-event has no menu items (e.g. pure meeting), items can be empty array AND set \"type\": \"meeting\".\n- For meat dishes, also add \"butcher\" if prep cuts are needed.\n- Convert dates: \"27. February 2026\" → \"2026-02-27\".\n- Extract exact pax from \"Exp/Gtd: 12 / 12\" or \"for 40 pax\".\n\nGUEST ALLERGY EXTRACTION:\n- Scan the ENTIRE BEO for any mention of guest allergies, diets, intolerances or dietary restrictions.\n- Look for phrases: \"X guests vegetarian\", \"1 misafir gluten free\", \"2 vegan\", \"lactose intolerant\", \"halal option\", \"no nuts\", \"celiac\", \"1 kişi laktoz intoleransı\", \"vejetaryen\", \"vegan menü\" etc.\n- Each unique allergy/diet → one entry in guestAllergies array with count and type.\n- If no allergies mentioned anywhere, return empty array [].\n\nALLERGEN ASSIGNMENT FOR EACH ITEM:\n- gluten: wheat flour, bread, pasta, cake, cookies, biscuits, pastry, breaded items, beer\n- dairy: milk, cheese, cream, butter, yogurt, panna cotta, tiramisu, cream sauces\n- egg: eggs, mayonnaise, meringue, brioche, custard, fresh pasta\n- nut: walnut, almond, hazelnut, pistachio, pecan (NOT peanut — that's separate)\n- peanut: peanuts specifically\n- shellfish: shrimp/karides, prawn, crab, lobster\n- fish: salmon, tuna, anchovies, sardine\n- soy: soy sauce, tofu, edamame\n- sesame: tahini, sesame seeds, simit (has sesame)\n- sulphite: wine, vinegar (in significant amounts)\n\nCRITICAL — BILINGUAL MENU HANDLING:\n- BEO often shows the same dish in English AND Turkish on consecutive lines or separated by \"/\" or \"**\".\n- ALWAYS merge them into ONE menu item using format: \"EnglishName / TurkishName\"\n- NEVER create duplicate items for the same dish in different languages.\n\nDEPARTMENT ASSIGNMENT EXAMPLES:\n- \"Tea & Coffee\", \"Soft drinks\" → [\"service\"]\n- \"Cocktails\", \"Wine\", \"Beer\" → [\"bar\"]\n- \"Lamb loin\", \"Beef tenderloin\" → [\"kitchen\",\"butcher\"]\n- \"Panna cotta\", \"Tiramisu\", \"Profiterole\" → [\"pastry\"]\n- \"Mekik\", \"Muffin\", \"Brioche\", \"Poğaça\", \"Simit\", \"Focaccia\" → [\"pastry\"]\n- \"Salad\", \"Cold starter\" → [\"cold\"]\n\nLANGUAGE OUTPUT:\n- summary MUST be in ${lang==="tr"?"Turkish":"English"} — NOT bilingual, just one language.\n\nCRITICAL OUTPUT FORMAT: Return ONLY pure JSON. No markdown fences, no comments, no trailing commas, no explanations before or after. Just valid parseable JSON, starting with { and ending with }.\nBE EXTREMELY CONCISE to fit in response limits:\n  * notesTr/notesEn: maximum 80 chars each, single line summaries only\n  * Menu item names: max 60 chars\n  * summary: max 150 chars total\nOutput minified JSON if possible.`;
+      const sysPrompt=`You are a professional kitchen operations assistant analyzing a Banquet Event Order (BEO) document. Extract structured event data with multi-day support and sub-events (e.g. AM Coffee Break, Lunch, PM Coffee Break).\n\nOutput VALID JSON ONLY (no markdown, no explanation), matching this schema:\n{\n  \"name\": \"Event/booking name (e.g. Live Consulting Meeting, Wedding Tasting)\",\n  \"contractNo\": \"Contract/booking number if shown (e.g. 714268)\",\n  \"accountName\": \"Account/company name (e.g. Asemble Organizasyon)\",\n  \"confManager\": \"Conf/Cat Manager name if shown\",\n  \"contactName\": \"Primary contact person name (e.g. Emel Duman)\",\n  \"contactPhone\": \"Contact phone number if shown\",\n  \"startDate\": \"YYYY-MM-DD — earliest date in BEO\",\n  \"endDate\": \"YYYY-MM-DD — latest date in BEO (same as startDate if single-day)\",\n  \"currency\": \"EUR/USD/TRY/GBP\",\n  \"totalAmount\": number or null,\n  \"pricePerPerson\": number or null,\n  \"vatRate\": number (default 20),\n  \"guestAllergies\": [\n    {\n      \"count\": number,\n      \"type\": \"Allergy/diet type (gluten free, lactose free, vegetarian, vegan, nut allergy, halal, kosher)\",\n      \"note\": \"Optional extra context if BEO mentions specific guests/sessions\"\n    }\n  ],\n  \"subEvents\": [\n    {\n      \"date\": \"YYYY-MM-DD\",\n      \"timeStart\": \"HH:MM\",\n      \"timeEnd\": \"HH:MM\",\n      \"name\": \"Sub-event name (Meeting, AM Coffee Break, Lunch, PM Coffee Break, Tea & Coffee, Dessert Service)\",\n      \"type\": \"Type code: coffee_break | lunch | dinner | dessert | cocktail | meeting | tea_service | setup | other\",\n      \"room\": \"Room/venue (Kaftan, Tugra Lobby, Tugra Restaurant)\",\n      \"setUp\": \"Set-up type (Lounge, Theater, Coffee Break, Existing Setup)\",\n      \"pax\": number,\n      \"items\": [\n        {\n          \"name\": \"Menu item exact name (e.g. 'Mekik çeşitleri', 'Grilled lamb loin')\",\n          \"departments\": [\"pastry\"],\n          \"allergens\": [\"gluten\",\"dairy\",\"egg\",\"nut\",\"shellfish\",\"fish\",\"soy\",\"sesame\",\"sulphite\",\"celery\",\"mustard\",\"peanut\",\"lupin\",\"mollusc\"]\n        }\n      ],\n      \"notesTr\": \"Turkish notes/instructions from ATT TO X sections (if any)\",\n      \"notesEn\": \"English notes/instructions from ATT TO X sections (if any)\"\n    }\n  ],\n  \"summary\": \"STRICT REQUIREMENT — write this in ${lang==="tr"?"TURKISH (Türkçe)":"ENGLISH"}, 2-3 sentences max\"\n}\n\nDepartment codes (each item can have MULTIPLE departments):\n- \"kitchen\" = Hot kitchen: main courses, hot starters, hot canapes, hot soups\n- \"cold\" = Cold kitchen: cold starters, salads, cold canapes\n- \"pastry\" = Pastane (Türkiye usulü): tatlılar (panna cotta, tiramisu, profiterole, tarts), hamur işleri (mekik, muffin, brioche, poğaça, simit, focaccia), ekmek ve viennoiserie. EKMEK DAHİL HER ŞEY.\n- \"butcher\" = Meat prep: lamb cuts, beef tenderloin, marinades\n- \"service\" = Banquet service: table arrangements, plating, lounge setup\n- \"bar\" = Beverages: cocktails, wine, soft drinks (note: Tea & Coffee is service, not bar)\n- \"setup\" = Furniture/equipment: podium, AV, signage, skirt, chairs\n- \"accounting\" = Pricing, billing notes, VAT\n- \"general\" = Other notes\n\nRules:\n- ALWAYS extract every sub-event separately (Meeting, AM Break, Lunch, PM Break, Tea Service, Dessert Service).\n- Each menu item is one entry with departments array (can be multi: \"Tahini buns\" = [\"pastry\"]).\n- Each menu item MUST have an \"allergens\" array — list ALL allergens likely present based on the dish name and common ingredients. Use exactly these codes: gluten, dairy, egg, nut, shellfish, fish, soy, sesame, sulphite, celery, mustard, peanut, lupin, mollusc.\n- Notes (ATT TO ...) belong to the sub-event they're under. Split TR and EN if both languages present.\n- Setup instructions (podium, chair, skirt) → \"setup\" department + put in notes.\n- If a sub-event has no menu items (e.g. pure meeting), items can be empty array AND set \"type\": \"meeting\".\n- For meat dishes, also add \"butcher\" if prep cuts are needed.\n- Convert dates: \"27. February 2026\" → \"2026-02-27\".\n- Extract exact pax from \"Exp/Gtd: 12 / 12\" or \"for 40 pax\".\n\nGUEST ALLERGY EXTRACTION:\n- Scan the ENTIRE BEO for any mention of guest allergies, diets, intolerances or dietary restrictions.\n- Look for phrases: \"X guests vegetarian\", \"1 misafir gluten free\", \"2 vegan\", \"lactose intolerant\", \"halal option\", \"no nuts\", \"celiac\", \"1 kişi laktoz intoleransı\", \"vejetaryen\", \"vegan menü\" etc.\n- Each unique allergy/diet → one entry in guestAllergies array with count and type.\n- If no allergies mentioned anywhere, return empty array [].\n\nALLERGEN ASSIGNMENT FOR EACH ITEM:\n- gluten: wheat flour, bread, pasta, cake, cookies, biscuits, pastry, breaded items, beer\n- dairy: milk, cheese, cream, butter, yogurt, panna cotta, tiramisu, cream sauces\n- egg: eggs, mayonnaise, meringue, brioche, custard, fresh pasta\n- nut: walnut, almond, hazelnut, pistachio, pecan (NOT peanut — that's separate)\n- peanut: peanuts specifically\n- shellfish: shrimp/karides, prawn, crab, lobster\n- fish: salmon, tuna, anchovies, sardine\n- soy: soy sauce, tofu, edamame\n- sesame: tahini, sesame seeds, simit (has sesame)\n- sulphite: wine, vinegar (in significant amounts)\n\nCRITICAL — BILINGUAL MENU HANDLING:\n- BEO often shows the same dish in English AND Turkish on consecutive lines or separated by \"/\" or \"**\".\n- ALWAYS merge them into ONE menu item using format: \"EnglishName / TurkishName\"\n- NEVER create duplicate items for the same dish in different languages.\n\nDEPARTMENT ASSIGNMENT EXAMPLES:\n- \"Tea & Coffee\", \"Soft drinks\" → [\"service\"]\n- \"Cocktails\", \"Wine\", \"Beer\" → [\"bar\"]\n- \"Lamb loin\", \"Beef tenderloin\" → [\"kitchen\",\"butcher\"]\n- \"Panna cotta\", \"Tiramisu\", \"Profiterole\" → [\"pastry\"]\n- \"Mekik\", \"Muffin\", \"Brioche\", \"Poğaça\", \"Simit\", \"Focaccia\" → [\"pastry\"]\n- \"Salad\", \"Cold starter\" → [\"cold\"]\n${kitchenLibrary}\nLANGUAGE OUTPUT:\n- summary MUST be in ${lang==="tr"?"Turkish":"English"} — NOT bilingual, just one language.\n\nCRITICAL OUTPUT FORMAT: Return ONLY pure JSON. No markdown fences, no comments, no trailing commas, no explanations before or after. Just valid parseable JSON, starting with { and ending with }.\nBE EXTREMELY CONCISE to fit in response limits:\n  * notesTr/notesEn: maximum 80 chars each, single line summaries only\n  * Menu item names: max 60 chars\n  * summary: max 150 chars total\nOutput minified JSON if possible.`;
 
       let userMessages;
       if(isImageBased){
@@ -7394,7 +7457,7 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <button onClick={()=>{setSelectedEvent(null);setShowEdit(false);setDetailTab("timeline");setExpandedSessions({});}} style={{...bSt("g",t),fontSize:12,padding:"6px 10px"}}>← {lang==="tr"?"Etkinlikler":"Events"}</button>
         <div style={{display:"flex",gap:6}}>
-          {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>📄 PDF</button>}
+          {selectedEvent.original_pdf_path&&<button onClick={async()=>{const tab=window.open("","_blank");const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url&&tab){tab.location.href=url;}else{if(tab)tab.close();window.toast.error(lang==="tr"?"PDF açılamadı":"Could not open PDF");}}} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>📄 PDF</button>}
           <button onClick={()=>setShowEdit(true)} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>✏️</button>
           <button onClick={async()=>{if(window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?")){await deleteEvent(selectedEvent.id);}}} style={{...bSt("d",t),fontSize:12,padding:"6px 10px"}}>🗑</button>
         </div>
@@ -7599,7 +7662,7 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
             </div>}
           </div>
         </div>}
-        {selectedEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
+        {selectedEvent.original_pdf_path&&<button onClick={async()=>{const tab=window.open("","_blank");const url=await getPdfUrl(selectedEvent.original_pdf_path);if(url&&tab){tab.location.href=url;}else{if(tab)tab.close();window.toast.error(lang==="tr"?"PDF açılamadı":"Could not open PDF");}}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
           📄 {lang==="tr"?"Orijinal BEO PDF'ini Aç":"Open Original BEO PDF"}
         </button>}
         {selectedEvent.notes&&<div style={{...cSt(t),padding:"10px 12px",marginTop:8}}>
@@ -7618,6 +7681,9 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
         <div style={{fontSize:11,color:t.tm,marginTop:2}}>{lang==="tr"?"BEO yükle, AI departmanlara dağıtsın":"Upload BEO, AI distributes to departments"}</div>
       </div>
       <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>{setShowEventMenu(true);loadEventMenu();}} style={{...bSt("s",t),padding:"8px 12px",fontSize:13,display:"flex",alignItems:"center",gap:4}}>
+          📋 {lang==="tr"?"Menü Lib":"Menu Lib"}
+        </button>
         <button onClick={()=>{setShowManual(true);setManualPreview(null);}} style={{...bSt("s",t),padding:"8px 12px",fontSize:13,display:"flex",alignItems:"center",gap:4}}>
           ✍️ {lang==="tr"?"Manuel":"Manual"}
         </button>
@@ -7669,6 +7735,46 @@ const EventsTab=({team,teamMembers,user,apiKey,t})=>{
     })}
 
     {/* Manuel Modal */}
+    {/* Event Menü Kütüphanesi Modalı */}
+    {showEventMenu&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowEventMenu(false);}}>
+      <div style={{background:t.bg,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:600,maxHeight:"88vh",overflowY:"auto",padding:"16px 14px calc(20px + env(safe-area-inset-bottom))"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:t.text,fontFamily:"'Fraunces',serif"}}>📋 {lang==="tr"?"Mutfak Ürün Kütüphanesi":"Kitchen Product Library"}</div>
+            <div style={{fontSize:11,color:t.tm,marginTop:2}}>{lang==="tr"?"AI bu listeye bakarak departman atamasını iyileştirir":"AI uses this list to improve department assignment"}</div>
+          </div>
+          <button onClick={()=>setShowEventMenu(false)} style={{background:"none",border:"none",fontSize:22,color:t.tm,cursor:"pointer",padding:"0 6px"}}>✕</button>
+        </div>
+        {eventMenuLoading&&<div style={{padding:24,textAlign:"center",color:t.tm,fontSize:13}}>⏳ {lang==="tr"?"Yükleniyor...":"Loading..."}</div>}
+        {!eventMenuLoading&&Object.keys(eventMenuData).length===0&&<div style={{padding:24,textAlign:"center"}}>
+          <div style={{fontSize:36,marginBottom:10,opacity:0.3}}>📭</div>
+          <div style={{fontSize:13,color:t.tm}}>{lang==="tr"?"Henüz ürün kütüphanesi yok. Manager app'te departman şefleri ürünlerini ekleyince burada görünür.":"No product library yet. Department managers add their products in the Manager app."}</div>
+        </div>}
+        {!eventMenuLoading&&Object.keys(eventMenuData).length>0&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {DEPARTMENTS.filter(d=>eventMenuData[d.id]).map(d=>{
+            const deptData=eventMenuData[d.id];
+            const totalItems=deptData.sections.reduce((s,sec)=>s+sec.items.length,0);
+            return <div key={d.id} style={{...cSt(t),padding:"12px 14px",borderLeft:`3px solid ${d.color}`}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:13,fontWeight:700,color:t.text}}>{d.icon} {lang==="tr"?d.tr:d.en}</div>
+                <div style={{fontSize:11,color:t.tm,background:t.bg,padding:"2px 8px",borderRadius:10}}>{totalItems} {lang==="tr"?"ürün":"items"}</div>
+              </div>
+              {deptData.sections.map((sec,si)=><div key={si} style={{marginBottom:si<deptData.sections.length-1?8:0}}>
+                <div style={{fontSize:11,fontWeight:600,color:d.color,marginBottom:4,letterSpacing:"0.05em"}}>{sec.name}</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                  {sec.items.map((item,ii)=><span key={ii} style={{fontSize:11,background:d.color+"15",color:d.color,padding:"2px 8px",borderRadius:10,border:`1px solid ${d.color}30`}}>{item}</span>)}
+                </div>
+              </div>)}
+            </div>;
+          })}
+        </div>}
+        <div style={{marginTop:14,padding:"10px 12px",background:t.accent+"10",border:`1px solid ${t.accent}30`,borderRadius:8}}>
+          <div style={{fontSize:11,color:t.accent,fontWeight:600}}>💡 {lang==="tr"?"Nasıl çalışır?":"How it works?"}</div>
+          <div style={{fontSize:11,color:t.tm,marginTop:4,lineHeight:1.5}}>{lang==="tr"?"Manager app'te her departman şefi kendi ürünlerini girer. PDF yüklendiğinde AI bu listeyi context olarak kullanır ve atama doğruluğu artar.":"Each department manager enters their products in the Manager app. When a PDF is uploaded, AI uses this list as context for more accurate department assignment."}</div>
+        </div>
+      </div>
+    </div>}
+
     {showManual&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:999,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)setShowManual(false);}}>
       <div style={{background:t.bg,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",padding:"16px 14px calc(20px + env(safe-area-inset-bottom))"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
