@@ -4170,7 +4170,7 @@ const EventsTab=({team,user,t,lang,bSt,cSt,iSt,lSt})=>{
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <button onClick={()=>{setSelEvent(null);setDetailTab("timeline");setExpandedSessions({});}} style={{...bSt("g",t),fontSize:12,padding:"6px 10px"}}>← {lang==="tr"?"Etkinlikler":"Events"}</button>
         <div style={{display:"flex",gap:6}}>
-          {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>📄 PDF</button>}
+          {selEvent.original_pdf_path&&<button onClick={async()=>{const tab=window.open("","_blank");const url=await getPdfUrl(selEvent.original_pdf_path);if(url&&tab){tab.location.href=url;}else{if(tab)tab.close();window.toast.error(lang==="tr"?"PDF açılamadı":"Could not open PDF");}}} style={{...bSt("s",t),fontSize:12,padding:"6px 10px"}}>📄 PDF</button>}
           <button onClick={async()=>{if(!window.confirm(lang==="tr"?"Etkinlik silinsin mi?":"Delete event?"))return;const sb=initSupabase();if(!sb)return;await sb.from("events").delete().eq("id",selEvent.id);setEvents(p=>p.filter(e=>e.id!==selEvent.id));setSelEvent(null);}} style={{...bSt("d",t),fontSize:12,padding:"6px 10px"}}>🗑</button>
         </div>
       </div>
@@ -4389,7 +4389,7 @@ const EventsTab=({team,user,t,lang,bSt,cSt,iSt,lSt})=>{
           </div>
         </div>}
 
-        {selEvent.original_pdf_path&&<button onClick={async()=>{const url=await getPdfUrl(selEvent.original_pdf_path);if(url)window.open(url,"_blank");else alert("PDF açılamadı");}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
+        {selEvent.original_pdf_path&&<button onClick={async()=>{const tab=window.open("","_blank");const url=await getPdfUrl(selEvent.original_pdf_path);if(url&&tab){tab.location.href=url;}else{if(tab)tab.close();window.toast.error(lang==="tr"?"PDF açılamadı":"Could not open PDF");}}} style={{...bSt("s",t),width:"100%",fontSize:13,marginBottom:8}}>
           📄 {lang==="tr"?"Orijinal BEO PDF'ini Aç":"Open Original BEO PDF"}
         </button>}
 
